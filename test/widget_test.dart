@@ -195,7 +195,11 @@ void main() {
     await tester.tap(find.text('Все новые эпизоды'));
     await settle(tester, 'открытие всех эпизодов');
     expect(find.text('Эпизоды'), findsOneWidget);
-    await tester.scrollUntilVisible(find.text('Выпуск 1'), 200);
+    await tester.scrollUntilVisible(
+      find.text('Выпуск 1'),
+      200,
+      scrollable: find.descendant(of: find.byType(CustomScrollView), matching: find.byType(Scrollable)).first,
+    );
     expect(find.text('Выпуск 1'), findsOneWidget);
 
     await disposeApp(tester);

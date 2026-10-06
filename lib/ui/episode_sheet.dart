@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
 import '../data/db/database.dart';
+import '../download/download_manager.dart';
 import '../player/playback_logic.dart';
 import 'app_scope.dart';
+import 'download_button.dart';
 import 'format.dart';
 import 'now_playing.dart';
 import 'podcast_cover.dart';
@@ -44,6 +46,7 @@ class _EpisodeDetails extends StatelessWidget {
       if (e.episodeNumber != null) 'эпизод ${e.episodeNumber}',
     ].where((s) => s.isNotEmpty).join(' · ');
     final db = AppScope.of(context).db;
+    final downloads = AppScope.of(context).downloads;
 
     return ListView(
       controller: controller,
@@ -99,13 +102,19 @@ class _EpisodeDetails extends StatelessWidget {
             OutlinedButton.icon(
               icon: Icon(played ? Icons.remove_done : Icons.done),
               label: Text(played ? 'Снять отметку' : 'Отметить прослушанным'),
-              onPressed: () {
-                db.setPlayed(e.id, !played);
+              onPressed: () async {
                 Navigator.of(context).pop();
+                await db.setPlayed(e.id, !played);
+                if (!played) await downloads?.onPlayed(e.id);
               },
             ),
+            if (downloads != null) _downloadAction(context, downloads),
           ],
         ),
+        if (item.download?.status == DownloadStatus.failed && item.download?.error != null) ...[
+          const SizedBox(height: 8),
+          Text(item.download!.error!, style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.error)),
+        ],
         if (text.isNotEmpty) ...[
           const SizedBox(height: 20),
           // SelectionArea, а не SelectableText: у SelectableText внутри своя
@@ -117,4 +126,44 @@ class _EpisodeDetails extends StatelessWidget {
     );
   }
 
+
+  Widget _downloadAction(BuildContext context, DownloadManager downloads) {
+    final id = item.episode.id;
+    final d = item.download;
+    void close() => Navigator.of(context).pop();
+    return switch (d?.status) {
+      null || DownloadStatus.removed => OutlinedButton.icon(
+          icon: const Icon(Icons.download_outlined),
+          label: const Text('Скачать'),
+          onPressed: () {
+            downloads.enqueue(id);
+            close();
+          },
+        ),
+      DownloadStatus.queued || DownloadStatus.running => OutlinedButton.icon(
+          icon: const Icon(Icons.close),
+          label: Text(downloadLabel(d) == null ? 'Отменить загрузку' : 'Отменить (${downloadLabel(d)})'),
+          onPressed: () {
+            downloads.remove(id);
+            close();
+          },
+        ),
+      DownloadStatus.completed => OutlinedButton.icon(
+          icon: const Icon(Icons.delete_outline),
+          label: Text(d!.totalBytes == null ? 'Удалить загрузку' : 'Удалить загрузку (${formatBytes(d.totalBytes!)})'),
+          onPressed: () {
+            downloads.remove(id);
+            close();
+          },
+        ),
+      DownloadStatus.failed => OutlinedButton.icon(
+          icon: const Icon(Icons.refresh),
+          label: const Text('Повторить загрузку'),
+          onPressed: () {
+            downloads.retry(id);
+            close();
+          },
+        ),
+    };
+  }
 }

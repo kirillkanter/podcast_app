@@ -167,12 +167,21 @@ class QueueEntries extends Table {
 // Только локально
 // ---------------------------------------------------------------------------
 
-enum DownloadStatus { queued, running, paused, completed, failed }
+/// Состояние загрузки эпизода.
+/// - queued — ждёт очереди (или Wi-Fi для автозагрузки);
+/// - running — качается;
+/// - completed — файл на устройстве;
+/// - failed — ошибка, см. `error`;
+/// - removed — пользователь удалил файл: автозагрузка не скачает его снова.
+enum DownloadStatus { queued, running, completed, failed, removed }
 
 @DataClassName('Download')
 class Downloads extends Table {
   IntColumn get episodeId => integer().references(Episodes, #id, onDelete: KeyAction.cascade)();
   TextColumn get status => textEnum<DownloadStatus>()();
+
+  /// Загрузка поставлена автоматически, а не пользователем.
+  BoolColumn get auto => boolean().withDefault(const Constant(false))();
   TextColumn get filePath => text().nullable()();
   IntColumn get totalBytes => integer().nullable()();
   IntColumn get receivedBytes => integer().withDefault(const Constant(0))();
@@ -181,4 +190,14 @@ class Downloads extends Table {
 
   @override
   Set<Column> get primaryKey => {episodeId};
+}
+
+/// Настройки приложения: ключ → значение (строкой).
+@DataClassName('AppSetting')
+class AppSettings extends Table {
+  TextColumn get key => text()();
+  TextColumn get value => text()();
+
+  @override
+  Set<Column> get primaryKey => {key};
 }

@@ -3,10 +3,13 @@ import 'dart:io';
 
 import 'package:audio_service/audio_service.dart';
 import 'package:audio_session/audio_session.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
 
 import 'data/db/database.dart';
 import 'data/podcast_repository.dart';
+import 'download/download_manager.dart';
 import 'feed/feed_fetcher.dart';
 import 'platform/notifications.dart';
 import 'player/podcast_audio_handler.dart';
@@ -18,11 +21,24 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final db = AppDatabase.defaults();
   final repository = PodcastRepository(db, FeedFetcher());
+  final downloads = DownloadManager(
+    db: db,
+    directory: getApplicationSupportDirectory,
+    isUnmetered: () async {
+      final types = await Connectivity().checkConnectivity();
+      return types.contains(ConnectivityResult.wifi) || types.contains(ConnectivityResult.ethernet);
+    },
+  );
+  unawaited(downloads.start());
 
   PodcastAudioHandler? audio;
   try {
     audio = await AudioService.init(
-      builder: () => PodcastAudioHandler(db),
+      builder: () => PodcastAudioHandler(
+        db,
+        localFile: downloads.localFile,
+        onPlayed: downloads.onPlayed,
+      ),
       config: const AudioServiceConfig(
         androidNotificationChannelId: 'com.example.podcast_app.audio',
         androidNotificationChannelName: 'Воспроизведение',
@@ -51,7 +67,7 @@ Future<void> main() async {
     }
   }
 
-  runApp(PodcastApp(db: db, repository: repository, audio: audio));
+  runApp(PodcastApp(db: db, repository: repository, audio: audio, downloads: downloads));
 }
 
 class PodcastApp extends StatefulWidget {
@@ -60,12 +76,14 @@ class PodcastApp extends StatefulWidget {
     required this.db,
     required this.repository,
     this.audio,
+    this.downloads,
     this.refreshOnStart = true,
   });
 
   final AppDatabase db;
   final PodcastRepository repository;
   final PodcastAudioHandler? audio;
+  final DownloadManager? downloads;
   final bool refreshOnStart;
 
   @override
@@ -126,6 +144,7 @@ class _PodcastAppState extends State<PodcastApp> {
       db: widget.db,
       repository: widget.repository,
       audio: widget.audio,
+      downloads: widget.downloads,
       child: MaterialApp(
         title: 'Подкасты',
         debugShowCheckedModeBanner: false,

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../data/db/database.dart';
 import '../data/podcast_repository.dart';
 import 'app_scope.dart';
+import 'download_button.dart';
 import 'episode_sheet.dart';
 import 'format.dart';
 import 'mini_player.dart';
@@ -39,8 +40,10 @@ class _PodcastScreenState extends State<PodcastScreen> {
     if (_refreshing) return;
     setState(() => _refreshing = true);
     final messenger = ScaffoldMessenger.of(context);
+    final downloads = AppScope.of(context).downloads;
     try {
       final added = await AppScope.of(context).repository.refresh(widget.podcastId);
+      await downloads?.autoDownload(widget.podcastId);
       messenger.showSnackBar(SnackBar(
         content: Text(added == 0
             ? 'Новых эпизодов нет'
@@ -51,6 +54,29 @@ class _PodcastScreenState extends State<PodcastScreen> {
     } finally {
       if (mounted) setState(() => _refreshing = false);
     }
+  }
+
+  Future<void> _chooseAutoDownload(BuildContext context) async {
+    final scope = AppScope.of(context);
+    final current = await scope.db.podcastAutoDownloadCount(widget.podcastId);
+    if (!context.mounted) return;
+    final choice = await showDialog<_AutoChoice>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: const Text('Автозагрузка новых эпизодов'),
+        children: [
+          for (final option in _AutoChoice.values)
+            ListTile(
+              leading: Icon(option.count == current ? Icons.radio_button_checked : Icons.radio_button_off),
+              title: Text(option.label),
+              onTap: () => Navigator.of(context).pop(option),
+            ),
+        ],
+      ),
+    );
+    if (choice == null) return;
+    await scope.db.setPodcastAutoDownloadCount(widget.podcastId, choice.count);
+    await scope.downloads?.autoDownload(widget.podcastId);
   }
 
   @override
@@ -69,6 +95,16 @@ class _PodcastScreenState extends State<PodcastScreen> {
                   )
                 : const Icon(Icons.refresh),
           ),
+          if (AppScope.of(context).downloads != null)
+            PopupMenuButton<void>(
+              tooltip: 'Ещё',
+              itemBuilder: (_) => [
+                PopupMenuItem<void>(
+                  onTap: () => _chooseAutoDownload(context),
+                  child: const Text('Автозагрузка…'),
+                ),
+              ],
+            ),
         ],
       ),
       body: StreamBuilder<Podcast?>(
@@ -138,6 +174,7 @@ class _HeaderState extends State<_Header> {
     final p = widget.podcast;
     final description = htmlToText(p.description);
     final repository = AppScope.of(context).repository;
+    final downloads = AppScope.of(context).downloads;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
@@ -172,7 +209,10 @@ class _HeaderState extends State<_Header> {
                                 label: const Text('Вы подписаны'),
                               )
                             : FilledButton.icon(
-                                onPressed: () => repository.setSubscribed(p.id, true),
+                                onPressed: () async {
+                                  await repository.setSubscribed(p.id, true);
+                                  await downloads?.autoDownload(p.id);
+                                },
                                 icon: const Icon(Icons.add),
                                 label: const Text('Подписаться'),
                               );
@@ -235,6 +275,7 @@ class _EpisodeTile extends StatelessWidget {
         'осталось ${formatDuration(e.durationMs! - positionMs)}'
       else
         formatDuration(e.durationMs),
+      ?downloadLabel(item.download),
     ].where((s) => s.isNotEmpty).join(' · ');
 
     return ListTile(
@@ -251,10 +292,24 @@ class _EpisodeTile extends StatelessWidget {
         children: [
           if (played)
             Icon(Icons.check, size: 20, color: theme.colorScheme.outline, semanticLabel: 'Прослушан'),
+          DownloadButton(episodeId: e.id, download: item.download),
           EpisodePlayButton(episodeId: e.id, size: 32),
         ],
       ),
       onTap: () => showEpisodeSheet(context, item),
     );
   }
+}
+
+enum _AutoChoice {
+  global(null, 'Как в общих настройках'),
+  off(0, 'Выключена'),
+  one(1, 'Последний эпизод'),
+  three(3, '3 последних эпизода'),
+  five(5, '5 последних эпизодов');
+
+  const _AutoChoice(this.count, this.label);
+
+  final int? count;
+  final String label;
 }

@@ -79,6 +79,29 @@ void main() {
     expect((await settled()).playing, isTrue, reason: 'платформа сообщила о воспроизведении');
   });
 
+  test('загруженный эпизод играет из файла, дослушанный — сообщает о конце', () async {
+    final played = <int>[];
+    final local = PodcastAudioHandler(
+      db,
+      player: AudioPlayer(handleAudioSessionActivation: false),
+      localFile: (id) async => id == episodeId ? '/data/episodes/1.mp3' : null,
+      onPlayed: (id) async => played.add(id),
+    );
+    addTearDown(local.stop);
+
+    await local.playEpisode(episodeId);
+    await pumpEventQueue();
+    final playlist = platform.lastLoad!.audioSourceMessage as ConcatenatingAudioSourceMessage;
+    final source = playlist.children.single as UriAudioSourceMessage;
+    expect(source.uri, startsWith('file://'));
+    expect(source.uri, endsWith('/data/episodes/1.mp3'));
+
+    platform.player!.complete();
+    await pumpEventQueue();
+    expect(played, [episodeId]);
+    expect((await db.episodeState(episodeId))!.played, isTrue);
+  });
+
   test('карточка эпизода для системного плеера', () async {
     await handler.playEpisode(episodeId);
     await settled();
@@ -170,6 +193,13 @@ class FakePlayer extends AudioPlayerPlatform {
       currentIndex: 0,
       androidAudioSessionId: null,
     ));
+  }
+
+  /// Эпизод доигран до конца.
+  void complete() {
+    _position = _duration ?? Duration.zero;
+    _state = ProcessingStateMessage.completed;
+    _emit();
   }
 
   /// Нативный плеер сам сменил состояние (буферизация, системная пауза).

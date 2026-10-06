@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../data/db/database.dart';
 import 'add_feed_dialog.dart';
 import 'app_scope.dart';
 import 'diagnostics_dialog.dart';
+import 'downloads_screen.dart';
 import 'format.dart';
 import 'mini_player.dart';
 import 'podcast_cover.dart';
@@ -38,9 +41,11 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_refreshing) return;
     setState(() => _refreshing = true);
     final repository = AppScope.of(context).repository;
+    final downloads = AppScope.of(context).downloads;
     final messenger = ScaffoldMessenger.of(context);
     try {
       final summary = await repository.refreshAll();
+      await downloads?.autoDownloadAll();
       if (!mounted) return;
       final parts = <String>[
         if (summary.newEpisodes > 0)
@@ -63,6 +68,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _add() async {
     final id = await showAddFeedDialog(context);
     if (id == null || !mounted) return;
+    unawaited(AppScope.of(context).downloads?.autoDownload(id));
     await Navigator.of(context).push(
       MaterialPageRoute<void>(builder: (_) => PodcastScreen(podcastId: id)),
     );
@@ -88,6 +94,13 @@ class _HomeScreenState extends State<HomeScreen> {
           PopupMenuButton<void>(
             tooltip: 'Ещё',
             itemBuilder: (_) => [
+              if (AppScope.of(context).downloads != null)
+                PopupMenuItem<void>(
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(builder: (_) => const DownloadsScreen()),
+                  ),
+                  child: const Text('Загрузки'),
+                ),
               PopupMenuItem<void>(
                 onTap: () => showDiagnosticsDialog(context),
                 child: const Text('Диагностика'),

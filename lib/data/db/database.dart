@@ -8,7 +8,10 @@ export 'tables.dart' show DownloadStatus;
 
 part 'database.g.dart';
 
-typedef EpisodeWithState = ({Episode episode, EpisodeState? state});
+typedef EpisodeWithState = ({Episode episode, EpisodeState? state, Download? download});
+
+/// Загрузка вместе с эпизодом и подкастом — для экрана «Загрузки».
+typedef DownloadWithEpisode = ({Download download, Episode episode, Podcast podcast});
 
 class FeedSaveResult {
   const FeedSaveResult({
@@ -33,6 +36,7 @@ class FeedSaveResult {
   PodcastSettings,
   QueueEntries,
   Downloads,
+  AppSettings,
 ])
 class AppDatabase extends _$AppDatabase {
   AppDatabase(super.e);
@@ -41,11 +45,18 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.defaults() : super(driftDatabase(name: 'podcasts'));
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
         onCreate: (m) => m.createAll(),
+        onUpgrade: (m, from, to) async {
+          if (from < 2) {
+            // Этап 4: настройки и признак автозагрузки.
+            await m.createTable(appSettings);
+            await m.addColumn(downloads, downloads.auto);
+          }
+        },
         beforeOpen: (details) async {
           // В SQLite внешние ключи по умолчанию выключены.
           await customStatement('PRAGMA foreign_keys = ON');
@@ -256,6 +267,7 @@ class AppDatabase extends _$AppDatabase {
   Stream<List<EpisodeWithState>> watchEpisodesWithState(int podcastId) {
     final query = select(episodes).join([
       leftOuterJoin(episodeStates, episodeStates.episodeId.equalsExp(episodes.id)),
+      leftOuterJoin(downloads, downloads.episodeId.equalsExp(episodes.id)),
     ])
       ..where(episodes.podcastId.equals(podcastId))
       ..orderBy([
@@ -263,8 +275,131 @@ class AppDatabase extends _$AppDatabase {
         OrderingTerm.asc(episodes.id),
       ]);
     return query
-        .map((row) => (episode: row.readTable(episodes), state: row.readTableOrNull(episodeStates)))
+        .map((row) => (
+              episode: row.readTable(episodes),
+              state: row.readTableOrNull(episodeStates),
+              download: row.readTableOrNull(downloads),
+            ))
         .watch();
+  }
+
+  // -------------------------------------------------------------------------
+  // Настройки
+  // -------------------------------------------------------------------------
+
+  Future<String?> setting(String key) async =>
+      (await (select(appSettings)..where((s) => s.key.equals(key))).getSingleOrNull())?.value;
+
+  Stream<String?> watchSetting(String key) =>
+      (select(appSettings)..where((s) => s.key.equals(key)))
+          .watchSingleOrNull()
+          .map((s) => s?.value);
+
+  Future<void> setSetting(String key, String value) =>
+      into(appSettings).insertOnConflictUpdate(AppSettingsCompanion(key: Value(key), value: Value(value)));
+
+  // -------------------------------------------------------------------------
+  // Загрузки
+  // -------------------------------------------------------------------------
+
+  Future<Download?> download(int episodeId) =>
+      (select(downloads)..where((d) => d.episodeId.equals(episodeId))).getSingleOrNull();
+
+  Stream<Download?> watchDownload(int episodeId) =>
+      (select(downloads)..where((d) => d.episodeId.equals(episodeId))).watchSingleOrNull();
+
+  Future<void> saveDownload(DownloadsCompanion row) =>
+      into(downloads).insertOnConflictUpdate(row.copyWith(updatedAt: Value(DateTime.now())));
+
+  Future<void> updateDownload(int episodeId, DownloadsCompanion changes) =>
+      (update(downloads)..where((d) => d.episodeId.equals(episodeId)))
+          .write(changes.copyWith(updatedAt: Value(DateTime.now())));
+
+  Future<void> deleteDownloadRow(int episodeId) =>
+      (delete(downloads)..where((d) => d.episodeId.equals(episodeId))).go();
+
+  Future<List<Download>> downloadsWithStatus(Iterable<DownloadStatus> statuses) =>
+      (select(downloads)
+            ..where((d) => d.status.isIn(statuses.map((s) => s.name)))
+            ..orderBy([(d) => OrderingTerm.asc(d.updatedAt)]))
+          .get();
+
+  /// Сколько байт занимают загруженные файлы.
+  Future<int> downloadedBytes() async {
+    final sum = downloads.totalBytes.sum();
+    final query = selectOnly(downloads)
+      ..addColumns([sum])
+      ..where(downloads.status.equals(DownloadStatus.completed.name));
+    return (await query.getSingle()).read(sum) ?? 0;
+  }
+
+  Stream<List<DownloadWithEpisode>> watchDownloadList() {
+    final query = select(downloads).join([
+      innerJoin(episodes, episodes.id.equalsExp(downloads.episodeId)),
+      innerJoin(podcasts, podcasts.id.equalsExp(episodes.podcastId)),
+    ])
+      ..where(downloads.status.isNotIn([DownloadStatus.removed.name]))
+      ..orderBy([OrderingTerm.desc(downloads.updatedAt)]);
+    return query
+        .map((row) => (
+              download: row.readTable(downloads),
+              episode: row.readTable(episodes),
+              podcast: row.readTable(podcasts),
+            ))
+        .watch();
+  }
+
+  /// Последние [count] эпизодов подкаста по дате с их состоянием и загрузкой.
+  Future<List<EpisodeWithState>> latestEpisodes(int podcastId, int count) async {
+    final query = select(episodes).join([
+      leftOuterJoin(episodeStates, episodeStates.episodeId.equalsExp(episodes.id)),
+      leftOuterJoin(downloads, downloads.episodeId.equalsExp(episodes.id)),
+    ])
+      ..where(episodes.podcastId.equals(podcastId))
+      ..orderBy([
+        OrderingTerm(expression: episodes.pubDate, mode: OrderingMode.desc, nulls: NullsOrder.last),
+        OrderingTerm.desc(episodes.id),
+      ])
+      ..limit(count);
+    return query
+        .map((row) => (
+              episode: row.readTable(episodes),
+              state: row.readTableOrNull(episodeStates),
+              download: row.readTableOrNull(downloads),
+            ))
+        .get();
+  }
+
+  /// Сколько последних эпизодов подкаста держать загруженными;
+  /// `null` — как в общих настройках.
+  Future<int?> podcastAutoDownloadCount(int podcastId) async {
+    final row = await (select(podcastSettings)..where((s) => s.podcastId.equals(podcastId)))
+        .getSingleOrNull();
+    return row?.autoDownloadCount;
+  }
+
+  Stream<int?> watchPodcastAutoDownloadCount(int podcastId) =>
+      (select(podcastSettings)..where((s) => s.podcastId.equals(podcastId)))
+          .watchSingleOrNull()
+          .map((s) => s?.autoDownloadCount);
+
+  Future<void> setPodcastAutoDownloadCount(int podcastId, int? count) {
+    final now = DateTime.now();
+    return into(podcastSettings).insert(
+      PodcastSettingsCompanion(
+        podcastId: Value(podcastId),
+        autoDownloadCount: Value(count),
+        updatedAt: Value(now),
+        dirty: const Value(true),
+      ),
+      onConflict: DoUpdate(
+        (_) => PodcastSettingsCompanion(
+          autoDownloadCount: Value(count),
+          updatedAt: Value(now),
+          dirty: const Value(true),
+        ),
+      ),
+    );
   }
 
   // -------------------------------------------------------------------------

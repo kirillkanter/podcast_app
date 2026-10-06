@@ -15,7 +15,14 @@ import '../data/db/database.dart';
 import 'playback_logic.dart';
 
 class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
-  PodcastAudioHandler(this._db, {AudioPlayer? player}) : _player = player ?? AudioPlayer() {
+  PodcastAudioHandler(
+    this._db, {
+    AudioPlayer? player,
+    Future<String?> Function(int episodeId)? localFile,
+    Future<void> Function(int episodeId)? onPlayed,
+  })  : _player = player ?? AudioPlayer(),
+        _localFile = localFile,
+        _onPlayed = onPlayed {
     // Нативные плееры сообщают «играет/не играет» отдельным сообщением,
     // которое меняет player.playing, но не порождает playback event.
     // Без подписки на playerStateStream состояние для системы и интерфейса
@@ -44,6 +51,12 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
 
   final AppDatabase _db;
   final AudioPlayer _player;
+
+  /// Путь к загруженному файлу эпизода, если он есть.
+  final Future<String?> Function(int episodeId)? _localFile;
+
+  /// Вызывается, когда эпизод дослушан до конца (удаление загрузки и т. п.).
+  final Future<void> Function(int episodeId)? _onPlayed;
   final _errors = StreamController<String>.broadcast();
 
   int? _episodeId;
@@ -101,7 +114,11 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
     );
 
     try {
-      final duration = await _player.setUrl(episode.enclosureUrl, initialPosition: start);
+      // Загруженный файл играет без интернета; иначе — поток по сети.
+      final local = await _localFile?.call(episodeId);
+      final duration = local != null
+          ? await _player.setFilePath(local, initialPosition: start)
+          : await _player.setUrl(episode.enclosureUrl, initialPosition: start);
       // Длительность из файла точнее, чем в фиде.
       if (duration != null && duration != item.duration && _episodeId == episodeId) {
         mediaItem.add(item.copyWith(duration: duration));
@@ -202,6 +219,12 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
       debugPrint('Не удалось отметить эпизод прослушанным: $e');
     }
     await stop();
+    // После stop(): на Windows файл занят, пока плеер его держит.
+    try {
+      await _onPlayed?.call(episodeId);
+    } catch (e) {
+      debugPrint('Ошибка после окончания эпизода: $e');
+    }
   }
 
   Future<void> _savePosition() async {

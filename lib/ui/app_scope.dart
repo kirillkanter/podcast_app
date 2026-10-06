@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 
 import '../data/db/database.dart';
 import '../data/podcast_repository.dart';
+import '../download/download_manager.dart';
 import '../player/podcast_audio_handler.dart';
 
 /// Даёт экранам доступ к БД и репозиторию.
@@ -11,6 +12,7 @@ class AppScope extends InheritedWidget {
     required this.db,
     required this.repository,
     this.audio,
+    this.downloads,
     required super.child,
   });
 
@@ -20,6 +22,9 @@ class AppScope extends InheritedWidget {
   /// Плеер. `null` в тестах, где нет платформенного аудио.
   final PodcastAudioHandler? audio;
 
+  /// Загрузки. `null` в тестах интерфейса.
+  final DownloadManager? downloads;
+
   static AppScope of(BuildContext context) {
     final scope = context.dependOnInheritedWidgetOfExactType<AppScope>();
     assert(scope != null, 'AppScope не найден выше по дереву виджетов');
@@ -28,5 +33,7 @@ class AppScope extends InheritedWidget {
 
   @override
   bool updateShouldNotify(AppScope oldWidget) =>
-      db != oldWidget.db || repository != oldWidget.repository || audio != oldWidget.audio;
+      db != oldWidget.db || repository != oldWidget.repository ||
+      audio != oldWidget.audio ||
+      downloads != oldWidget.downloads;
 }

@@ -64,6 +64,10 @@ jobs:
           grep -q 'usesCleartextTraffic' android/app/src/main/AndroidManifest.xml
           grep -rq 'AudioServiceActivity()' android/app/src/main/kotlin
           grep -q 'FOREGROUND_SERVICE_MEDIA_PLAYBACK' android/app/src/main/AndroidManifest.xml
+          grep -q 'com.ryanheise.audioservice.AudioService"' android/app/src/main/AndroidManifest.xml
+          grep -q 'com.ryanheise.audioservice.MediaButtonReceiver' android/app/src/main/AndroidManifest.xml
+          # Итоговый манифест — в лог сборки.
+          cat android/app/src/main/AndroidManifest.xml
       - run: flutter pub get
       - run: dart run build_runner build --delete-conflicting-outputs
       - name: Сборка APK

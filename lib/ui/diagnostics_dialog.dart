@@ -10,6 +10,15 @@ import 'app_scope.dart';
 /// Ошибка запуска плеера, если она была (заполняется в main).
 String? audioStartupError;
 
+/// Последние ошибки связи с системным плеером (audio_service). Они не
+/// видны пользователю, но объясняют, почему нет уведомления.
+final audioServiceErrors = <String>[];
+
+void recordAudioServiceError(Object error) {
+  audioServiceErrors.add('${DateTime.now().toIso8601String().substring(11, 19)} $error');
+  if (audioServiceErrors.length > 10) audioServiceErrors.removeAt(0);
+}
+
 /// Сведения для поиска проблем: версия системы, состояние плеера,
 /// разрешение на уведомления. Текст можно скопировать и прислать.
 Future<void> showDiagnosticsDialog(BuildContext context) {
@@ -48,7 +57,12 @@ Future<String> _collect(PlaybackState? state) async {
     if (state != null)
       'Состояние плеера: ${state.processingState.name}, играет: ${state.playing ? 'да' : 'нет'}',
   ];
+  lines.add(audioServiceErrors.isEmpty
+      ? 'Ошибок системного плеера нет'
+      : 'Ошибки системного плеера:\n${audioServiceErrors.join('\n')}');
   if (Platform.isAndroid) {
+    final native = await notificationDiagnostics();
+    if (native != null) lines.add(native);
     final enabled = await notificationsEnabled();
     lines.add('Уведомления: ${switch (enabled) {
       true => 'разрешены',

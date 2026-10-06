@@ -44,3 +44,15 @@ Future<void> openNotificationSettings() async {
     // То же.
   }
 }
+
+/// Сведения Android об уведомлениях приложения (активные, каналы).
+Future<String?> notificationDiagnostics() async {
+  if (!Platform.isAndroid) return null;
+  try {
+    return await _channel.invokeMethod<String>('diagnostics');
+  } on PlatformException catch (e) {
+    return 'ошибка: ${e.message}';
+  } on MissingPluginException {
+    return null;
+  }
+}

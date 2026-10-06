@@ -32,6 +32,7 @@ class MainActivity : AudioServiceActivity() {
                 when (call.method) {
                     "enabled" -> result.success(notificationsEnabled())
                     "request" -> requestPermission(result)
+                    "diagnostics" -> result.success(diagnostics())
                     "openSettings" -> {
                         openNotificationSettings()
                         result.success(null)
@@ -44,6 +45,26 @@ class MainActivity : AudioServiceActivity() {
     private fun notificationsEnabled(): Boolean {
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         return manager.areNotificationsEnabled()
+    }
+
+    /** Что Android знает об уведомлениях приложения — для экрана «Диагностика». */
+    private fun diagnostics(): String {
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val lines = mutableListOf<String>()
+        lines.add("Android API: ${Build.VERSION.SDK_INT}, ${Build.MANUFACTURER} ${Build.MODEL}")
+        if (Build.VERSION.SDK_INT >= 26) {
+            val active = manager.activeNotifications
+            lines.add("Активных уведомлений приложения: ${active.size}")
+            for (n in active) {
+                lines.add("  id=${n.id}, канал=${n.notification.channelId}, ongoing=${n.isOngoing}")
+            }
+            val channels = manager.notificationChannels
+            if (channels.isEmpty()) lines.add("Каналов уведомлений нет")
+            for (c in channels) {
+                lines.add("Канал «${c.name}» (${c.id}): важность ${c.importance}")
+            }
+        }
+        return lines.joinToString("\n")
     }
 
     private fun requestPermission(result: MethodChannel.Result) {

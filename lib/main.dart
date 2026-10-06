@@ -38,6 +38,8 @@ Future<void> main() async {
     audioStartupError = '$e';
   }
 
+  if (audio != null) AudioService.asyncError.listen(recordAudioServiceError);
+
   if (audio != null && Platform.isAndroid) {
     try {
       // Речевой профиль: пауза при звонке, приглушение под уведомления,

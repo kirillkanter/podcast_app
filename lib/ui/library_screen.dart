@@ -267,8 +267,6 @@ class FeedEpisodeRow extends StatelessWidget {
   /// Дата рядом с названием подкаста; на экране «Эпизоды» она в заголовке группы.
   final bool showDate;
 
-  final FeedEpisode item;
-
   @override
   Widget build(BuildContext context) {
     final c = BcColors.of(context);

@@ -64,6 +64,21 @@ void main() {
     expect(state.playing, isTrue, reason: 'после продолжения');
   });
 
+  test('смена паузы со стороны платформы доходит до интерфейса', () async {
+    // Так ведут себя нативные плееры (Windows MediaPlayer, ExoPlayer):
+    // они сообщают «играет/не играет» отдельным сообщением, без playback event.
+    // Раньше обработчик этого не замечал: кнопка в приложении застревала,
+    // а Android не показывал уведомление.
+    await handler.playEpisode(episodeId);
+    expect((await settled()).playing, isTrue);
+
+    platform.player!.reportPlaying(false);
+    expect((await settled()).playing, isFalse, reason: 'платформа сообщила о паузе');
+
+    platform.player!.reportPlaying(true);
+    expect((await settled()).playing, isTrue, reason: 'платформа сообщила о воспроизведении');
+  });
+
   test('карточка эпизода для системного плеера', () async {
     await handler.playEpisode(episodeId);
     await settled();
@@ -154,6 +169,12 @@ class FakePlayer extends AudioPlayerPlatform {
       currentIndex: 0,
       androidAudioSessionId: null,
     ));
+  }
+
+  /// Нативный плеер сам сменил состояние (буферизация, системная пауза).
+  void reportPlaying(bool playing) {
+    _playing = playing;
+    _data.add(PlayerDataMessage(playing: playing));
   }
 
   @override

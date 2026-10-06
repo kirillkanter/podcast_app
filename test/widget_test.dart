@@ -45,6 +45,30 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   }
 
+  /// pumpAndSettle, который при зависании сообщает шаг и текст на экране.
+  Future<void> settle(WidgetTester tester, String step) async {
+    try {
+      await tester.pumpAndSettle();
+    } catch (_) {
+      final texts = find
+          .byType(Text)
+          .evaluate()
+          .map((e) => (e.widget as Text).data)
+          .whereType<String>()
+          .join(' | ');
+      fail('Интерфейс не успокоился после шага «$step». На экране: $texts');
+    }
+  }
+
+  /// Нажатие на «Добавить»: загрузка и запись в БД идут в реальном времени,
+  /// а не в виртуальном времени виджет-теста.
+  Future<void> tapAdd(WidgetTester tester) async {
+    await tester.runAsync(() async {
+      await tester.tap(find.byKey(const Key('addFeedButton')));
+      await Future<void>.delayed(const Duration(seconds: 1));
+    });
+  }
+
   testWidgets('пустой список подписок', (tester) async {
     await tester.pumpWidget(PodcastApp(db: db, repository: repo, refreshOnStart: false));
     await tester.pumpAndSettle();
@@ -60,8 +84,8 @@ void main() {
     await tester.tap(find.byType(FloatingActionButton));
     await tester.pumpAndSettle();
     await tester.enterText(find.byKey(const Key('feedUrlField')), 'https://example.com/feed');
-    await tester.tap(find.byKey(const Key('addFeedButton')));
-    await tester.pumpAndSettle();
+    await tapAdd(tester);
+    await settle(tester, 'добавление');
 
     // Открылся экран подкаста.
     expect(find.text('Тестовый подкаст'), findsOneWidget);
@@ -77,14 +101,14 @@ void main() {
 
     // Карточка эпизода с описанием.
     await tester.tap(find.text('Первый выпуск'));
-    await tester.pumpAndSettle();
+    await settle(tester, 'открытие эпизода');
     expect(find.text('О чём выпуск'), findsOneWidget);
     await tester.tapAt(const Offset(10, 10));
-    await tester.pumpAndSettle();
+    await settle(tester, 'закрытие эпизода');
 
     // Возврат на главный экран: подкаст в списке подписок.
     await tester.pageBack();
-    await tester.pumpAndSettle();
+    await settle(tester, 'возврат назад');
     expect(find.text('Тестовый подкаст'), findsOneWidget);
     expect(find.text('Подписок пока нет'), findsNothing);
 

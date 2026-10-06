@@ -133,6 +133,44 @@ void main() {
     expect(s.positionMs, 0);
   });
 
+  test('очередь и архив переходят на другое устройство', () async {
+    await phone.repo.addAndSubscribe(feedUrl);
+    await phone.signIn();
+    await laptop.signIn();
+    await phone.sync.syncNow();
+    await laptop.sync.syncNow();
+
+    await phone.db.addToQueue(await phone.episode(3));
+    await phone.db.addToQueue(await phone.episode(1));
+    await phone.db.setArchived(await phone.episode(2), true);
+    await phone.sync.syncNow();
+    final result = await laptop.sync.syncNow();
+    expect(result.stateUpdated, 3);
+    expect(await laptop.db.queueIds(), [await laptop.episode(3), await laptop.episode(1)]);
+    expect(await laptop.db.isArchived(await laptop.episode(2)), isTrue);
+    expect(await laptop.db.dirtyStateItems(), isEmpty, reason: 'полученное не отправляется обратно');
+
+    // Перестановка и возврат из архива — обратно на телефон.
+    await laptop.db.moveInQueue(await laptop.episode(1), 0);
+    await laptop.db.setArchived(await laptop.episode(2), false);
+    await laptop.sync.syncNow();
+    await phone.sync.syncNow();
+    expect(await phone.db.queueIds(), [await phone.episode(1), await phone.episode(3)]);
+    expect(await phone.db.isArchived(await phone.episode(2)), isFalse);
+  });
+
+  test('сервер без очереди: остальное синхронизируется, ошибки нет', () async {
+    server.supportsState = false;
+    await phone.repo.addAndSubscribe(feedUrl);
+    await phone.db.addToQueue(await phone.episode(1));
+    await phone.signIn();
+    await phone.sync.syncNow();
+    expect(server.subscriptions.keys, [feedUrl]);
+    expect(await phone.db.setting(SyncSettings.stateUnsupported), 'true');
+    expect(await phone.db.dirtyStateItems(), hasLength(1), reason: 'уйдёт, когда сервер научится');
+    expect(await phone.db.setting(SyncSettings.lastError), '');
+  });
+
   test('отписка переходит на другое устройство', () async {
     await phone.repo.addAndSubscribe(feedUrl);
     await phone.signIn();

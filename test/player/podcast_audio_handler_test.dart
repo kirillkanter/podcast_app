@@ -102,6 +102,42 @@ void main() {
     expect((await db.episodeState(episodeId))!.played, isTrue);
   });
 
+  test('дослушанный эпизод уходит в архив, дальше играет следующий из очереди', () async {
+    final other = await db.saveParsedFeed('https://example.com/other', parseFeed(_feed.replaceAll('1.mp3', '2.mp3')));
+    final nextId = (await db.watchEpisodes(other.podcastId).first).single.id;
+    await db.addToQueue(episodeId);
+    await db.addToQueue(nextId);
+
+    await handler.playEpisode(episodeId);
+    await settled();
+    expect(await db.queueIds(), [nextId], reason: 'запущенный эпизод уходит из очереди');
+
+    platform.player!.complete();
+    await pumpEventQueue();
+    await settled();
+    expect((await db.episodeState(episodeId))!.played, isTrue);
+    expect(await db.isArchived(episodeId), isTrue);
+    expect(handler.currentEpisodeId, nextId);
+    expect(handler.mediaItem.value?.id, 'https://cdn.example.com/2.mp3');
+    expect(handler.playbackState.value.playing, isTrue);
+    expect(await db.queueIds(), isEmpty);
+  });
+
+  test('«играть дальше по очереди» выключено — после конца эпизода тишина', () async {
+    final other = await db.saveParsedFeed('https://example.com/other', parseFeed(_feed.replaceAll('1.mp3', '2.mp3')));
+    final nextId = (await db.watchEpisodes(other.podcastId).first).single.id;
+    await db.addToQueue(nextId);
+    await db.setSetting(QueueSettings.continuePlayback, 'false');
+
+    await handler.playEpisode(episodeId);
+    await settled();
+    platform.player!.complete();
+    await pumpEventQueue();
+    await settled();
+    expect(handler.currentEpisodeId, isNull);
+    expect(await db.queueIds(), [nextId]);
+  });
+
   test('карточка эпизода для системного плеера', () async {
     await handler.playEpisode(episodeId);
     await settled();

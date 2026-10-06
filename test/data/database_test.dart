@@ -193,4 +193,112 @@ void main() {
       expect(await db.watchNewEpisodeCounts().first, {id: 1});
     });
   });
+
+  group('очередь и архив', () {
+    late List<int> ids;
+
+    setUp(() async {
+      final r = await db.saveParsedFeed(feedUrl, parseFeed(feedWith([('a', 'A'), ('b', 'B'), ('c', 'C'), ('d', 'D')])));
+      await db.setSubscribed(r.podcastId, true);
+      final byGuid = {for (final e in await db.watchEpisodes(r.podcastId).first) e.guid: e.id};
+      ids = [byGuid['a']!, byGuid['b']!, byGuid['c']!, byGuid['d']!];
+    });
+
+    Future<List<String>> titles() async => [for (final q in await db.watchQueue().first) q.episode.title];
+
+    test('добавление, «следующим», перестановка, удаление, очистка', () async {
+      await db.addToQueue(ids[0]);
+      await db.addToQueue(ids[1]);
+      await db.addToQueue(ids[2]);
+      await db.addToQueue(ids[0]);
+      expect(await titles(), ['A', 'B', 'C'], reason: 'повторное добавление не двигает');
+
+      await db.addToQueue(ids[3], next: true);
+      expect(await titles(), ['D', 'A', 'B', 'C']);
+
+      await db.moveInQueue(ids[3], 3);
+      expect(await titles(), ['A', 'B', 'C', 'D']);
+      await db.moveInQueue(ids[2], 0);
+      expect(await titles(), ['C', 'A', 'B', 'D']);
+      await db.moveInQueue(ids[1], 1);
+      expect(await titles(), ['C', 'B', 'A', 'D']);
+
+      await db.removeFromQueue(ids[1]);
+      expect(await titles(), ['C', 'A', 'D']);
+      expect(await db.nextInQueue(), ids[2]);
+      expect(await db.nextInQueue(exclude: ids[2]), ids[0]);
+      expect(await db.watchInQueue(ids[1]).first, isFalse);
+
+      // Удалённый возвращается в конец.
+      await db.addToQueue(ids[1]);
+      expect(await titles(), ['C', 'A', 'D', 'B']);
+
+      await db.clearQueue();
+      expect(await titles(), isEmpty);
+    });
+
+    test('много перестановок в одно место не ломают порядок', () async {
+      for (final id in ids) {
+        await db.addToQueue(id);
+      }
+      for (var i = 0; i < 80; i++) {
+        await db.moveInQueue(ids[i % 2 == 0 ? 3 : 2], 1);
+      }
+      final order = await titles();
+      expect(order.first, 'A');
+      expect(order.toSet(), {'A', 'B', 'C', 'D'});
+      expect(order, hasLength(4));
+    });
+
+    test('прослушанный уходит из очереди и в архив, снятие отметки возвращает', () async {
+      await db.addToQueue(ids[0]);
+      await db.setPlayed(ids[0], true);
+      expect(await titles(), isEmpty);
+      expect(await db.isArchived(ids[0]), isTrue);
+
+      final page = await db.watchEpisodesWithState((await db.episodeById(ids[0]))!.podcastId).first;
+      expect(page.firstWhere((e) => e.episode.id == ids[0]).archived, isTrue);
+
+      await db.setPlayed(ids[0], false);
+      expect(await db.isArchived(ids[0]), isFalse);
+    });
+
+    test('автоархив можно выключить', () async {
+      await db.setSetting(QueueSettings.autoArchive, 'false');
+      await db.setPlayed(ids[0], true);
+      expect(await db.isArchived(ids[0]), isFalse);
+    });
+
+    test('архив скрывает из ленты и уводит из очереди', () async {
+      await db.addToQueue(ids[1]);
+      await db.setArchived(ids[1], true);
+      expect(await titles(), isEmpty);
+      final fresh = await db.watchFeed(FeedFilter.fresh).first;
+      expect(fresh.map((e) => e.episode.title), isNot(contains('B')));
+
+      await db.setArchived(ids[1], false);
+      final again = await db.watchFeed(FeedFilter.fresh).first;
+      expect(again.map((e) => e.episode.title), contains('B'));
+      expect(again.firstWhere((e) => e.episode.title == 'B').queued, isFalse);
+    });
+
+    test('изменения с сервера: позднее локальное не затирается', () async {
+      await db.addToQueue(ids[0]);
+      final local = (await db.dirtyStateItems()).single;
+      expect(local.kind, 'queue');
+      expect(local.enclosureUrl, 'https://x.org/a.mp3');
+
+      final older = local.changed.subtract(const Duration(minutes: 1));
+      expect(await db.applyRemoteQueue(ids[0], order: 5, removed: true, changed: older), isFalse);
+      expect(await titles(), ['A']);
+
+      final newer = local.changed.add(const Duration(minutes: 1));
+      expect(await db.applyRemoteQueue(ids[0], order: 5, removed: true, changed: newer), isTrue);
+      expect(await titles(), isEmpty);
+      expect(await db.dirtyStateItems(), isEmpty, reason: 'изменение с сервера не отправляется обратно');
+
+      expect(await db.applyRemoteArchive(ids[2], archived: true, changed: newer), isTrue);
+      expect(await db.isArchived(ids[2]), isTrue);
+    });
+  });
 }

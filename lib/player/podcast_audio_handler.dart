@@ -88,6 +88,12 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
     await _savePosition();
     final episode = await _db.episodeById(episodeId);
     if (episode == null) return;
+    // Запущенный эпизод — уже не «далее»: он уходит из очереди.
+    try {
+      await _db.removeFromQueue(episodeId);
+    } catch (e) {
+      debugPrint('Не удалось убрать эпизод из очереди: $e');
+    }
     final podcast = await _db.podcastById(episode.podcastId);
     final state = await _db.episodeState(episodeId);
     final speed = await _db.podcastSpeed(episode.podcastId) ?? 1.0;
@@ -158,7 +164,7 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
       seek(seekRelative(_player.position, fastForwardStep, _player.duration));
 
   // Кнопки «следующий/предыдущий» на клавиатуре и наушниках перематывают:
-  // очереди пока нет, а перемотка в подкастах нужнее.
+  // в подкастах перемотка нужнее, чем переход по очереди.
   @override
   Future<void> skipToNext() => fastForward();
 
@@ -218,12 +224,31 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
     } catch (e) {
       debugPrint('Не удалось отметить эпизод прослушанным: $e');
     }
-    await stop();
-    // После stop(): на Windows файл занят, пока плеер его держит.
+    final next = await _nextFromQueue(episodeId);
+    if (next == null) {
+      await stop();
+    } else {
+      // Плеер отпускает файл, но сервис и уведомление остаются:
+      // следующий эпизод запустится сразу.
+      await _player.stop();
+    }
+    // После остановки: на Windows файл занят, пока плеер его держит.
     try {
       await _onPlayed?.call(episodeId);
     } catch (e) {
       debugPrint('Ошибка после окончания эпизода: $e');
+    }
+    if (next != null) await playEpisode(next);
+  }
+
+  /// Следующий эпизод очереди, если включено «Играть дальше по очереди».
+  Future<int?> _nextFromQueue(int finished) async {
+    try {
+      if (await _db.setting(QueueSettings.continuePlayback) == 'false') return null;
+      return await _db.nextInQueue(exclude: finished);
+    } catch (e) {
+      debugPrint('Не удалось прочитать очередь: $e');
+      return null;
     }
   }
 

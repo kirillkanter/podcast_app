@@ -17,6 +17,13 @@ class FakeGpodderServer {
   final subscriptions = <String, ({bool deleted, int changed})>{};
   final actions = <Map<String, Object?>>[];
   final devices = <String>{};
+
+  /// Есть ли на сервере bcaster.php (очередь и архив).
+  bool supportsState = true;
+
+  /// (вид, адрес эпизода) → запись очереди или архива с ревизией.
+  final state = <(String, String), Map<String, Object?>>{};
+  int stateRev = 0;
   final requests = <http.BaseRequest>[];
 
   http.Client client() => MockClient(handle);
@@ -86,6 +93,27 @@ class FakeGpodderServer {
         actions.add({...action, 'changed': now});
       }
       return _json({'timestamp': now, 'update_urls': <Object>[]});
+    }
+    if (path == '/bcaster.php' && supportsState) {
+      if (request.method == 'GET') {
+        final items = state.values.where((i) => (i['rev']! as int) > since).toList()
+          ..sort((a, b) => (a['rev']! as int).compareTo(b['rev']! as int));
+        return _json({
+          'rev': stateRev,
+          'items': [
+            for (final i in items) {for (final e in i.entries) if (e.key != 'rev') e.key: e.value},
+          ],
+        });
+      }
+      final body = jsonDecode(request.body) as Map<String, Object?>;
+      for (final raw in body['items']! as List) {
+        final item = Map<String, Object?>.from(raw as Map);
+        final key = (item['kind']! as String, item['episode']! as String);
+        final current = state[key];
+        if (current != null && (current['changed']! as int) >= (item['changed']! as int)) continue;
+        state[key] = {...item, 'rev': ++stateRev};
+      }
+      return _json({'rev': stateRev});
     }
     return _json({'code': 404, 'message': 'Unknown'}, 404);
   }

@@ -56,7 +56,7 @@ class _Device {
 
 void main() {
   test(
-    'oPodSync: вход, подписка, позиция и «прослушано» между двумя устройствами',
+    'oPodSync: вход, подписка, позиция, «прослушано», очередь и архив между двумя устройствами',
     () async {
       final a = _Device('CI A');
       final b = _Device('CI B');
@@ -73,6 +73,7 @@ void main() {
       await a.repo.addAndSubscribe(_feedUrl);
       await a.db.savePosition(await a.episode(1), const Duration(minutes: 7));
       await a.db.setPlayed(await a.episode(2), true);
+      await a.db.addToQueue(await a.episode(1));
       await a.sync.signIn(server: _server!, username: _user, password: _password);
       await a.sync.syncNow();
 
@@ -85,6 +86,9 @@ void main() {
       expect(await b.db.watchIsSubscribed(podcast!.id).first, isTrue);
       expect((await b.db.episodeState(await b.episode(1)))!.positionMs, 420000);
       expect((await b.db.episodeState(await b.episode(2)))!.played, isTrue);
+      expect(await b.db.queueIds(), [await b.episode(1)], reason: 'очередь через bcaster.php');
+      expect(await b.db.isArchived(await b.episode(2)), isTrue);
+      expect(await b.db.setting(SyncSettings.stateUnsupported), '');
 
       // Обратно: B отписывается, A узнаёт об этом.
       await b.repo.setSubscribed(podcast.id, false);

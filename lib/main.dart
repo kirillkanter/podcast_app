@@ -117,6 +117,7 @@ class _PodcastAppState extends State<PodcastApp> {
   StreamSubscription<String>? _errors;
   StreamSubscription<bool>? _playing;
   StreamSubscription<int>? _dirtySubscriptions;
+  StreamSubscription<int>? _dirtyState;
   AppLifecycleListener? _lifecycle;
   Timer? _periodicSync;
   bool _notificationsChecked = false;
@@ -145,6 +146,11 @@ class _PodcastAppState extends State<PodcastApp> {
       // Подписка или отписка — синхронизировать через несколько секунд.
       _dirtySubscriptions = widget.db
           .watchDirtySubscriptionCount()
+          .where((count) => count > 0)
+          .listen((_) => sync.schedule(const Duration(seconds: 5)));
+      // Очередь и архив — так же.
+      _dirtyState = widget.db
+          .watchDirtyStateCount()
           .where((count) => count > 0)
           .listen((_) => sync.schedule(const Duration(seconds: 5)));
       _lifecycle = AppLifecycleListener(
@@ -184,6 +190,7 @@ class _PodcastAppState extends State<PodcastApp> {
     _errors?.cancel();
     _playing?.cancel();
     _dirtySubscriptions?.cancel();
+    _dirtyState?.cancel();
     _lifecycle?.dispose();
     _periodicSync?.cancel();
     super.dispose();

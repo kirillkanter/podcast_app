@@ -8,7 +8,59 @@ export 'tables.dart' show DownloadStatus;
 
 part 'database.g.dart';
 
-typedef EpisodeWithState = ({Episode episode, EpisodeState? state, Download? download});
+/// Эпизод с состоянием. [queued] — стоит в очереди, [archived] — в архиве.
+typedef EpisodeWithState = ({
+  Episode episode,
+  EpisodeState? state,
+  Download? download,
+  bool queued,
+  bool archived,
+});
+
+/// Элемент очереди или ленты: эпизод вместе с подкастом.
+typedef QueueItem = FeedEpisode;
+
+/// Изменение очереди или архива для отправки на сервер.
+/// [kind] — `queue` или `archive`; [removed] — убран из очереди / возвращён
+/// из архива; [value] — порядок в очереди.
+typedef DirtyStateItem = ({
+  String kind,
+  int episodeId,
+  String feedUrl,
+  String enclosureUrl,
+  double? value,
+  bool removed,
+  DateTime changed,
+});
+
+/// Ключи настроек очереди, архива и жестов.
+abstract final class QueueSettings {
+  /// Дослушав эпизод, играть следующий из очереди. По умолчанию включено.
+  static const continuePlayback = 'queue.continue';
+
+  /// Прослушанные эпизоды сразу уходят в архив. По умолчанию включено.
+  static const autoArchive = 'archive.autoPlayed';
+
+  /// Действие по свайпу влево и вправо, см. [SwipeAction].
+  static const swipeLeft = 'swipe.left';
+  static const swipeRight = 'swipe.right';
+}
+
+/// Что делает свайп по эпизоду в списке.
+enum SwipeAction {
+  archive('В архив'),
+  queue('В очередь'),
+  played('Прослушан'),
+  download('Скачать'),
+  none('Ничего');
+
+  const SwipeAction(this.label);
+
+  final String label;
+
+  static SwipeAction parse(String? value, SwipeAction fallback) =>
+      values.where((a) => a.name == value).firstOrNull ?? fallback;
+}
 
 /// Подписка, изменённая локально и ещё не отправленная на сервер.
 typedef DirtySubscription = ({int podcastId, String feedUrl, bool subscribed});
@@ -24,7 +76,14 @@ typedef DirtyEpisodeState = ({
 });
 
 /// Эпизод для общей ленты библиотеки.
-typedef FeedEpisode = ({Episode episode, Podcast podcast, EpisodeState? state, Download? download});
+typedef FeedEpisode = ({
+  Episode episode,
+  Podcast podcast,
+  EpisodeState? state,
+  Download? download,
+  bool queued,
+  bool archived,
+});
 
 /// Какие эпизоды показывать в ленте библиотеки.
 enum FeedFilter {
@@ -63,6 +122,7 @@ class FeedSaveResult {
   EpisodeStates,
   PodcastSettings,
   QueueEntries,
+  EpisodeArchives,
   Downloads,
   AppSettings,
 ])
@@ -73,7 +133,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.defaults() : super(driftDatabase(name: 'podcasts'));
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -83,6 +143,16 @@ class AppDatabase extends _$AppDatabase {
             // Этап 4: настройки и признак автозагрузки.
             await m.createTable(appSettings);
             await m.addColumn(downloads, downloads.auto);
+          }
+          if (from < 3) {
+            // Новый дизайн, этап 2: архив. Уже прослушанные эпизоды сразу
+            // в архиве — так же, как будут уходить туда новые. На сервер
+            // их не отправляем: другие устройства сделают то же самое.
+            await m.createTable(episodeArchives);
+            await customStatement(
+              'INSERT OR IGNORE INTO episode_archives (episode_id, archived, updated_at, dirty) '
+              "SELECT episode_id, 1, strftime('%Y-%m-%dT%H:%M:%S', 'now', 'localtime'), 0 FROM episode_states WHERE played = 1",
+            );
           }
         },
         beforeOpen: (details) async {
@@ -292,23 +362,50 @@ class AppDatabase extends _$AppDatabase {
         .watch();
   }
 
+  /// Присоединения для признаков «в очереди» и «в архиве».
+  List<Join> get _flagJoins => [
+        leftOuterJoin(
+          queueEntries,
+          queueEntries.episodeId.equalsExp(episodes.id) & queueEntries.removed.equals(false),
+        ),
+        leftOuterJoin(
+          episodeArchives,
+          episodeArchives.episodeId.equalsExp(episodes.id) & episodeArchives.archived.equals(true),
+        ),
+      ];
+
+  EpisodeWithState _withState(TypedResult row) => (
+        episode: row.readTable(episodes),
+        state: row.readTableOrNull(episodeStates),
+        download: row.readTableOrNull(downloads),
+        queued: row.readTableOrNull(queueEntries) != null,
+        archived: row.readTableOrNull(episodeArchives) != null,
+      );
+
+  FeedEpisode _feedEpisode(TypedResult row) => (
+        episode: row.readTable(episodes),
+        podcast: row.readTable(podcasts),
+        state: row.readTableOrNull(episodeStates),
+        download: row.readTableOrNull(downloads),
+        queued: row.readTableOrNull(queueEntries) != null,
+        archived: row.readTableOrNull(episodeArchives) != null,
+      );
+
+  /// Не в архиве.
+  Expression<bool> get _notArchived => episodeArchives.episodeId.isNull();
+
   Stream<List<EpisodeWithState>> watchEpisodesWithState(int podcastId) {
     final query = select(episodes).join([
       leftOuterJoin(episodeStates, episodeStates.episodeId.equalsExp(episodes.id)),
       leftOuterJoin(downloads, downloads.episodeId.equalsExp(episodes.id)),
+      ..._flagJoins,
     ])
       ..where(episodes.podcastId.equals(podcastId))
       ..orderBy([
         OrderingTerm(expression: episodes.pubDate, mode: OrderingMode.desc, nulls: NullsOrder.last),
         OrderingTerm.asc(episodes.id),
       ]);
-    return query
-        .map((row) => (
-              episode: row.readTable(episodes),
-              state: row.readTableOrNull(episodeStates),
-              download: row.readTableOrNull(downloads),
-            ))
-        .watch();
+    return query.map(_withState).watch();
   }
 
   // -------------------------------------------------------------------------
@@ -389,16 +486,17 @@ class AppDatabase extends _$AppDatabase {
         ),
       leftOuterJoin(episodeStates, episodeStates.episodeId.equalsExp(episodes.id)),
       leftOuterJoin(downloads, downloads.episodeId.equalsExp(episodes.id)),
+      ..._flagJoins,
     ]);
     final byDate = OrderingTerm(expression: episodes.pubDate, mode: OrderingMode.desc, nulls: NullsOrder.last);
     switch (filter) {
       case FeedFilter.fresh:
         query
-          ..where(episodeStates.played.isNull() | episodeStates.played.equals(false))
+          ..where((episodeStates.played.isNull() | episodeStates.played.equals(false)) & _notArchived)
           ..orderBy([byDate, OrderingTerm.desc(episodes.id)]);
       case FeedFilter.started:
         query
-          ..where(episodeStates.positionMs.isBiggerThanValue(0) & episodeStates.played.equals(false))
+          ..where(episodeStates.positionMs.isBiggerThanValue(0) & episodeStates.played.equals(false) & _notArchived)
           ..orderBy([OrderingTerm.desc(episodeStates.updatedAt)]);
       case FeedFilter.downloaded:
         query
@@ -406,14 +504,7 @@ class AppDatabase extends _$AppDatabase {
           ..orderBy([byDate, OrderingTerm.desc(episodes.id)]);
     }
     query.limit(limit);
-    return query
-        .map((row) => (
-              episode: row.readTable(episodes),
-              podcast: row.readTable(podcasts),
-              state: row.readTableOrNull(episodeStates),
-              download: row.readTableOrNull(downloads),
-            ))
-        .watch();
+    return query.map(_feedEpisode).watch();
   }
 
   /// Сколько у каждого подкаста новых эпизодов: появившихся после добавления
@@ -423,10 +514,12 @@ class AppDatabase extends _$AppDatabase {
       'SELECT e.podcast_id AS pid, COUNT(*) AS n FROM episodes e '
       'JOIN podcasts p ON p.id = e.podcast_id '
       'LEFT JOIN episode_states s ON s.episode_id = e.id '
+      'LEFT JOIN episode_archives a ON a.episode_id = e.id AND a.archived = 1 '
       'WHERE julianday(e.first_seen_at) > julianday(p.created_at) + 0.001 '
       'AND (s.episode_id IS NULL OR (s.played = 0 AND s.position_ms = 0)) '
+      'AND a.episode_id IS NULL '
       'GROUP BY e.podcast_id',
-      readsFrom: {episodes, podcasts, episodeStates},
+      readsFrom: {episodes, podcasts, episodeStates, episodeArchives},
     ).watch().map((rows) => {for (final r in rows) r.read<int>('pid'): r.read<int>('n')});
   }
 
@@ -435,6 +528,7 @@ class AppDatabase extends _$AppDatabase {
     final query = select(episodes).join([
       leftOuterJoin(episodeStates, episodeStates.episodeId.equalsExp(episodes.id)),
       leftOuterJoin(downloads, downloads.episodeId.equalsExp(episodes.id)),
+      ..._flagJoins,
     ])
       ..where(episodes.podcastId.equals(podcastId))
       ..orderBy([
@@ -442,13 +536,7 @@ class AppDatabase extends _$AppDatabase {
         OrderingTerm.desc(episodes.id),
       ])
       ..limit(count);
-    return query
-        .map((row) => (
-              episode: row.readTable(episodes),
-              state: row.readTableOrNull(episodeStates),
-              download: row.readTableOrNull(downloads),
-            ))
-        .get();
+    return query.map(_withState).get();
   }
 
   /// Сколько последних эпизодов подкаста держать загруженными;
@@ -520,19 +608,259 @@ class AppDatabase extends _$AppDatabase {
 
   /// Отметка «прослушан» сбрасывает позицию: при повторном запуске
   /// эпизод начнётся сначала.
+  ///
+  /// Прослушанный эпизод уходит из очереди и (если включено в настройках)
+  /// в архив; снятие отметки возвращает его из архива.
   Future<void> setPlayed(int episodeId, bool played) {
-    final now = DateTime.now();
-    final changes = EpisodeStatesCompanion(
-      played: Value(played),
-      playedAt: Value(played ? now : null),
-      positionMs: const Value(0),
-      updatedAt: Value(now),
-      dirty: const Value(true),
-    );
-    return into(episodeStates).insert(
-      changes.copyWith(episodeId: Value(episodeId)),
-      onConflict: DoUpdate((_) => changes),
-    );
+    return transaction(() async {
+      final now = DateTime.now();
+      final changes = EpisodeStatesCompanion(
+        played: Value(played),
+        playedAt: Value(played ? now : null),
+        positionMs: const Value(0),
+        updatedAt: Value(now),
+        dirty: const Value(true),
+      );
+      await into(episodeStates).insert(
+        changes.copyWith(episodeId: Value(episodeId)),
+        onConflict: DoUpdate((_) => changes),
+      );
+      if (played) {
+        await removeFromQueue(episodeId);
+        if (await _autoArchive()) await setArchived(episodeId, true);
+      } else if (await isArchived(episodeId)) {
+        await setArchived(episodeId, false);
+      }
+    });
+  }
+
+  Future<bool> _autoArchive() async => await setting(QueueSettings.autoArchive) != 'false';
+
+  // -------------------------------------------------------------------------
+  // Очередь. Порядок — дробное число: перестановка меняет одну строку.
+  // Удаление мягкое (removed), чтобы передать его на другие устройства.
+  // -------------------------------------------------------------------------
+
+  Stream<List<QueueItem>> watchQueue() {
+    final query = select(queueEntries).join([
+      innerJoin(episodes, episodes.id.equalsExp(queueEntries.episodeId)),
+      innerJoin(podcasts, podcasts.id.equalsExp(episodes.podcastId)),
+      leftOuterJoin(episodeStates, episodeStates.episodeId.equalsExp(episodes.id)),
+      leftOuterJoin(downloads, downloads.episodeId.equalsExp(episodes.id)),
+      leftOuterJoin(
+        episodeArchives,
+        episodeArchives.episodeId.equalsExp(episodes.id) & episodeArchives.archived.equals(true),
+      ),
+    ])
+      ..where(queueEntries.removed.equals(false))
+      ..orderBy([OrderingTerm.asc(queueEntries.sortOrder), OrderingTerm.asc(queueEntries.episodeId)]);
+    return query.map(_feedEpisode).watch();
+  }
+
+  Future<List<QueueEntry>> _queueRows() => (select(queueEntries)
+        ..where((q) => q.removed.equals(false))
+        ..orderBy([(q) => OrderingTerm.asc(q.sortOrder), (q) => OrderingTerm.asc(q.episodeId)]))
+      .get();
+
+  /// id эпизодов очереди по порядку.
+  Future<List<int>> queueIds() async => [for (final q in await _queueRows()) q.episodeId];
+
+  /// Первый эпизод очереди, кроме [exclude].
+  Future<int?> nextInQueue({int? exclude}) async {
+    for (final q in await _queueRows()) {
+      if (q.episodeId != exclude) return q.episodeId;
+    }
+    return null;
+  }
+
+  Stream<bool> watchInQueue(int episodeId) => (select(queueEntries)
+        ..where((q) => q.episodeId.equals(episodeId) & q.removed.equals(false)))
+      .watchSingleOrNull()
+      .map((q) => q != null);
+
+  /// Добавить в конец очереди или, если [next], в начало. Эпизод, который
+  /// уже в очереди, при [next] переносится в начало, иначе остаётся на месте.
+  Future<void> addToQueue(int episodeId, {bool next = false}) {
+    return transaction(() async {
+      final rows = await _queueRows();
+      final present = rows.any((q) => q.episodeId == episodeId);
+      if (present && !next) return;
+      final others = rows.where((q) => q.episodeId != episodeId).toList();
+      final double order;
+      if (others.isEmpty) {
+        order = 0;
+      } else if (next) {
+        order = others.first.sortOrder - 1;
+      } else {
+        order = others.last.sortOrder + 1;
+      }
+      await _writeQueue(episodeId, order: order, removed: false);
+    });
+  }
+
+  Future<void> removeFromQueue(int episodeId) async {
+    final row = await (select(queueEntries)..where((q) => q.episodeId.equals(episodeId))).getSingleOrNull();
+    if (row == null || row.removed) return;
+    await _writeQueue(episodeId, order: row.sortOrder, removed: true);
+  }
+
+  Future<void> clearQueue() {
+    return transaction(() async {
+      for (final q in await _queueRows()) {
+        await _writeQueue(q.episodeId, order: q.sortOrder, removed: true);
+      }
+    });
+  }
+
+  /// Переставить эпизод на место [newIndex] (считая без него самого).
+  Future<void> moveInQueue(int episodeId, int newIndex) {
+    return transaction(() async {
+      final rows = await _queueRows();
+      if (!rows.any((q) => q.episodeId == episodeId)) return;
+      final others = rows.where((q) => q.episodeId != episodeId).toList();
+      final index = newIndex.clamp(0, others.length);
+      final before = index > 0 ? others[index - 1].sortOrder : null;
+      final after = index < others.length ? others[index].sortOrder : null;
+      if (before != null && after != null && after - before < 1e-6) {
+        // Дробные части исчерпались: перенумеровываем всю очередь.
+        final ordered = [...others]..insert(index, rows.firstWhere((q) => q.episodeId == episodeId));
+        for (var i = 0; i < ordered.length; i++) {
+          await _writeQueue(ordered[i].episodeId, order: i.toDouble(), removed: false);
+        }
+        return;
+      }
+      final order = switch ((before, after)) {
+        (null, null) => 0.0,
+        (null, final a?) => a - 1,
+        (final b?, null) => b + 1,
+        (final b?, final a?) => (a + b) / 2,
+      };
+      await _writeQueue(episodeId, order: order, removed: false);
+    });
+  }
+
+  Future<void> _writeQueue(int episodeId, {required double order, required bool removed}) =>
+      into(queueEntries).insertOnConflictUpdate(QueueEntriesCompanion(
+        episodeId: Value(episodeId),
+        sortOrder: Value(order),
+        removed: Value(removed),
+        updatedAt: Value(DateTime.now()),
+        dirty: const Value(true),
+      ));
+
+  // -------------------------------------------------------------------------
+  // Архив
+  // -------------------------------------------------------------------------
+
+  /// В архив (эпизод скрывается из списков и уходит из очереди) или обратно.
+  Future<void> setArchived(int episodeId, bool archived) {
+    return transaction(() async {
+      await into(episodeArchives).insertOnConflictUpdate(EpisodeArchivesCompanion(
+        episodeId: Value(episodeId),
+        archived: Value(archived),
+        updatedAt: Value(DateTime.now()),
+        dirty: const Value(true),
+      ));
+      if (archived) await removeFromQueue(episodeId);
+    });
+  }
+
+  Future<bool> isArchived(int episodeId) async =>
+      (await (select(episodeArchives)..where((a) => a.episodeId.equals(episodeId))).getSingleOrNull())
+          ?.archived ??
+      false;
+
+  // -------------------------------------------------------------------------
+  // Синхронизация очереди и архива (отдельно от gPodder, см. bcaster.php)
+  // -------------------------------------------------------------------------
+
+  Future<List<DirtyStateItem>> dirtyStateItems() async {
+    final queue = await (select(queueEntries).join([
+      innerJoin(episodes, episodes.id.equalsExp(queueEntries.episodeId)),
+      innerJoin(podcasts, podcasts.id.equalsExp(episodes.podcastId)),
+    ])
+          ..where(queueEntries.dirty.equals(true)))
+        .map<DirtyStateItem>((row) {
+      final q = row.readTable(queueEntries);
+      return (
+        kind: 'queue',
+        episodeId: q.episodeId,
+        feedUrl: row.readTable(podcasts).feedUrl,
+        enclosureUrl: row.readTable(episodes).enclosureUrl,
+        value: q.sortOrder,
+        removed: q.removed,
+        changed: q.updatedAt,
+      );
+    }).get();
+    final archive = await (select(episodeArchives).join([
+      innerJoin(episodes, episodes.id.equalsExp(episodeArchives.episodeId)),
+      innerJoin(podcasts, podcasts.id.equalsExp(episodes.podcastId)),
+    ])
+          ..where(episodeArchives.dirty.equals(true)))
+        .map<DirtyStateItem>((row) {
+      final a = row.readTable(episodeArchives);
+      return (
+        kind: 'archive',
+        episodeId: a.episodeId,
+        feedUrl: row.readTable(podcasts).feedUrl,
+        enclosureUrl: row.readTable(episodes).enclosureUrl,
+        value: null,
+        removed: !a.archived,
+        changed: a.updatedAt,
+      );
+    }).get();
+    return [...queue, ...archive];
+  }
+
+  Stream<int> watchDirtyStateCount() {
+    return customSelect(
+      'SELECT (SELECT COUNT(*) FROM queue_entries WHERE dirty = 1) + '
+      '(SELECT COUNT(*) FROM episode_archives WHERE dirty = 1) AS n',
+      readsFrom: {queueEntries, episodeArchives},
+    ).watchSingle().map((r) => r.read<int>('n'));
+  }
+
+  Future<void> markStateSynced(String kind, Iterable<int> episodeIds, DateTime before) {
+    if (kind == 'queue') {
+      return (update(queueEntries)
+            ..where((q) => q.episodeId.isIn(episodeIds) & q.updatedAt.isSmallerOrEqualValue(before)))
+          .write(const QueueEntriesCompanion(dirty: Value(false)));
+    }
+    return (update(episodeArchives)
+          ..where((a) => a.episodeId.isIn(episodeIds) & a.updatedAt.isSmallerOrEqualValue(before)))
+        .write(const EpisodeArchivesCompanion(dirty: Value(false)));
+  }
+
+  /// Изменение очереди с сервера. Более позднее локальное изменение,
+  /// ещё не отправленное, важнее. Возвращает `true`, если применено.
+  Future<bool> applyRemoteQueue(int episodeId, {required double order, required bool removed, required DateTime changed}) {
+    return transaction(() async {
+      final current = await (select(queueEntries)..where((q) => q.episodeId.equals(episodeId))).getSingleOrNull();
+      if (current != null && current.dirty && !current.updatedAt.isBefore(changed)) return false;
+      await into(queueEntries).insertOnConflictUpdate(QueueEntriesCompanion(
+        episodeId: Value(episodeId),
+        sortOrder: Value(order),
+        removed: Value(removed),
+        updatedAt: Value(changed),
+        dirty: const Value(false),
+      ));
+      return true;
+    });
+  }
+
+  /// Изменение архива с сервера; правило то же, что для очереди.
+  Future<bool> applyRemoteArchive(int episodeId, {required bool archived, required DateTime changed}) {
+    return transaction(() async {
+      final current = await (select(episodeArchives)..where((a) => a.episodeId.equals(episodeId))).getSingleOrNull();
+      if (current != null && current.dirty && !current.updatedAt.isBefore(changed)) return false;
+      await into(episodeArchives).insertOnConflictUpdate(EpisodeArchivesCompanion(
+        episodeId: Value(episodeId),
+        archived: Value(archived),
+        updatedAt: Value(changed),
+        dirty: const Value(false),
+      ));
+      return true;
+    });
   }
 
   Future<Episode?> episodeById(int id) =>
@@ -664,6 +992,23 @@ class AppDatabase extends _$AppDatabase {
         updatedAt: Value(now),
         dirty: const Value(false),
       ));
+      // Дослушан на другом устройстве: здесь — так же, как при локальном
+      // прослушивании, но без отправки обратно (то устройство сделало это само).
+      if (played && !(current?.played ?? false)) {
+        await (update(queueEntries)..where((q) => q.episodeId.equals(episodeId) & q.removed.equals(false)))
+            .write(QueueEntriesCompanion(removed: const Value(true), updatedAt: Value(now), dirty: const Value(false)));
+        if (await _autoArchive()) {
+          await into(episodeArchives).insert(
+            EpisodeArchivesCompanion(
+              episodeId: Value(episodeId),
+              archived: const Value(true),
+              updatedAt: Value(now),
+              dirty: const Value(false),
+            ),
+            mode: InsertMode.insertOrIgnore,
+          );
+        }
+      }
       return true;
     });
   }

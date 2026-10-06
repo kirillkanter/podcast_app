@@ -3,7 +3,9 @@
 /// Порядок за один проход:
 /// 1. регистрация устройства (один раз для аккаунта);
 /// 2. отправка локальных изменений подписок, затем получение чужих;
-/// 3. отправка позиций и отметок «прослушано», затем получение чужих.
+/// 3. отправка позиций и отметок «прослушано», затем получение чужих;
+/// 4. очередь и архив — через bcaster.php рядом с oPodSync (в протоколе
+///    gPodder их нет). Если этого файла на сервере нет, шаг пропускается.
 ///
 /// Правило конфликтов: неотправленное локальное изменение важнее серверного
 /// (оно уйдёт на сервер следующим), иначе применяется последнее действие
@@ -34,6 +36,10 @@ abstract final class SyncSettings {
   static const episodesSince = 'sync.episodesSince';
   static const lastSync = 'sync.lastSync';
   static const lastError = 'sync.lastError';
+  static const stateSince = 'sync.stateSince';
+
+  /// 'true' — сервер не умеет синхронизировать очередь и архив.
+  static const stateUnsupported = 'sync.stateUnsupported';
 
   static const defaultServer = 'https://sync.bcaster.ru';
 }
@@ -44,12 +50,16 @@ class SyncResult {
     this.subscriptionsAdded = 0,
     this.subscriptionsRemoved = 0,
     this.episodesUpdated = 0,
+    this.stateUpdated = 0,
     this.feedErrors = const [],
   });
 
   final int subscriptionsAdded;
   final int subscriptionsRemoved;
   final int episodesUpdated;
+
+  /// Сколько изменений очереди и архива пришло с других устройств.
+  final int stateUpdated;
 
   /// Фиды с сервера, которые не удалось загрузить.
   final List<String> feedErrors;
@@ -154,6 +164,7 @@ class SyncService {
 
       final subs = await _syncSubscriptions(client, deviceId);
       final episodes = await _syncEpisodes(client, deviceId);
+      final state = await _syncState(client);
 
       await _db.setSetting(SyncSettings.lastSync, DateTime.now().toIso8601String());
       await _db.setSetting(SyncSettings.lastError, '');
@@ -161,6 +172,7 @@ class SyncService {
         subscriptionsAdded: subs.added,
         subscriptionsRemoved: subs.removed,
         episodesUpdated: episodes,
+        stateUpdated: state,
         feedErrors: subs.errors,
       );
     } on SyncException catch (e) {
@@ -265,6 +277,75 @@ class SyncService {
     return updated;
   }
 
+  /// Очередь и архив. Правило конфликтов — более позднее изменение
+  /// (по времени изменения на устройстве); неотправленное локальное
+  /// изменение новее серверного не перезаписывается.
+  Future<int> _syncState(GpodderClient client) async {
+    final startedAt = DateTime.now();
+    final dirty = await _db.dirtyStateItems();
+    try {
+      if (dirty.isNotEmpty) {
+        await client.uploadState([
+          for (final item in dirty)
+            {
+              'kind': item.kind,
+              'podcast': item.feedUrl,
+              'episode': item.enclosureUrl,
+              'value': ?item.value,
+              'removed': item.removed,
+              'changed': item.changed.millisecondsSinceEpoch,
+            },
+        ]);
+        for (final kind in ['queue', 'archive']) {
+          await _db.markStateSynced(
+            kind,
+            [for (final item in dirty) if (item.kind == kind) item.episodeId],
+            startedAt,
+          );
+        }
+      }
+
+      final since = int.tryParse(await _db.setting(SyncSettings.stateSince) ?? '') ?? 0;
+      final changes = await client.stateChanges(since);
+      var updated = 0;
+      for (final item in changes.items) {
+        final kind = item['kind'];
+        final episodeUrl = item['episode'];
+        final changed = item['changed'];
+        if (episodeUrl is! String || changed is! int) continue;
+        final podcastUrl = item['podcast'];
+        final episode = await _db.findEpisodeByEnclosure(
+          episodeUrl,
+          feedUrl: podcastUrl is String ? podcastUrl : null,
+        );
+        if (episode == null) continue; // эпизода нет в локальном фиде
+        final removed = item['removed'] == true;
+        final at = DateTime.fromMillisecondsSinceEpoch(changed);
+        final value = item['value'];
+        final applied = switch (kind) {
+          'queue' => await _db.applyRemoteQueue(
+              episode.id,
+              order: value is num ? value.toDouble() : 0,
+              removed: removed,
+              changed: at,
+            ),
+          'archive' => await _db.applyRemoteArchive(episode.id, archived: !removed, changed: at),
+          _ => false,
+        };
+        if (applied) updated++;
+      }
+      await _db.setSetting(SyncSettings.stateSince, '${changes.rev}');
+      await _db.setSetting(SyncSettings.stateUnsupported, '');
+      return updated;
+    } on SyncException catch (e) {
+      if (!e.notFound) rethrow;
+      // Старый сервер без bcaster.php: подписки и прогресс синхронизируются,
+      // очередь и архив остаются на устройстве.
+      await _db.setSetting(SyncSettings.stateUnsupported, 'true');
+      return 0;
+    }
+  }
+
   /// Локальное состояние → действие gPodder. «Прослушано» передаётся как
   /// позиция, равная длительности (так делают AntennaPod и другие клиенты),
   /// «не прослушано с начала» — как действие new.
@@ -327,6 +408,7 @@ class SyncService {
     for (final key in [
       SyncSettings.subscriptionsSince,
       SyncSettings.episodesSince,
+      SyncSettings.stateSince,
       SyncSettings.deviceRegistered,
       SyncSettings.lastSync,
     ]) {
@@ -335,6 +417,8 @@ class SyncService {
     // Первая синхронизация с новым аккаунтом отправит всё, что есть на устройстве.
     await _db.customStatement('UPDATE subscriptions SET dirty = 1');
     await _db.customStatement('UPDATE episode_states SET dirty = 1');
+    await _db.customStatement('UPDATE queue_entries SET dirty = 1');
+    await _db.customStatement('UPDATE episode_archives SET dirty = 1');
   }
 
   static String _defaultCaption() {

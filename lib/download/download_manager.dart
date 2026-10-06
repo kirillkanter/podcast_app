@@ -134,7 +134,7 @@ class DownloadManager {
         await _intSetting(DownloadSettings.autoCount, 0);
     if (count <= 0) return;
     for (final item in await _db.latestEpisodes(podcastId, count)) {
-      if (item.state?.played ?? false) continue;
+      if ((item.state?.played ?? false) || item.archived) continue;
       if (item.download != null) continue; // уже качали, качаем или удалено вручную
       await enqueue(item.episode.id, auto: true);
     }

@@ -15,12 +15,15 @@ import 'dart:io' show SocketException;
 import 'package:http/http.dart' as http;
 
 class SyncException implements Exception {
-  const SyncException(this.message, {this.unauthorized = false});
+  const SyncException(this.message, {this.unauthorized = false, this.notFound = false});
 
   final String message;
 
   /// Неверный логин или пароль.
   final bool unauthorized;
+
+  /// Адреса нет на сервере (код 404).
+  final bool notFound;
 
   @override
   String toString() => message;
@@ -163,6 +166,29 @@ class GpodderClient {
     }
   }
 
+  /// Изменения очереди и архива после ревизии [since] (bcaster.php рядом
+  /// с oPodSync). Если файла на сервере нет — [SyncException.notFound].
+  Future<({List<Map<String, Object?>> items, int rev})> stateChanges(int since) async {
+    final data = await _send('GET', '/bcaster.php', query: {'since': '$since'});
+    if (data is! Map<String, Object?>) throw const SyncException('Сервер вернул неожиданный ответ на запрос очереди.');
+    final list = data['items'];
+    return (
+      items: [
+        if (list is List)
+          for (final item in list)
+            if (item is Map<String, Object?>) item,
+      ],
+      rev: data['rev'] is int ? data['rev']! as int : since,
+    );
+  }
+
+  Future<void> uploadState(List<Map<String, Object?>> items) async {
+    for (var i = 0; i < items.length; i += 500) {
+      final chunk = items.sublist(i, i + 500 > items.length ? items.length : i + 500);
+      await _send('POST', '/bcaster.php', body: {'items': chunk});
+    }
+  }
+
   void close() => _client.close();
 
   Future<Object?> _send(String method, String path, {Object? body, Map<String, String>? query}) async {
@@ -195,6 +221,9 @@ class GpodderClient {
     final type = response.headers['content-type'] ?? '';
     if (response.statusCode == 401) {
       throw const SyncException('Неверный логин или пароль.', unauthorized: true);
+    }
+    if (response.statusCode == 404) {
+      throw const SyncException('Сервер синхронизации не нашёл адрес (код 404). Проверьте адрес сервера.', notFound: true);
     }
     if (type.contains('text/html')) {
       throw SyncException(

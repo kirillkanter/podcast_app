@@ -163,6 +163,19 @@ class QueueEntries extends Table {
   Set<Column> get primaryKey => {episodeId};
 }
 
+/// Архив: эпизод скрыт из списков. `archived = false` — возвращён из архива
+/// (строка остаётся, чтобы передать это на другие устройства).
+@DataClassName('EpisodeArchive')
+class EpisodeArchives extends Table {
+  IntColumn get episodeId => integer().references(Episodes, #id, onDelete: KeyAction.cascade)();
+  BoolColumn get archived => boolean().withDefault(const Constant(true))();
+  DateTimeColumn get updatedAt => dateTime().clientDefault(DateTime.now)();
+  BoolColumn get dirty => boolean().withDefault(const Constant(true))();
+
+  @override
+  Set<Column> get primaryKey => {episodeId};
+}
+
 // ---------------------------------------------------------------------------
 // Только локально
 // ---------------------------------------------------------------------------

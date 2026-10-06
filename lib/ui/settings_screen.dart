@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
+import '../data/db/database.dart';
 import '../sync/sync_service.dart';
 import 'app_scope.dart';
 import 'diagnostics_dialog.dart';
+import 'episode_actions.dart';
 import 'format.dart';
 import 'sync_screen.dart';
 import 'theme.dart';
@@ -29,6 +31,32 @@ class SettingsScreen extends StatelessWidget {
             Text('Настройки', style: screenTitleStyle(context)),
             const SizedBox(height: 16),
             if (scope.sync != null) const _SyncCard(),
+            const _SectionTitle('ОЧЕРЕДЬ И АРХИВ'),
+            _Card(children: [
+              _SwitchRow(
+                label: 'Играть следующий из очереди',
+                hint: 'Когда эпизод закончится',
+                settingKey: QueueSettings.continuePlayback,
+              ),
+              _SwitchRow(
+                label: 'Прослушанные — в архив',
+                hint: 'Эпизод скрывается из списков, когда дослушан до конца',
+                settingKey: QueueSettings.autoArchive,
+              ),
+            ]),
+            const _SectionTitle('ЖЕСТЫ В СПИСКЕ ЭПИЗОДОВ'),
+            _Card(children: [
+              _SwipeRow(
+                label: 'Свайп влево',
+                settingKey: QueueSettings.swipeLeft,
+                fallback: SwipeSettingsScope.defaultLeft,
+              ),
+              _SwipeRow(
+                label: 'Свайп вправо',
+                settingKey: QueueSettings.swipeRight,
+                fallback: SwipeSettingsScope.defaultRight,
+              ),
+            ]),
             const _SectionTitle('ОФОРМЛЕНИЕ'),
             _Card(children: [
               _Row(
@@ -181,6 +209,69 @@ class _Row extends StatelessWidget {
           ]),
         ),
       ),
+    );
+  }
+}
+
+/// Переключатель настройки «да/нет»; по умолчанию включено.
+class _SwitchRow extends StatelessWidget {
+  const _SwitchRow({required this.label, required this.settingKey, this.hint});
+
+  final String label;
+  final String? hint;
+  final String settingKey;
+
+  @override
+  Widget build(BuildContext context) {
+    final db = AppScope.of(context).db;
+    return StreamBuilder<String?>(
+      stream: db.watchSetting(settingKey),
+      builder: (context, s) {
+        final on = s.data != 'false';
+        return _Row(
+          label: label,
+          hint: hint,
+          onTap: () => db.setSetting(settingKey, '${!on}'),
+          trailing: Switch(value: on, onChanged: (v) => db.setSetting(settingKey, '$v')),
+        );
+      },
+    );
+  }
+}
+
+/// Выбор действия для свайпа.
+class _SwipeRow extends StatelessWidget {
+  const _SwipeRow({required this.label, required this.settingKey, required this.fallback});
+
+  final String label;
+  final String settingKey;
+  final SwipeAction fallback;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = BcColors.of(context);
+    final db = AppScope.of(context).db;
+    return StreamBuilder<String?>(
+      stream: db.watchSetting(settingKey),
+      builder: (context, s) {
+        final value = SwipeAction.parse(s.data, fallback);
+        return PopupMenuButton<SwipeAction>(
+          tooltip: label,
+          initialValue: value,
+          onSelected: (a) => db.setSetting(settingKey, a.name),
+          itemBuilder: (_) => [
+            for (final a in SwipeAction.values) PopupMenuItem(value: a, child: Text(a.label)),
+          ],
+          child: _Row(
+            label: label,
+            trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+              Text(value.label, style: TextStyle(color: c.muted)),
+              const SizedBox(width: 4),
+              Icon(Icons.unfold_more_rounded, size: 18, color: c.muted),
+            ]),
+          ),
+        );
+      },
     );
   }
 }

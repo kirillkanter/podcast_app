@@ -4,12 +4,14 @@ import '../data/db/database.dart';
 import '../sync/sync_service.dart';
 import 'app_scope.dart';
 import 'downloads_screen.dart';
+import 'episode_actions.dart';
 import 'format.dart';
 import 'library_screen.dart';
 import 'mini_player.dart';
 import 'now_playing.dart';
 import 'podcast_cover.dart';
 import 'podcast_screen.dart';
+import 'queue_screen.dart';
 import 'search_screen.dart';
 import 'settings_screen.dart';
 import 'theme.dart';
@@ -19,11 +21,16 @@ enum ShellTab {
   library('Библиотека', Icons.grid_view_rounded),
   search('Поиск', Icons.search_rounded),
   downloads('Загрузки', Icons.download_rounded),
+  // На телефоне очередь — блок в библиотеке и отдельный экран оттуда.
+  queue('Очередь', Icons.playlist_play_rounded, phone: false),
   settings('Настройки', Icons.tune_rounded);
 
-  const ShellTab(this.label, this.icon);
+  const ShellTab(this.label, this.icon, {this.phone = true});
   final String label;
   final IconData icon;
+
+  /// Есть ли вкладка внизу на телефоне.
+  final bool phone;
 }
 
 /// Ширина окна, с которой показывается компьютерная раскладка.
@@ -38,6 +45,17 @@ class AppShell extends StatefulWidget {
   /// Открыть экран подкаста в разделе «Библиотека» (например, из бокового меню).
   static void openPodcast(BuildContext context, int podcastId) =>
       context.findAncestorStateOfType<_AppShellState>()?._openPodcast(podcastId);
+
+  /// Открыть очередь: на компьютере — раздел меню, на телефоне — экран
+  /// поверх текущего раздела.
+  static void openQueue(BuildContext context) {
+    final shell = context.findAncestorStateOfType<_AppShellState>();
+    if (shell != null && MediaQuery.sizeOf(context).width >= wideLayoutWidth) {
+      shell._select(ShellTab.queue);
+    } else {
+      Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const QueueScreen()));
+    }
+  }
 
   @override
   State<AppShell> createState() => _AppShellState();
@@ -79,6 +97,7 @@ class _AppShellState extends State<AppShell> {
       ShellTab.downloads => scope.downloads == null
           ? const _Unavailable('Загрузки недоступны')
           : const DownloadsScreen(),
+      ShellTab.queue => const QueueScreen(showBack: false),
       ShellTab.settings => const SettingsScreen(),
     };
   }
@@ -109,12 +128,18 @@ class _AppShellState extends State<AppShell> {
   @override
   Widget build(BuildContext context) {
     final wide = MediaQuery.sizeOf(context).width >= wideLayoutWidth;
+    // Окно сузили, а открыт раздел только для компьютера — в библиотеку.
+    if (!wide && !_tab.phone) {
+      _tab = ShellTab.library;
+    }
     return NavigatorPopHandler(
       onPopWithResult: (_) => _navigators[_tab]!.currentState?.maybePop(),
-      child: NowPlayingBuilder(builder: (context, now, audio) {
-        final playerVisible = audio != null && now.item != null && now.active;
-        return wide ? _wide(playerVisible) : _phone(playerVisible);
-      }),
+      child: SwipeSettingsProvider(
+        child: NowPlayingBuilder(builder: (context, now, audio) {
+          final playerVisible = audio != null && now.item != null && now.active;
+          return wide ? _wide(playerVisible) : _phone(playerVisible);
+        }),
+      ),
     );
   }
 
@@ -166,7 +191,7 @@ class _PhoneNav extends StatelessWidget {
         child: Padding(
           padding: const EdgeInsets.fromLTRB(8, 6, 8, 8),
           child: Row(children: [
-            for (final tab in ShellTab.values)
+            for (final tab in ShellTab.values.where((t) => t.phone))
               Expanded(
                 child: Semantics(
                   selected: tab == selected,

@@ -204,4 +204,36 @@ void main() {
 
     await disposeApp(tester);
   });
+
+  testWidgets('очередь в библиотеке, экран очереди, свайп в архив', (tester) async {
+    await tester.runAsync(() async {
+      await repo.addAndSubscribe('https://example.com/feed');
+      final first = await db.findEpisodeByEnclosure('https://cdn.example.com/1.mp3');
+      await db.addToQueue(first!.id);
+    });
+
+    await tester.pumpWidget(PodcastApp(db: db, repository: repo, refreshOnStart: false));
+    await settle(tester, 'запуск');
+    expect(find.text('Изменить'), findsOneWidget, reason: 'блок очереди в библиотеке');
+    expect(find.text('Первый выпуск'), findsNWidgets(2), reason: 'в очереди и в ленте');
+
+    // Свайп влево по эпизоду ленты — в архив (по умолчанию).
+    await tester.drag(find.text('Второй выпуск'), const Offset(-500, 0));
+    await settle(tester, 'свайп влево');
+    expect(find.text('Эпизод в архиве'), findsOneWidget);
+    expect(find.text('Второй выпуск'), findsNothing, reason: 'архив скрыт из ленты');
+
+    await tester.tap(find.text('Изменить'));
+    await settle(tester, 'открытие очереди');
+    expect(find.text('Далее'), findsOneWidget);
+    expect(find.text('Играть дальше по очереди'), findsOneWidget);
+    expect(find.text('Первый выпуск'), findsOneWidget);
+
+    // Свайп в очереди убирает эпизод.
+    await tester.drag(find.text('Первый выпуск'), const Offset(-500, 0));
+    await settle(tester, 'свайп в очереди');
+    expect(find.text('Очередь пуста'), findsOneWidget);
+
+    await disposeApp(tester);
+  });
 }

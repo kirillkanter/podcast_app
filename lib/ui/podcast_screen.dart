@@ -5,6 +5,7 @@ import '../data/podcast_repository.dart';
 import '../platform/open_url.dart';
 import 'app_scope.dart';
 import 'download_button.dart';
+import 'episode_actions.dart';
 import 'episode_sheet.dart';
 import 'format.dart';
 import 'now_playing.dart';
@@ -25,6 +26,7 @@ class _PodcastScreenState extends State<PodcastScreen> {
   Stream<bool>? _subscribed;
   Stream<List<EpisodeWithState>>? _episodes;
   bool _refreshing = false;
+  bool _showArchived = false;
 
   @override
   void didChangeDependencies() {
@@ -126,11 +128,11 @@ class _PodcastScreenState extends State<PodcastScreen> {
                 StreamBuilder<List<EpisodeWithState>>(
                   stream: _episodes,
                   builder: (context, snapshot) {
-                    final items = snapshot.data;
-                    if (items == null) {
+                    final all = snapshot.data;
+                    if (all == null) {
                       return const SliverToBoxAdapter(child: SizedBox.shrink());
                     }
-                    if (items.isEmpty) {
+                    if (all.isEmpty) {
                       return const SliverToBoxAdapter(
                         child: Padding(
                           padding: EdgeInsets.all(32),
@@ -138,11 +140,31 @@ class _PodcastScreenState extends State<PodcastScreen> {
                         ),
                       );
                     }
-                    return SliverList.separated(
-                      itemCount: items.length,
-                      separatorBuilder: (_, _) => const Divider(height: 1, indent: 16, endIndent: 16),
-                      itemBuilder: (context, i) => _EpisodeTile(item: items[i]),
-                    );
+                    final archived = all.where((e) => e.archived).length;
+                    final items = _showArchived ? all : all.where((e) => !e.archived).toList();
+                    final c = BcColors.of(context);
+                    return SliverMainAxisGroup(slivers: [
+                      SliverToBoxAdapter(
+                        child: _EpisodesHeader(
+                          archived: archived,
+                          showArchived: _showArchived,
+                          onToggle: () => setState(() => _showArchived = !_showArchived),
+                        ),
+                      ),
+                      if (items.isEmpty)
+                        SliverToBoxAdapter(
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+                            child: Text('Все эпизоды в архиве.', style: TextStyle(color: c.muted)),
+                          ),
+                        )
+                      else
+                        SliverList.separated(
+                          itemCount: items.length,
+                          separatorBuilder: (_, _) => Divider(height: 1, color: c.divider),
+                          itemBuilder: (context, i) => _EpisodeTile(item: items[i]),
+                        ),
+                    ]);
                   },
                 ),
                 SliverToBoxAdapter(child: SizedBox(height: MediaQuery.paddingOf(context).bottom + 24)),
@@ -308,6 +330,53 @@ class _HeaderState extends State<_Header> {
   }
 }
 
+/// «Эпизоды» и кнопка показа архива.
+class _EpisodesHeader extends StatelessWidget {
+  const _EpisodesHeader({required this.archived, required this.showArchived, required this.onToggle});
+
+  final int archived;
+  final bool showArchived;
+  final VoidCallback onToggle;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = BcColors.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 16, 16, 6),
+      child: Row(children: [
+        Expanded(child: Text('Эпизоды', style: sectionTitleStyle(context))),
+        if (archived > 0)
+          Semantics(
+            toggled: showArchived,
+            child: Tooltip(
+              message: showArchived ? 'Скрыть эпизоды из архива' : 'Показать эпизоды из архива',
+              child: Material(
+                color: showArchived ? c.raised : Colors.transparent,
+                shape: StadiumBorder(side: BorderSide(color: showArchived ? Colors.transparent : c.line)),
+                child: InkWell(
+                  customBorder: const StadiumBorder(),
+                  onTap: onToggle,
+                  child: SizedBox(
+                    height: 36,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        Icon(showArchived ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                            size: 16, color: c.text),
+                        const SizedBox(width: 6),
+                        Text('Архив $archived', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+                      ]),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ]),
+    );
+  }
+}
+
 class _EpisodeTile extends StatelessWidget {
   const _EpisodeTile({required this.item});
 
@@ -315,40 +384,101 @@ class _EpisodeTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final c = BcColors.of(context);
     final e = item.episode;
     final played = item.state?.played ?? false;
     final positionMs = item.state?.positionMs ?? 0;
     final inProgress = !played && positionMs > 0;
-    final meta = [
-      formatEpisodeDate(e.pubDate),
-      if (inProgress && e.durationMs != null && e.durationMs! > positionMs)
-        'осталось ${formatDuration(e.durationMs! - positionMs)}'
-      else
-        formatDuration(e.durationMs),
-      ?downloadLabel(item.download),
-    ].where((s) => s.isNotEmpty).join(' · ');
+    final dim = played || item.archived;
+    final status = downloadLabel(item.download);
+    final date = formatEpisodeDate(e.pubDate);
+    final top = [
+      date,
+      if (item.archived) 'в архиве',
+      ?status,
+    ].where((t) => t.isNotEmpty).join(' · ');
 
-    return ListTile(
-      contentPadding: const EdgeInsets.only(left: 16, right: 4, top: 4, bottom: 4),
-      title: Text(
-        e.title,
-        maxLines: 2,
-        overflow: TextOverflow.ellipsis,
-        style: played ? TextStyle(color: theme.colorScheme.onSurfaceVariant) : null,
+    return SwipeableEpisode(
+      episode: item.ref,
+      child: InkWell(
+        onTap: () => showEpisodeSheet(context, item),
+        child: Opacity(
+          opacity: dim ? 0.55 : 1,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 14, 12, 8),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              if (top.isNotEmpty) Text(top, style: TextStyle(fontSize: 12, color: c.muted)),
+              const SizedBox(height: 4),
+              Text(e.title,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500, height: 1.3)),
+              if (inProgress && e.durationMs != null) ...[
+                const SizedBox(height: 8),
+                ThinProgress(value: positionMs / e.durationMs!),
+              ],
+              const SizedBox(height: 6),
+              Row(children: [
+                _PlayPill(
+                  episodeId: e.id,
+                  label: played ? 'Прослушан' : formatLeft(e.durationMs, inProgress ? positionMs : 0),
+                ),
+                const Spacer(),
+                DownloadButton(episodeId: e.id, download: item.download),
+                QueueArchiveButtons(episode: item.ref, size: 44),
+              ]),
+            ]),
+          ),
+        ),
       ),
-      subtitle: meta.isEmpty ? null : Text(meta),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (played)
-            Icon(Icons.check, size: 20, color: theme.colorScheme.outline, semanticLabel: 'Прослушан'),
-          DownloadButton(episodeId: e.id, download: item.download),
-          EpisodePlayButton(episodeId: e.id, size: 32),
-        ],
-      ),
-      onTap: () => showEpisodeSheet(context, item),
     );
+  }
+}
+
+/// Кнопка «слушать» с оставшимся временем.
+class _PlayPill extends StatelessWidget {
+  const _PlayPill({required this.episodeId, required this.label});
+
+  final int episodeId;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = BcColors.of(context);
+    return NowPlayingBuilder(builder: (context, now, audio) {
+      if (audio == null) return const SizedBox(height: 44);
+      final current = now.isEpisode(episodeId);
+      final playing = current && now.playing;
+      final text = playing ? 'Пауза' : (label.isEmpty ? 'Слушать' : label);
+      return Tooltip(
+        message: playing ? 'Пауза' : 'Слушать',
+        child: Material(
+          color: playing ? c.fill : Colors.transparent,
+          shape: StadiumBorder(side: playing ? BorderSide.none : BorderSide(color: c.line, width: 1.5)),
+          child: InkWell(
+            customBorder: const StadiumBorder(),
+            onTap: () => playing ? audio.pause() : audio.playEpisode(episodeId),
+            child: SizedBox(
+              height: 36,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(10, 0, 14, 0),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  if (current && now.loading)
+                    const SizedBox.square(dimension: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                  else
+                    Icon(playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                        size: 18, color: playing ? c.onFill : c.text),
+                  const SizedBox(width: 6),
+                  Text(text,
+                      style: TextStyle(
+                          fontSize: 13, fontWeight: FontWeight.w500, color: playing ? c.onFill : c.text)),
+                ]),
+              ),
+            ),
+          ),
+        ),
+      );
+    });
   }
 }
 

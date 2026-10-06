@@ -6,6 +6,7 @@ import '../player/podcast_audio_handler.dart';
 import 'now_playing.dart';
 import 'player_screen.dart';
 import 'podcast_cover.dart';
+import 'shell.dart';
 import 'theme.dart';
 
 void _openPlayer(BuildContext context) =>
@@ -121,6 +122,13 @@ class DesktopPlayerBar extends StatelessWidget {
                   flex: 3,
                   child: Row(mainAxisAlignment: MainAxisAlignment.end, children: [
                     _SpeedButton(audio: audio, color: c.ink),
+                    const SizedBox(width: 4),
+                    RoundIconButton(
+                      icon: Icons.playlist_play_rounded,
+                      tooltip: 'Очередь воспроизведения',
+                      size: 40,
+                      onPressed: () => AppShell.openQueue(context),
+                    ),
                   ]),
                 ),
               ]),

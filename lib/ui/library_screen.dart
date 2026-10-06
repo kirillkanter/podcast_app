@@ -5,12 +5,14 @@ import 'package:flutter/material.dart';
 import '../data/db/database.dart';
 import 'add_feed_dialog.dart';
 import 'app_scope.dart';
+import 'episode_actions.dart';
 import 'episode_sheet.dart';
 import 'feed_screen.dart';
 import 'format.dart';
 import 'now_playing.dart';
 import 'podcast_cover.dart';
 import 'podcast_screen.dart';
+import 'queue_screen.dart';
 import 'shell.dart';
 import 'theme.dart';
 
@@ -94,8 +96,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   else if (podcasts.isEmpty)
                     const SliverToBoxAdapter(child: _EmptyState())
                   else ...[
-                    SliverToBoxAdapter(child: _filters()),
-                    _Feed(filter: _filter),
+                    SliverToBoxAdapter(child: _feedAndQueue()),
                     SliverToBoxAdapter(
                       child: Padding(
                         padding: const EdgeInsets.fromLTRB(20, 22, 20, 12),
@@ -140,6 +141,132 @@ class _LibraryScreenState extends State<LibraryScreen> {
         padding: const EdgeInsets.only(bottom: 8),
         child: FeedFilterChips(value: _filter, onChanged: (f) => setState(() => _filter = f)),
       );
+
+  /// Лента и очередь: на широком экране рядом, на телефоне очередь сверху.
+  Widget _feedAndQueue() {
+    final feed = Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      _filters(),
+      _Feed(filter: _filter),
+    ]);
+    return LayoutBuilder(builder: (context, box) {
+      if (box.maxWidth >= 980) {
+        return Padding(
+          padding: const EdgeInsets.only(right: 20),
+          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Expanded(flex: 3, child: feed),
+            const SizedBox(width: 8),
+            const Expanded(flex: 2, child: QueueBlock(wide: true)),
+          ]),
+        );
+      }
+      return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        const QueueBlock(),
+        feed,
+      ]);
+    });
+  }
+}
+
+/// Блок очереди в библиотеке: первые эпизоды и переход к полному списку.
+/// Пустая очередь не показывается.
+class QueueBlock extends StatelessWidget {
+  const QueueBlock({super.key, this.wide = false});
+
+  final bool wide;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = BcColors.of(context);
+    return StreamBuilder<List<QueueItem>>(
+      stream: AppScope.of(context).db.watchQueue(),
+      builder: (context, snapshot) {
+        final items = snapshot.data ?? const <QueueItem>[];
+        if (items.isEmpty) return const SizedBox.shrink();
+        final shown = wide ? 4 : 2;
+        final rest = items.length - shown;
+        return Padding(
+          padding: wide ? const EdgeInsets.only(top: 2) : const EdgeInsets.fromLTRB(16, 4, 16, 16),
+          child: Material(
+            color: c.card,
+            borderRadius: BorderRadius.circular(wide ? 20 : 18),
+            clipBehavior: Clip.antiAlias,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 10, 6, 6),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                Row(children: [
+                  Expanded(
+                    child: Text.rich(
+                      TextSpan(text: 'Очередь', children: [
+                        TextSpan(text: ' · ${items.length}', style: TextStyle(color: c.muted)),
+                      ]),
+                      style: sectionTitleStyle(context).copyWith(fontSize: 15),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () => AppShell.openQueue(context),
+                    child: Text('Изменить', style: TextStyle(color: c.ink, fontWeight: FontWeight.w500)),
+                  ),
+                ]),
+                for (final q in items.take(shown)) _QueuePreviewRow(item: q),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(0, 2, 10, 6),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(8),
+                    onTap: () => AppShell.openQueue(context),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 6),
+                      child: Text(
+                        rest > 0
+                            ? 'и ещё $rest ${plural(rest, 'эпизод', 'эпизода', 'эпизодов')} · всего ${formatDuration(queueLeftMs(items))}'
+                            : 'Всего ${formatDuration(queueLeftMs(items))}',
+                        style: TextStyle(fontSize: 13, color: c.muted),
+                      ),
+                    ),
+                  ),
+                ),
+              ]),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _QueuePreviewRow extends StatelessWidget {
+  const _QueuePreviewRow({required this.item});
+
+  final QueueItem item;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = BcColors.of(context);
+    final e = item.episode;
+    final position = item.state?.positionMs ?? 0;
+    return InkWell(
+      borderRadius: BorderRadius.circular(10),
+      onTap: () => showEpisodeSheet(context, item.withState),
+      child: SizedBox(
+        height: 58,
+        child: Row(children: [
+          PodcastCover(url: e.imageUrl ?? item.podcast.imageUrl, size: 40),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(e.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+              const SizedBox(height: 2),
+              Text([item.podcast.title, formatLeft(e.durationMs, position)].where((t) => t.isNotEmpty).join(' · '),
+                  maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12, color: c.muted)),
+            ]),
+          ),
+          _PlayCircle(episodeId: e.id),
+        ]),
+      ),
+    );
+  }
 }
 
 /// Фильтры ленты: «Новые», «Начатые», «Загруженные».
@@ -195,22 +322,20 @@ class _Feed extends StatelessWidget {
       stream: AppScope.of(context).db.watchFeed(filter, limit: _preview + 1),
       builder: (context, snapshot) {
         final items = snapshot.data;
-        if (items == null) return const SliverToBoxAdapter(child: SizedBox(height: 80));
+        if (items == null) return const SizedBox(height: 80);
         if (items.isEmpty) {
           final text = switch (filter) {
             FeedFilter.fresh => 'Всё прослушано. Новые эпизоды появятся здесь.',
             FeedFilter.started => 'Начатых эпизодов нет.',
             FeedFilter.downloaded => 'Загруженных эпизодов нет.',
           };
-          return SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-              child: Text(text, style: TextStyle(color: c.muted)),
-            ),
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+            child: Text(text, style: TextStyle(color: c.muted)),
           );
         }
         final more = items.length > _preview;
-        return SliverList.list(children: [
+        return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           for (final item in items.take(_preview)) FeedEpisodeRow(item: item),
           if (more) _ShowAll(filter: filter),
         ]);
@@ -275,8 +400,11 @@ class FeedEpisodeRow extends StatelessWidget {
     final started = position > 0 && !(item.state?.played ?? false);
     final downloaded = item.download?.status == DownloadStatus.completed;
     final date = showDate ? formatEpisodeDate(e.pubDate).toLowerCase() : '';
-    return InkWell(
-      onTap: () => showEpisodeSheet(context, (episode: e, state: item.state, download: item.download)),
+    final wide = MediaQuery.sizeOf(context).width >= wideLayoutWidth;
+    return SwipeableEpisode(
+      episode: item.ref,
+      child: InkWell(
+      onTap: () => showEpisodeSheet(context, item.withState),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(20, 10, 12, 10),
         child: Row(children: [
@@ -313,9 +441,11 @@ class FeedEpisodeRow extends StatelessWidget {
             ]),
           ),
           const SizedBox(width: 8),
+          if (wide) QueueArchiveButtons(episode: item.ref),
           _PlayCircle(episodeId: e.id),
         ]),
       ),
+    ),
     );
   }
 }

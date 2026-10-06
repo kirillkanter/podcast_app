@@ -110,6 +110,35 @@ class _EpisodeDetails extends StatelessWidget {
                 if (!played) await downloads?.onPlayed(e.id);
               },
             ),
+            OutlinedButton.icon(
+              icon: Icon(item.queued ? Icons.playlist_remove_rounded : Icons.playlist_add_rounded),
+              label: Text(item.queued ? 'Убрать из очереди' : 'В очередь'),
+              onPressed: () {
+                final messenger = ScaffoldMessenger.of(context);
+                Navigator.of(context).pop();
+                item.queued ? db.removeFromQueue(e.id) : db.addToQueue(e.id);
+                messenger.showSnackBar(SnackBar(
+                  content: Text(item.queued ? 'Убрано из очереди' : 'Добавлено в очередь'),
+                  duration: const Duration(seconds: 2),
+                ));
+              },
+            ),
+            OutlinedButton.icon(
+              icon: const Icon(Icons.queue_play_next_rounded),
+              label: const Text('Играть следующим'),
+              onPressed: () {
+                Navigator.of(context).pop();
+                db.addToQueue(e.id, next: true);
+              },
+            ),
+            OutlinedButton.icon(
+              icon: Icon(item.archived ? Icons.unarchive_outlined : Icons.archive_outlined),
+              label: Text(item.archived ? 'Вернуть из архива' : 'В архив'),
+              onPressed: () {
+                Navigator.of(context).pop();
+                db.setArchived(e.id, !item.archived);
+              },
+            ),
             if (downloads != null) _downloadAction(context, downloads),
           ],
         ),

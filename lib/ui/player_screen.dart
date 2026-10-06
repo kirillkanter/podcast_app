@@ -7,6 +7,7 @@ import '../player/playback_logic.dart';
 import '../player/podcast_audio_handler.dart';
 import 'now_playing.dart';
 import 'podcast_cover.dart';
+import 'queue_screen.dart';
 
 /// Полноэкранный плеер.
 class PlayerScreen extends StatelessWidget {
@@ -229,6 +230,14 @@ class _Extras extends StatelessWidget {
               icon: timer == null ? Icons.bedtime_outlined : Icons.bedtime,
               text: _sleepLabel(timer),
             ),
+          ),
+        ),
+        Tooltip(
+          message: 'Очередь воспроизведения',
+          child: InkWell(
+            borderRadius: BorderRadius.circular(20),
+            onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const QueueScreen())),
+            child: const _ExtraLabel(icon: Icons.playlist_play_rounded, text: 'Очередь'),
           ),
         ),
       ],

@@ -66,6 +66,7 @@ class _SyncScreenState extends State<SyncScreen> {
         if (r.subscriptionsAdded > 0) 'новых подписок: ${r.subscriptionsAdded}',
         if (r.subscriptionsRemoved > 0) 'отписок: ${r.subscriptionsRemoved}',
         if (r.episodesUpdated > 0) 'обновлено эпизодов: ${r.episodesUpdated}',
+        if (r.stateUpdated > 0) 'изменений очереди и архива: ${r.stateUpdated}',
         if (r.feedErrors.isNotEmpty) 'не загрузились фиды: ${r.feedErrors.length}',
       ];
       messenger.showSnackBar(SnackBar(
@@ -209,6 +210,20 @@ class _SyncScreenState extends State<SyncScreen> {
             );
           },
         ),
+        StreamBuilder<String?>(
+          stream: db.watchSetting(SyncSettings.stateUnsupported),
+          builder: (context, s) {
+            if (s.data != 'true') return const SizedBox.shrink();
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Text(
+                'Сервер не синхронизирует очередь и архив: на нём нет файла bcaster.php. '
+                'Подписки и прогресс синхронизируются как обычно.',
+                style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+              ),
+            );
+          },
+        ),
         ValueListenableBuilder<bool>(
           valueListenable: scope.sync!.syncing,
           builder: (context, syncing, _) => FilledButton.icon(
@@ -229,7 +244,8 @@ class _SyncScreenState extends State<SyncScreen> {
         const SizedBox(height: 16),
         Text(
           'Синхронизация идёт сама: при запуске, при сворачивании приложения, '
-          'после паузы и раз в 10 минут. Подкасты и прогресс на устройстве после выхода сохраняются.',
+          'после паузы, при изменении очереди и раз в 10 минут. '
+          'Подкасты, прогресс и очередь на устройстве после выхода сохраняются.',
           style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
         ),
       ],

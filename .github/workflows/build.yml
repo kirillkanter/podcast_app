@@ -66,7 +66,9 @@ jobs:
           grep -q 'FOREGROUND_SERVICE_MEDIA_PLAYBACK' android/app/src/main/AndroidManifest.xml
       - run: flutter pub get
       - run: dart run build_runner build --delete-conflicting-outputs
-      - run: flutter build apk --release
+      - name: Сборка APK
+        shell: bash
+        run: tool/ci_run.sh 'Ошибка сборки Android' flutter build apk --release
       - uses: actions/upload-artifact@v4
         with:
           name: podcast_app-android
@@ -85,7 +87,9 @@ jobs:
       - run: flutter create --platforms=android,windows --project-name podcast_app .
       - run: flutter pub get
       - run: dart run build_runner build --delete-conflicting-outputs
-      - run: flutter build windows --release
+      - name: Сборка Windows
+        shell: bash
+        run: tool/ci_run.sh 'Ошибка сборки Windows' flutter build windows --release
       - uses: actions/upload-artifact@v4
         with:
           name: podcast_app-windows

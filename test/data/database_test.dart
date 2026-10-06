@@ -183,8 +183,10 @@ void main() {
       expect(await db.watchNewEpisodeCounts().first, isEmpty, reason: 'эпизоды при добавлении не новые');
 
       // Подкаст добавлен вчера, потом вышли два эпизода, один начали слушать.
-      await (db.update(db.podcasts)..where((p) => p.id.equals(id)))
-          .write(PodcastsCompanion(createdAt: Value(DateTime.now().subtract(const Duration(days: 1)))));
+      final yesterday = DateTime.now().subtract(const Duration(days: 1));
+      await (db.update(db.podcasts)..where((p) => p.id.equals(id))).write(PodcastsCompanion(createdAt: Value(yesterday)));
+      await (db.update(db.episodes)..where((e) => e.podcastId.equals(id)))
+          .write(EpisodesCompanion(firstSeenAt: Value(yesterday)));
       await db.saveParsedFeed(feedUrl, parseFeed(feedWith([('a', 'A'), ('b', 'B'), ('c', 'C')])));
       await db.savePosition(await episodeId('c'), const Duration(seconds: 30));
 

@@ -85,6 +85,11 @@ jobs:
           channel: stable
           cache: true
       - run: flutter create --platforms=android,windows --project-name podcast_app .
+      - name: Правка windows/CMakeLists.txt (C++20 для плагинов)
+        shell: bash
+        run: |
+          dart run tool/patch_platforms.dart
+          grep -q 'cxx_std_20' windows/CMakeLists.txt
       - run: flutter pub get
       - run: dart run build_runner build --delete-conflicting-outputs
       - name: Сборка Windows

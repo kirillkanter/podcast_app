@@ -40,6 +40,37 @@ const _audioServiceComponents = '''
 ''';
 
 void main() {
+  _patchAndroid();
+  _patchWindows();
+}
+
+const _windowsMarker = '# podcast_app: C++20 для плагинов';
+const _windowsPatch = '''
+
+$_windowsMarker
+# Плагины на C++/WinRT (just_audio_windows, audio_service_win) в режиме C++17
+# подключают <experimental/coroutine>, а MSVC 14.51+ превращает это в ошибку
+# STL1011. В C++20 используется стандартный <coroutine>.
+foreach(plugin \${FLUTTER_PLUGIN_LIST})
+  if(TARGET \${plugin}_plugin)
+    target_compile_features(\${plugin}_plugin PRIVATE cxx_std_20)
+  endif()
+endforeach()
+''';
+
+void _patchWindows() {
+  final cmake = File('windows/CMakeLists.txt');
+  if (!cmake.existsSync()) {
+    stdout.writeln('Нет windows/ — пропускаю Windows.');
+    return;
+  }
+  final text = cmake.readAsStringSync();
+  if (text.contains(_windowsMarker)) return;
+  cmake.writeAsStringSync(text + _windowsPatch);
+  stdout.writeln('windows/CMakeLists.txt обновлён.');
+}
+
+void _patchAndroid() {
   final manifest = File('android/app/src/main/AndroidManifest.xml');
   if (!manifest.existsSync()) {
     stdout.writeln('Нет android/ — пропускаю Android.');

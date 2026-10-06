@@ -5,4 +5,4 @@
   неиспользуемыми и может удалить. Явно сохраняем их и иконку уведомления.
 -->
 <resources xmlns:tools="http://schemas.android.com/tools"
-    tools:keep="@drawable/audio_service_*,@mipmap/ic_launcher" />
+    tools:keep="@drawable/audio_service_*,@drawable/ic_stat_bcaster,@mipmap/ic_launcher*" />

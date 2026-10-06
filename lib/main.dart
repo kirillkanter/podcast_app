@@ -51,6 +51,8 @@ Future<void> main() async {
         androidNotificationChannelId: 'com.example.podcast_app.audio',
         androidNotificationChannelName: 'Воспроизведение',
         androidNotificationOngoing: true,
+        // Белый силуэт логотипа: цветная иконка в строке состояния стала бы белым кругом.
+        androidNotificationIcon: 'drawable/ic_stat_bcaster',
         androidStopForegroundOnPause: true,
         rewindInterval: Duration(seconds: 10),
         fastForwardInterval: Duration(seconds: 30),

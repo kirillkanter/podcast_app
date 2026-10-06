@@ -91,7 +91,10 @@ void _patchWindows() {
     res = res.replaceFirst(RegExp(r'VALUE "OriginalFilename", "[^"]*"'), 'VALUE "OriginalFilename", "BasicCaster.exe"');
     rc.writeAsStringSync(res);
   }
-  stdout.writeln('Windows: название и сборка обновлены.');
+
+  // Иконка приложения (exe, окно, панель задач).
+  File('tool/windows/app_icon.ico').copySync('windows/runner/resources/app_icon.ico');
+  stdout.writeln('Windows: название, иконка и сборка обновлены.');
 }
 
 void _patchAndroid() {
@@ -151,4 +154,18 @@ void _patchAndroid() {
   // Иконки audio_service не должны удаляться при сжатии ресурсов.
   Directory('android/app/src/main/res/raw').createSync(recursive: true);
   File('tool/android/keep.xml').copySync('android/app/src/main/res/raw/keep.xml');
+
+  // Иконки Basic Caster: значок приложения (обычный и адаптивный) и значок
+  // уведомления. Файлы из tool/android/res поверх сгенерированных flutter create.
+  _copyTree(Directory('tool/android/res'), 'android/app/src/main/res');
+  stdout.writeln('Иконки Android скопированы.');
+}
+
+void _copyTree(Directory from, String to) {
+  for (final f in from.listSync(recursive: true).whereType<File>()) {
+    final rel = f.path.substring(from.path.length + 1);
+    final dest = File('$to/$rel');
+    dest.parent.createSync(recursive: true);
+    f.copySync(dest.path);
+  }
 }

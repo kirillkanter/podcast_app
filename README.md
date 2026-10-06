@@ -1,8 +1,16 @@
 # podcast_app
 
-Подкаст-плеер для Android и Windows на Flutter. Этап 1: схема локальной БД и парсер RSS.
+Подкаст-плеер для Android и Windows на Flutter.
 
-## Запуск (Windows, PowerShell)
+Готово: добавление подкаста по ссылке на RSS или Apple Podcasts, подписки,
+список эпизодов, обновление фидов (ETag, редиректы, переезды фидов).
+
+## Сборка
+
+Каждый push собирается в GitHub Actions: тесты, APK для Android, программа для
+Windows. Готовые файлы — во вкладке Actions, раздел Artifacts.
+
+## Локальный запуск (Windows, PowerShell)
 
 Нужны Flutter (stable, Dart 3.10+), Android Studio с Android SDK и Visual Studio
 с компонентом «Desktop development with C++» (для сборки под Windows).
@@ -76,8 +84,7 @@ test/
 
 ## Дальше
 
-2. Добавление RSS по ссылке (HTTP с ETag/If-Modified-Since, редиректы,
-   `itunes:new-feed-url`), подписки, экран эпизодов, OPML.
+2. ~~Добавление RSS по ссылке, подписки, экран эпизодов.~~ Импорт/экспорт OPML.
 3. Плеер: фон на Android, SMTC на Windows, скорость, сохранение позиции.
 4. Загрузки.
 5. Поиск через Podcast Index.

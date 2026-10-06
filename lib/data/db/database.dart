@@ -8,6 +8,8 @@ export 'tables.dart' show DownloadStatus;
 
 part 'database.g.dart';
 
+typedef EpisodeWithState = ({Episode episode, EpisodeState? state});
+
 class FeedSaveResult {
   const FeedSaveResult({
     required this.podcastId,
@@ -151,6 +153,52 @@ class AppDatabase extends _$AppDatabase {
     );
   }
 
+  /// Фид не изменился (HTTP 304): отмечаем успешную проверку.
+  Future<void> markFeedNotModified(int podcastId) {
+    final now = DateTime.now();
+    return (update(podcasts)..where((p) => p.id.equals(podcastId))).write(
+      PodcastsCompanion(
+        lastCheckedAt: Value(now),
+        lastSuccessAt: Value(now),
+        lastError: const Value(null),
+      ),
+    );
+  }
+
+  /// Переводит подкаст на новый адрес фида. Если этот адрес уже занят
+  /// другим подкастом, ничего не делает и возвращает `false`.
+  Future<bool> updateFeedUrl(int podcastId, String newUrl) {
+    return transaction(() async {
+      final taken = await findPodcastByUrl(newUrl);
+      if (taken != null) return taken.id == podcastId;
+      await (update(podcasts)..where((p) => p.id.equals(podcastId)))
+          .write(PodcastsCompanion(feedUrl: Value(newUrl)));
+      return true;
+    });
+  }
+
+  Future<Podcast?> findPodcastByUrl(String feedUrl) =>
+      (select(podcasts)..where((p) => p.feedUrl.equals(feedUrl))).getSingleOrNull();
+
+  Future<Podcast?> podcastById(int id) =>
+      (select(podcasts)..where((p) => p.id.equals(id))).getSingleOrNull();
+
+  Stream<Podcast?> watchPodcast(int id) =>
+      (select(podcasts)..where((p) => p.id.equals(id))).watchSingleOrNull();
+
+  Stream<bool> watchIsSubscribed(int podcastId) =>
+      (select(subscriptions)..where((s) => s.podcastId.equals(podcastId)))
+          .watchSingleOrNull()
+          .map((s) => s?.subscribed ?? false);
+
+  Future<List<Podcast>> subscribedPodcasts() {
+    final query = select(podcasts).join([
+      innerJoin(subscriptions, subscriptions.podcastId.equalsExp(podcasts.id)),
+    ])
+      ..where(subscriptions.subscribed.equals(true));
+    return query.map((row) => row.readTable(podcasts)).get();
+  }
+
   Future<Map<String, int>> _episodeIdsByKey(int podcastId) async {
     final query = selectOnly(episodes)
       ..addColumns([episodes.id, episodes.episodeKey])
@@ -202,6 +250,20 @@ class AppDatabase extends _$AppDatabase {
           ..orderBy([
             (e) => OrderingTerm(expression: e.pubDate, mode: OrderingMode.desc, nulls: NullsOrder.last),
           ]))
+        .watch();
+  }
+
+  Stream<List<EpisodeWithState>> watchEpisodesWithState(int podcastId) {
+    final query = select(episodes).join([
+      leftOuterJoin(episodeStates, episodeStates.episodeId.equalsExp(episodes.id)),
+    ])
+      ..where(episodes.podcastId.equals(podcastId))
+      ..orderBy([
+        OrderingTerm(expression: episodes.pubDate, mode: OrderingMode.desc, nulls: NullsOrder.last),
+        OrderingTerm.asc(episodes.id),
+      ]);
+    return query
+        .map((row) => (episode: row.readTable(episodes), state: row.readTableOrNull(episodeStates)))
         .watch();
   }
 

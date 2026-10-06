@@ -60,3 +60,12 @@ FeedInput? parseFeedInput(String raw) {
   }
   return DirectFeedUrl(uri);
 }
+
+/// Ключ для сравнения адресов фидов: без схемы, «www.» и завершающего слэша.
+/// Каталоги и другие устройства часто хранят http вместо https.
+String feedKey(String url) => url
+    .trim()
+    .toLowerCase()
+    .replaceFirst(RegExp(r'^https?://'), '')
+    .replaceFirst(RegExp(r'^www\.'), '')
+    .replaceFirst(RegExp(r'/+$'), '');

@@ -5,7 +5,7 @@
 // - разрешение на интернет (в шаблоне оно есть только для отладочной сборки);
 // - загрузку по http:// (Android 9+ по умолчанию разрешает только https,
 //   а многие старые фиды и аудиофайлы до сих пор отдаются по http);
-// - название приложения «Подкасты»;
+// - название приложения Basic Caster (Android и окно Windows);
 // - фоновое воспроизведение через audio_service: разрешения, сервис,
 //   приёмник медиа-кнопок и MainActivity на основе AudioServiceActivity
 //   (tool/android/MainActivity.kt).
@@ -67,10 +67,31 @@ void _patchWindows() {
     stdout.writeln('Нет windows/ — пропускаю Windows.');
     return;
   }
-  final text = cmake.readAsStringSync();
-  if (text.contains(_windowsMarker)) return;
-  cmake.writeAsStringSync(text + _windowsPatch);
-  stdout.writeln('windows/CMakeLists.txt обновлён.');
+  var text = cmake.readAsStringSync();
+  // Имя exe-файла.
+  text = text.replaceFirst(RegExp(r'set\(BINARY_NAME "[^"]*"\)'), 'set(BINARY_NAME "BasicCaster")');
+  if (!text.contains(_windowsMarker)) text += _windowsPatch;
+  cmake.writeAsStringSync(text);
+
+  // Заголовок окна.
+  final main = File('windows/runner/main.cpp');
+  if (main.existsSync()) {
+    main.writeAsStringSync(
+      main.readAsStringSync().replaceFirst(RegExp(r'window\.Create\(L"[^"]*"'), 'window.Create(L"Basic Caster"'),
+    );
+  }
+
+  // Название в свойствах файла и диспетчере задач.
+  final rc = File('windows/runner/Runner.rc');
+  if (rc.existsSync()) {
+    var res = rc.readAsStringSync();
+    for (final key in ['FileDescription', 'ProductName', 'InternalName']) {
+      res = res.replaceFirst(RegExp('VALUE "$key", "[^"]*"'), 'VALUE "$key", "Basic Caster"');
+    }
+    res = res.replaceFirst(RegExp(r'VALUE "OriginalFilename", "[^"]*"'), 'VALUE "OriginalFilename", "BasicCaster.exe"');
+    rc.writeAsStringSync(res);
+  }
+  stdout.writeln('Windows: название и сборка обновлены.');
 }
 
 void _patchAndroid() {
@@ -99,7 +120,7 @@ void _patchAndroid() {
     xml = xml.replaceFirst('<application', '<application\n        android:usesCleartextTraffic="true"');
   }
 
-  xml = xml.replaceFirst(RegExp(r'android:label="[^"]*"'), 'android:label="Подкасты"');
+  xml = xml.replaceFirst(RegExp(r'android:label="[^"]*"'), 'android:label="Basic Caster"');
 
   // MainActivity заменяется своей (наследник AudioServiceActivity), см. ниже.
 

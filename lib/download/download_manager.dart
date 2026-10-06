@@ -235,7 +235,7 @@ class DownloadManager {
     try {
       var offset = await part.exists() ? await part.length() : 0;
       final request = http.Request('GET', Uri.parse(episode.enclosureUrl))
-        ..headers['user-agent'] = 'podcast_app/0.4 (+https://github.com/kirillkanter/podcast_app)';
+        ..headers['user-agent'] = 'BasicCaster/0.6 (+https://bcaster.ru)';
       if (offset > 0) request.headers['range'] = 'bytes=$offset-';
 
       final response = await client.send(request).timeout(const Duration(seconds: 30));

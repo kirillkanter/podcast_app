@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../catalog/podcast_catalog.dart';
 import '../data/db/database.dart';
 import '../data/podcast_repository.dart';
+import '../feed/feed_url.dart';
 import 'app_scope.dart';
 import 'mini_player.dart';
 import 'podcast_cover.dart';
@@ -132,7 +133,7 @@ class _SearchScreenState extends State<SearchScreen> {
           : StreamBuilder<List<Podcast>>(
               stream: _subscribed,
               builder: (context, snapshot) {
-                final subscribed = {for (final p in snapshot.data ?? const <Podcast>[]) _feedKey(p.feedUrl)};
+                final subscribed = {for (final p in snapshot.data ?? const <Podcast>[]) feedKey(p.feedUrl)};
                 final future = _query.isEmpty ? _top : _results;
                 return FutureBuilder<List<CatalogPodcast>>(
                   key: ValueKey(_query),
@@ -164,7 +165,7 @@ class _SearchScreenState extends State<SearchScreen> {
                         final p = items[i - 1];
                         return _ResultTile(
                           podcast: p,
-                          subscribed: p.feedUrl != null && subscribed.contains(_feedKey(p.feedUrl!)),
+                          subscribed: p.feedUrl != null && subscribed.contains(feedKey(p.feedUrl!)),
                           busy: _busy.contains(p.id),
                           onSubscribe: () => _subscribe(p),
                           onOpen: () => _open(p),
@@ -177,16 +178,6 @@ class _SearchScreenState extends State<SearchScreen> {
             ),
     );
   }
-
-  /// Адрес фида без схемы, «www.» и завершающего слэша — для сравнения
-  /// фида из каталога с подписками (каталог часто хранит http, а фид
-  /// переехал на https).
-  static String _feedKey(String url) => url
-      .trim()
-      .toLowerCase()
-      .replaceFirst(RegExp(r'^https?://'), '')
-      .replaceFirst(RegExp(r'^www\.'), '')
-      .replaceFirst(RegExp(r'/+$'), '');
 }
 
 class _ResultTile extends StatelessWidget {

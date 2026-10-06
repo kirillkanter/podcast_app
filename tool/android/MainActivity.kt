@@ -40,6 +40,28 @@ class MainActivity : AudioServiceActivity() {
                     else -> result.notImplemented()
                 }
             }
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, SYSTEM_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "openUrl" -> {
+                        val url = call.argument<String>("url")
+                        if (url == null) {
+                            result.error("bad_args", "url is required", null)
+                        } else {
+                            try {
+                                startActivity(
+                                    Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))
+                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                )
+                                result.success(true)
+                            } catch (e: Exception) {
+                                result.success(false)
+                            }
+                        }
+                    }
+                    else -> result.notImplemented()
+                }
+            }
     }
 
     private fun notificationsEnabled(): Boolean {
@@ -100,6 +122,7 @@ class MainActivity : AudioServiceActivity() {
 
     companion object {
         private const val CHANNEL = "podcast_app/notifications"
+        private const val SYSTEM_CHANNEL = "basic_caster/system"
         private const val REQUEST_CODE = 4101
     }
 }

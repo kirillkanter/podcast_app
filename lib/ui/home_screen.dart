@@ -12,6 +12,7 @@ import 'mini_player.dart';
 import 'podcast_cover.dart';
 import 'podcast_screen.dart';
 import 'search_screen.dart';
+import 'sync_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key, this.refreshOnStart = true});
@@ -80,7 +81,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       bottomNavigationBar: const MiniPlayer(),
       appBar: AppBar(
-        title: const Text('Подкасты'),
+        title: const Text('Basic Caster'),
         actions: [
           if (AppScope.of(context).catalog != null)
             IconButton(
@@ -109,6 +110,13 @@ class _HomeScreenState extends State<HomeScreen> {
                     MaterialPageRoute<void>(builder: (_) => const DownloadsScreen()),
                   ),
                   child: const Text('Загрузки'),
+                ),
+              if (AppScope.of(context).sync != null)
+                PopupMenuItem<void>(
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(builder: (_) => const SyncScreen()),
+                  ),
+                  child: const Text('Синхронизация'),
                 ),
               PopupMenuItem<void>(
                 onTap: () => showDiagnosticsDialog(context),

@@ -94,7 +94,7 @@ void main() {
     expect(d.auto, isFalse);
     expect(await m.localFile(ids[1]!), d.filePath);
     expect(File(partPath(1)).existsSync(), isFalse);
-    expect(requests.single.headers['user-agent'], startsWith('podcast_app/'));
+    expect(requests.single.headers['user-agent'], startsWith('BasicCaster/'));
   });
 
   test('веб-страница вместо аудио — ошибка', () async {

@@ -67,7 +67,7 @@ class FeedFetcher {
   final int maxBytes;
 
   static const _maxRedirects = 6;
-  static const userAgent = 'podcast_app/0.2 (+https://github.com/kirillkanter/podcast_app)';
+  static const userAgent = 'BasicCaster/0.6 (+https://bcaster.ru)';
 
   Future<FetchResult> fetch(String url, {String? etag, String? lastModified}) async {
     final parsed = Uri.tryParse(url);

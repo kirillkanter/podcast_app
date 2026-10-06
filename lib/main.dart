@@ -14,6 +14,7 @@ import 'download/download_manager.dart';
 import 'feed/feed_fetcher.dart';
 import 'platform/notifications.dart';
 import 'player/podcast_audio_handler.dart';
+import 'sync/sync_service.dart';
 import 'ui/app_scope.dart';
 import 'ui/diagnostics_dialog.dart';
 import 'ui/home_screen.dart';
@@ -31,6 +32,7 @@ Future<void> main() async {
     },
   );
   unawaited(downloads.start());
+  final sync = SyncService(db: db, repository: repository);
   // Страна каталога — из языка системы: ru_RU → ru.
   final region = Platform.localeName.split(RegExp('[_.-]')).elementAtOrNull(1);
   final catalog = PodcastCatalog(
@@ -79,6 +81,7 @@ Future<void> main() async {
     audio: audio,
     downloads: downloads,
     catalog: catalog,
+    sync: sync,
   ));
 }
 
@@ -90,6 +93,7 @@ class PodcastApp extends StatefulWidget {
     this.audio,
     this.downloads,
     this.catalog,
+    this.sync,
     this.refreshOnStart = true,
   });
 
@@ -98,6 +102,7 @@ class PodcastApp extends StatefulWidget {
   final PodcastAudioHandler? audio;
   final DownloadManager? downloads;
   final PodcastCatalog? catalog;
+  final SyncService? sync;
   final bool refreshOnStart;
 
   @override
@@ -108,18 +113,41 @@ class _PodcastAppState extends State<PodcastApp> {
   final _messenger = GlobalKey<ScaffoldMessengerState>();
   StreamSubscription<String>? _errors;
   StreamSubscription<bool>? _playing;
+  StreamSubscription<int>? _dirtySubscriptions;
+  AppLifecycleListener? _lifecycle;
+  Timer? _periodicSync;
   bool _notificationsChecked = false;
 
   @override
   void initState() {
     super.initState();
     final audio = widget.audio;
+    final sync = widget.sync;
     _errors = audio?.errors.listen((message) {
       _messenger.currentState?.showSnackBar(SnackBar(content: Text(message)));
     });
-    _playing = audio?.playbackState.map((s) => s.playing).distinct().listen((playing) {
-      if (playing) _checkNotifications();
+    _playing = audio?.playbackState.map((s) => s.playing).distinct().skip(1).listen((playing) {
+      if (playing) {
+        _checkNotifications();
+      } else {
+        // Пауза или конец эпизода — отправить позицию на другие устройства.
+        sync?.schedule(const Duration(seconds: 5));
+      }
     });
+    if (sync != null) {
+      sync.schedule(const Duration(seconds: 3));
+      // Подписка или отписка — синхронизировать через несколько секунд.
+      _dirtySubscriptions = widget.db
+          .watchDirtySubscriptionCount()
+          .where((count) => count > 0)
+          .listen((_) => sync.schedule(const Duration(seconds: 5)));
+      _lifecycle = AppLifecycleListener(
+        onResume: () => sync.schedule(const Duration(seconds: 2)),
+        // Перед уходом в фон — сразу, пока система не приостановила приложение.
+        onPause: () => sync.syncNow().ignore(),
+      );
+      _periodicSync = Timer.periodic(const Duration(minutes: 10), (_) => sync.syncNow().ignore());
+    }
   }
 
   /// При первом запуске эпизода на Android проверяем, разрешены ли
@@ -149,6 +177,9 @@ class _PodcastAppState extends State<PodcastApp> {
   void dispose() {
     _errors?.cancel();
     _playing?.cancel();
+    _dirtySubscriptions?.cancel();
+    _lifecycle?.dispose();
+    _periodicSync?.cancel();
     super.dispose();
   }
 
@@ -160,8 +191,9 @@ class _PodcastAppState extends State<PodcastApp> {
       audio: widget.audio,
       downloads: widget.downloads,
       catalog: widget.catalog,
+      sync: widget.sync,
       child: MaterialApp(
-        title: 'Подкасты',
+        title: 'Basic Caster',
         debugShowCheckedModeBanner: false,
         scaffoldMessengerKey: _messenger,
         theme: ThemeData(colorSchemeSeed: Colors.deepPurple, useMaterial3: true),

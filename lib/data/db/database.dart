@@ -10,6 +10,19 @@ part 'database.g.dart';
 
 typedef EpisodeWithState = ({Episode episode, EpisodeState? state, Download? download});
 
+/// Подписка, изменённая локально и ещё не отправленная на сервер.
+typedef DirtySubscription = ({int podcastId, String feedUrl, bool subscribed});
+
+/// Состояние эпизода, изменённое локально и ещё не отправленное на сервер.
+typedef DirtyEpisodeState = ({
+  int episodeId,
+  String feedUrl,
+  String enclosureUrl,
+  int positionMs,
+  bool played,
+  int? durationMs,
+});
+
 /// Загрузка вместе с эпизодом и подкастом — для экрана «Загрузки».
 typedef DownloadWithEpisode = ({Download download, Episode episode, Podcast podcast});
 
@@ -485,4 +498,105 @@ class AppDatabase extends _$AppDatabase {
 
   Future<EpisodeState?> episodeState(int episodeId) =>
       (select(episodeStates)..where((s) => s.episodeId.equals(episodeId))).getSingleOrNull();
+
+  // -------------------------------------------------------------------------
+  // Синхронизация
+  // -------------------------------------------------------------------------
+
+  Future<List<DirtySubscription>> dirtySubscriptions() async {
+    final query = select(subscriptions).join([
+      innerJoin(podcasts, podcasts.id.equalsExp(subscriptions.podcastId)),
+    ])
+      ..where(subscriptions.dirty.equals(true));
+    return query
+        .map((row) => (
+              podcastId: row.readTable(subscriptions).podcastId,
+              feedUrl: row.readTable(podcasts).feedUrl,
+              subscribed: row.readTable(subscriptions).subscribed,
+            ))
+        .get();
+  }
+
+  /// Снимает флаг dirty с подписок, не изменившихся после [before]
+  /// (изменения во время отправки уйдут в следующий раз).
+  Future<void> markSubscriptionsSynced(Iterable<int> podcastIds, DateTime before) =>
+      (update(subscriptions)
+            ..where((s) => s.podcastId.isIn(podcastIds) & s.updatedAt.isSmallerOrEqualValue(before)))
+          .write(const SubscriptionsCompanion(dirty: Value(false)));
+
+  /// Изменение подписки с сервера: без флага dirty, чтобы не отправлять обратно.
+  Future<void> applyRemoteSubscription(int podcastId, bool subscribed) =>
+      into(subscriptions).insertOnConflictUpdate(SubscriptionsCompanion(
+        podcastId: Value(podcastId),
+        subscribed: Value(subscribed),
+        updatedAt: Value(DateTime.now()),
+        dirty: const Value(false),
+      ));
+
+  Stream<int> watchDirtySubscriptionCount() {
+    final count = subscriptions.podcastId.count();
+    final query = selectOnly(subscriptions)
+      ..addColumns([count])
+      ..where(subscriptions.dirty.equals(true));
+    return query.map((row) => row.read(count) ?? 0).watchSingle();
+  }
+
+  Future<List<DirtyEpisodeState>> dirtyEpisodeStates() async {
+    final query = select(episodeStates).join([
+      innerJoin(episodes, episodes.id.equalsExp(episodeStates.episodeId)),
+      innerJoin(podcasts, podcasts.id.equalsExp(episodes.podcastId)),
+    ])
+      ..where(episodeStates.dirty.equals(true));
+    return query.map((row) {
+      final s = row.readTable(episodeStates);
+      final e = row.readTable(episodes);
+      return (
+        episodeId: s.episodeId,
+        feedUrl: row.readTable(podcasts).feedUrl,
+        enclosureUrl: e.enclosureUrl,
+        positionMs: s.positionMs,
+        played: s.played,
+        durationMs: e.durationMs,
+      );
+    }).get();
+  }
+
+  Future<void> markEpisodeStatesSynced(Iterable<int> episodeIds, DateTime before) =>
+      (update(episodeStates)
+            ..where((s) => s.episodeId.isIn(episodeIds) & s.updatedAt.isSmallerOrEqualValue(before)))
+          .write(const EpisodeStatesCompanion(dirty: Value(false)));
+
+  /// Эпизод по адресу аудиофайла; при нескольких совпадениях — из подкаста
+  /// с адресом [feedUrl].
+  Future<Episode?> findEpisodeByEnclosure(String enclosureUrl, {String? feedUrl}) async {
+    final query = select(episodes).join([
+      innerJoin(podcasts, podcasts.id.equalsExp(episodes.podcastId)),
+    ])
+      ..where(episodes.enclosureUrl.equals(enclosureUrl));
+    final rows = await query.get();
+    if (rows.isEmpty) return null;
+    for (final row in rows) {
+      if (row.readTable(podcasts).feedUrl == feedUrl) return row.readTable(episodes);
+    }
+    return rows.first.readTable(episodes);
+  }
+
+  /// Состояние эпизода с сервера. Локальные неотправленные изменения
+  /// важнее: если состояние dirty, ничего не меняем и возвращаем `false`.
+  Future<bool> applyRemoteEpisodeState(int episodeId, {required int positionMs, required bool played}) {
+    return transaction(() async {
+      final current = await episodeState(episodeId);
+      if (current != null && current.dirty) return false;
+      final now = DateTime.now();
+      await into(episodeStates).insertOnConflictUpdate(EpisodeStatesCompanion(
+        episodeId: Value(episodeId),
+        positionMs: Value(played ? 0 : positionMs),
+        played: Value(played),
+        playedAt: Value(played ? (current?.playedAt ?? now) : null),
+        updatedAt: Value(now),
+        dirty: const Value(false),
+      ));
+      return true;
+    });
+  }
 }

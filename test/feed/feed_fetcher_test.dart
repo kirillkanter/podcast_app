@@ -25,7 +25,7 @@ void main() {
     expect(r.etag, '"v1"');
     expect(r.lastModified, 'Tue, 06 Oct 2026 10:00:00 GMT');
     expect(r.charset, 'windows-1251');
-    expect(seen.headers['user-agent'], startsWith('podcast_app/'));
+    expect(seen.headers['user-agent'], startsWith('BasicCaster/'));
     expect(seen.headers.containsKey('if-none-match'), isFalse);
   });
 

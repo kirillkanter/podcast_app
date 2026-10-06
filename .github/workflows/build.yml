@@ -28,7 +28,29 @@ jobs:
         run: dart run build_runner build --delete-conflicting-outputs
       - name: Анализ кода
         run: flutter analyze --no-fatal-infos --no-fatal-warnings
+      - name: PHP для сервера синхронизации
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: sqlite3
+      - name: Запуск oPodSync для интеграционного теста
+        shell: bash
+        run: |
+          mkdir -p /tmp/opodsync-data
+          export DATA_ROOT=/tmp/opodsync-data
+          nohup php -S 127.0.0.1:8085 -t sync-server/server sync-server/server/index.php > /tmp/opodsync.log 2>&1 &
+          sleep 2
+          php -r 'namespace OPodSync; $_SERVER["SERVER_NAME"] = "127.0.0.1"; $_SERVER["SERVER_PORT"] = 8085;
+            require "sync-server/server/_inc.php";
+            $e = $gpodder->subscribe("citest", "citest-password-123");
+            if ($e) { fwrite(STDERR, "subscribe: $e\n"); exit(1); }
+            echo "Пользователь создан\n";'
+          curl -s -o /dev/null -w "Страница сервера: %{http_code}\n" http://127.0.0.1:8085/
       - name: Тесты
+        env:
+          OPODSYNC_URL: http://127.0.0.1:8085
+          OPODSYNC_USER: citest
+          OPODSYNC_PASSWORD: citest-password-123
         shell: bash
         run: |
           # Подробности упавших тестов выводятся аннотацией к запуску:
@@ -43,6 +65,10 @@ jobs:
               | head -200 > fail.txt || true
             msg=$(sed -e 's/%/%25/g' -e 's/\r//g' fail.txt | awk '{printf "%s%%0A", $0}')
             echo "::error title=Упавшие тесты::${msg}"
+            if [ -s /tmp/opodsync.log ]; then
+              log=$(tail -40 /tmp/opodsync.log | sed -e 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+              echo "::warning title=Лог oPodSync::${log}"
+            fi
             exit 1
           fi
           tail -3 test.log

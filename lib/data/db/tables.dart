@@ -1,0 +1,184 @@
+/// Схема локальной БД.
+///
+/// Метаданные (подкасты, эпизоды) — кэш фидов, их всегда можно перечитать.
+/// Пользовательское состояние (подписки, позиции, очередь, настройки)
+/// синхронизируется между устройствами: у таких таблиц есть `updatedAt`
+/// и флаг `dirty` — «изменено локально, ещё не отправлено на сервер».
+/// Удаление в синхронизируемых таблицах — мягкое (флаг), иначе его
+/// нельзя передать на другие устройства.
+library;
+
+import 'package:drift/drift.dart';
+
+import '../../feed/models.dart';
+
+// ---------------------------------------------------------------------------
+// Кэш фидов
+// ---------------------------------------------------------------------------
+
+@DataClassName('Podcast')
+class Podcasts extends Table {
+  IntColumn get id => integer().autoIncrement()();
+
+  /// Текущий адрес фида. Меняется при переезде (`itunes:new-feed-url`, 301).
+  TextColumn get feedUrl => text().unique()();
+  TextColumn get title => text()();
+  TextColumn get description => text().nullable()();
+  TextColumn get link => text().nullable()();
+  TextColumn get imageUrl => text().nullable()();
+  TextColumn get author => text().nullable()();
+  TextColumn get language => text().nullable()();
+
+  /// Категории через перевод строки.
+  TextColumn get categories => text().withDefault(const Constant(''))();
+  BoolColumn get explicit => boolean().nullable()();
+  TextColumn get podcastType =>
+      textEnum<PodcastType>().withDefault(Constant(PodcastType.episodic.name))();
+  TextColumn get podcastGuid => text().nullable()();
+
+  // Служебные поля обновления фида.
+  TextColumn get etag => text().nullable()();
+  TextColumn get lastModified => text().nullable()();
+  DateTimeColumn get lastCheckedAt => dateTime().nullable()();
+  DateTimeColumn get lastSuccessAt => dateTime().nullable()();
+  TextColumn get lastError => text().nullable()();
+
+  DateTimeColumn get createdAt => dateTime().clientDefault(DateTime.now)();
+}
+
+@DataClassName('Episode')
+@TableIndex(name: 'episodes_by_podcast_date', columns: {#podcastId, #pubDate})
+class Episodes extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  IntColumn get podcastId => integer().references(Podcasts, #id, onDelete: KeyAction.cascade)();
+
+  /// Стабильный ключ из `episode_identity.dart`. Уникален в пределах подкаста.
+  TextColumn get episodeKey => text()();
+  TextColumn get guid => text().nullable()();
+  TextColumn get title => text()();
+  TextColumn get description => text().nullable()();
+  TextColumn get summary => text().nullable()();
+  TextColumn get link => text().nullable()();
+  DateTimeColumn get pubDate => dateTime().nullable()();
+
+  TextColumn get enclosureUrl => text()();
+  TextColumn get enclosureType => text().nullable()();
+  IntColumn get enclosureLength => integer().nullable()();
+
+  IntColumn get durationMs => integer().nullable()();
+  TextColumn get imageUrl => text().nullable()();
+  IntColumn get season => integer().nullable()();
+  IntColumn get episodeNumber => integer().nullable()();
+  TextColumn get episodeType =>
+      textEnum<EpisodeType>().withDefault(Constant(EpisodeType.full.name))();
+  BoolColumn get explicit => boolean().nullable()();
+  TextColumn get chaptersUrl => text().nullable()();
+  TextColumn get chaptersType => text().nullable()();
+
+  /// Когда эпизод впервые появился в локальной БД — для «новых эпизодов».
+  DateTimeColumn get firstSeenAt => dateTime().clientDefault(DateTime.now)();
+
+  @override
+  List<Set<Column>> get uniqueKeys => [
+        {podcastId, episodeKey},
+      ];
+}
+
+@DataClassName('EpisodeTranscript')
+class EpisodeTranscripts extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  IntColumn get episodeId => integer().references(Episodes, #id, onDelete: KeyAction.cascade)();
+  TextColumn get url => text()();
+  TextColumn get mimeType => text().nullable()();
+  TextColumn get language => text().nullable()();
+  TextColumn get rel => text().nullable()();
+
+  @override
+  List<Set<Column>> get uniqueKeys => [
+        {episodeId, url},
+      ];
+}
+
+// ---------------------------------------------------------------------------
+// Синхронизируемое состояние
+// ---------------------------------------------------------------------------
+
+@DataClassName('Subscription')
+class Subscriptions extends Table {
+  IntColumn get podcastId => integer().references(Podcasts, #id, onDelete: KeyAction.cascade)();
+
+  /// `false` — отписка (мягкое удаление).
+  BoolColumn get subscribed => boolean().withDefault(const Constant(true))();
+  DateTimeColumn get updatedAt => dateTime().clientDefault(DateTime.now)();
+  BoolColumn get dirty => boolean().withDefault(const Constant(true))();
+
+  @override
+  Set<Column> get primaryKey => {podcastId};
+}
+
+@DataClassName('EpisodeState')
+class EpisodeStates extends Table {
+  IntColumn get episodeId => integer().references(Episodes, #id, onDelete: KeyAction.cascade)();
+  IntColumn get positionMs => integer().withDefault(const Constant(0))();
+  BoolColumn get played => boolean().withDefault(const Constant(false))();
+  DateTimeColumn get playedAt => dateTime().nullable()();
+  DateTimeColumn get updatedAt => dateTime().clientDefault(DateTime.now)();
+  BoolColumn get dirty => boolean().withDefault(const Constant(true))();
+
+  @override
+  Set<Column> get primaryKey => {episodeId};
+}
+
+@DataClassName('PodcastSetting')
+class PodcastSettings extends Table {
+  IntColumn get podcastId => integer().references(Podcasts, #id, onDelete: KeyAction.cascade)();
+
+  /// `null` — использовать глобальную настройку.
+  RealColumn get playbackSpeed => real().nullable()();
+  IntColumn get skipIntroSec => integer().withDefault(const Constant(0))();
+  IntColumn get skipOutroSec => integer().withDefault(const Constant(0))();
+
+  /// Сколько последних эпизодов держать загруженными; `null` — глобально, 0 — выкл.
+  IntColumn get autoDownloadCount => integer().nullable()();
+  BoolColumn get notifyNewEpisodes => boolean().withDefault(const Constant(true))();
+  DateTimeColumn get updatedAt => dateTime().clientDefault(DateTime.now)();
+  BoolColumn get dirty => boolean().withDefault(const Constant(true))();
+
+  @override
+  Set<Column> get primaryKey => {podcastId};
+}
+
+@DataClassName('QueueEntry')
+class QueueEntries extends Table {
+  IntColumn get episodeId => integer().references(Episodes, #id, onDelete: KeyAction.cascade)();
+
+  /// Дробный порядок: вставка между двумя элементами не требует
+  /// перенумерации всей очереди.
+  RealColumn get sortOrder => real()();
+  BoolColumn get removed => boolean().withDefault(const Constant(false))();
+  DateTimeColumn get updatedAt => dateTime().clientDefault(DateTime.now)();
+  BoolColumn get dirty => boolean().withDefault(const Constant(true))();
+
+  @override
+  Set<Column> get primaryKey => {episodeId};
+}
+
+// ---------------------------------------------------------------------------
+// Только локально
+// ---------------------------------------------------------------------------
+
+enum DownloadStatus { queued, running, paused, completed, failed }
+
+@DataClassName('Download')
+class Downloads extends Table {
+  IntColumn get episodeId => integer().references(Episodes, #id, onDelete: KeyAction.cascade)();
+  TextColumn get status => textEnum<DownloadStatus>()();
+  TextColumn get filePath => text().nullable()();
+  IntColumn get totalBytes => integer().nullable()();
+  IntColumn get receivedBytes => integer().withDefault(const Constant(0))();
+  TextColumn get error => text().nullable()();
+  DateTimeColumn get updatedAt => dateTime().clientDefault(DateTime.now)();
+
+  @override
+  Set<Column> get primaryKey => {episodeId};
+}

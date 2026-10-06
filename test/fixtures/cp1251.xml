@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="windows-1251"?>
+<rss version="2.0" xmlns:itunes="http://www.itunes.com/DTDs/Podcast-1.0.dtd">
+<channel>
+  <title>Подкаст в кодировке Windows-1251 — «тест» №1</title>
+  <itunes:author>Ёжик Ёлкин</itunes:author>
+  <item>
+    <title>Выпуск первый</title>
+    <guid>cp-1</guid>
+    <enclosure url="https://example.ru/1.mp3" type="audio/mpeg" length="10"/>
+  </item>
+</channel>
+</rss>

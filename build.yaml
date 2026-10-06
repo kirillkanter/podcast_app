@@ -1,0 +1,7 @@
+targets:
+  $default:
+    builders:
+      drift_dev:
+        options:
+          # Хранить DateTime как ISO-8601 текст: читаемо в SQLite и без потери часового пояса.
+          store_date_time_values_as_text: true

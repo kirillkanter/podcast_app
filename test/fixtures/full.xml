@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"
+     xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd"
+     xmlns:podcast="https://podcastindex.org/namespace/1.0"
+     xmlns:content="http://purl.org/rss/1.0/modules/content/"
+     xmlns:media="http://search.yahoo.com/mrss/"
+     xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>Тестовый подкаст</title>
+    <link>https://example.com/podcast</link>
+    <atom:link href="https://example.com/feed.xml" rel="self" type="application/rss+xml"/>
+    <language>ru</language>
+    <description><![CDATA[<p>Подкаст о <b>технологиях</b>.</p>]]></description>
+    <itunes:author>Иван Петров</itunes:author>
+    <itunes:owner>
+      <itunes:name>Иван Петров</itunes:name>
+      <itunes:email>ivan@example.com</itunes:email>
+    </itunes:owner>
+    <itunes:image href="https://example.com/cover.jpg"/>
+    <image>
+      <url>https://example.com/cover-small.jpg</url>
+      <title>Тестовый подкаст</title>
+      <link>https://example.com/podcast</link>
+    </image>
+    <itunes:category text="Technology"/>
+    <itunes:category text="Society &amp; Culture">
+      <itunes:category text="Documentary"/>
+    </itunes:category>
+    <itunes:explicit>false</itunes:explicit>
+    <itunes:type>serial</itunes:type>
+    <podcast:guid>917393e3-1b1e-5cef-ace4-edaa54e1f810</podcast:guid>
+    <podcast:locked owner="ivan@example.com">yes</podcast:locked>
+    <podcast:funding url="https://example.com/donate">Поддержать проект</podcast:funding>
+
+    <item>
+      <title>Эпизод 2. Главы и транскрипты</title>
+      <guid isPermaLink="false">ep-2</guid>
+      <link>https://example.com/ep2</link>
+      <pubDate>Tue, 06 Oct 2026 10:00:00 +0300</pubDate>
+      <description>Короткое описание</description>
+      <content:encoded><![CDATA[<p>Полное <i>описание</i> эпизода.</p>]]></content:encoded>
+      <itunes:subtitle>Подзаголовок</itunes:subtitle>
+      <enclosure url="https://cdn.example.com/ep2.mp3" length="34216300" type="audio/mpeg"/>
+      <itunes:duration>1:02:03</itunes:duration>
+      <itunes:image href="https://example.com/ep2.jpg"/>
+      <itunes:season>1</itunes:season>
+      <itunes:episode>2</itunes:episode>
+      <itunes:episodeType>full</itunes:episodeType>
+      <itunes:explicit>yes</itunes:explicit>
+      <podcast:chapters url="https://example.com/ep2/chapters.json" type="application/json+chapters"/>
+      <podcast:transcript url="https://example.com/ep2/transcript.vtt" type="text/vtt" language="ru" rel="captions"/>
+      <podcast:transcript url="https://example.com/ep2/transcript.html" type="text/html"/>
+      <podcast:person role="host" img="https://example.com/ivan.jpg" href="https://example.com/ivan">Иван Петров</podcast:person>
+      <podcast:person role="guest">Мария Смирнова</podcast:person>
+    </item>
+
+    <item>
+      <title>Трейлер</title>
+      <guid>ep-trailer</guid>
+      <pubDate>Mon, 05 Oct 2026 09:00:00 GMT</pubDate>
+      <enclosure url="https://cdn.example.com/trailer.m4a" length="0" type="audio/x-m4a"/>
+      <itunes:duration>95</itunes:duration>
+      <itunes:episodeType>trailer</itunes:episodeType>
+      <podcast:season>1</podcast:season>
+    </item>
+
+    <item>
+      <title>Эпизод через media:content</title>
+      <guid>ep-media</guid>
+      <pubDate>2026-10-01T12:30:00Z</pubDate>
+      <media:group>
+        <media:content url="https://cdn.example.com/ep1.mp4" type="video/mp4" fileSize="1000"/>
+        <media:content url="https://cdn.example.com/ep1.mp3" type="audio/mpeg" fileSize="500" duration="1800"/>
+      </media:group>
+      <media:thumbnail url="https://example.com/ep1-thumb.jpg"/>
+    </item>
+
+    <item>
+      <title>Только картинка, без аудио</title>
+      <guid>ep-image-only</guid>
+      <enclosure url="https://example.com/poster.jpg" type="image/jpeg" length="100"/>
+    </item>
+  </channel>
+</rss>

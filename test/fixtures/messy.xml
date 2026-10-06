@@ -1,0 +1,43 @@
+<?xml version="1.0"?>
+<rss version="2.0">
+<channel>
+  <title>  Кривой   фид  </title>
+  <itunes:author>Автор без неймспейса</itunes:author>
+  <itunes:image href="cover.jpg"/>
+  <description>Описание&nbsp;с неразрывным пробелом & голым амперсандом</description>
+
+  <item>
+    <title>Эпизод A</title>
+    <guid>dup</guid>
+    <pubDate>06 Oct 2026 10:00 MSK</pubDate>
+    <enclosure URL="https://cdn.example.org/a.mp3" type="audio/mp3" length="abc"/>
+    <itunes:duration>62:03</itunes:duration>
+  </item>
+
+  <item>
+    <title>Эпизод B с тем же guid</title>
+    <guid>dup</guid>
+    <pubDate>Вт, 06 окт 2026 12:00:00 +0300</pubDate>
+    <enclosure url="/media/b.mp3" length="2048"/>
+    <itunes:duration>3723.5</itunes:duration>
+  </item>
+
+  <item>
+    <title>Полный дубль A</title>
+    <guid>dup</guid>
+    <enclosure url="https://cdn.example.org/a.mp3" type="audio/mpeg"/>
+  </item>
+
+  <item>
+    <itunes:title>Запасной заголовок</itunes:title>
+    <pubDate>вчера вечером</pubDate>
+    <enclosure url="//cdn.example.org/d.m4a"/>
+    <itunes:duration>0</itunes:duration>
+  </item>
+
+  <item>
+    <title>Без файла</title>
+    <guid>no-media</guid>
+  </item>
+</channel>
+</rss>

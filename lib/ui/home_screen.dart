@@ -4,6 +4,7 @@ import '../data/db/database.dart';
 import 'add_feed_dialog.dart';
 import 'app_scope.dart';
 import 'format.dart';
+import 'mini_player.dart';
 import 'podcast_cover.dart';
 import 'podcast_screen.dart';
 
@@ -69,6 +70,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      bottomNavigationBar: const MiniPlayer(),
       appBar: AppBar(
         title: const Text('Подкасты'),
         actions: [

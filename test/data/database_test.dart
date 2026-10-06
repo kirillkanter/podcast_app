@@ -121,4 +121,24 @@ void main() {
     expect(await db.select(db.episodes).get(), isEmpty);
     expect(await db.select(db.episodeStates).get(), isEmpty);
   });
+
+  test('скорость воспроизведения подкаста', () async {
+    final r = await db.saveParsedFeed(feedUrl, parseFeed(feedWith([('1', 'Один')])));
+    expect(await db.podcastSpeed(r.podcastId), isNull);
+
+    await db.setPodcastSpeed(r.podcastId, 1.5);
+    expect(await db.podcastSpeed(r.podcastId), 1.5);
+
+    await db.setPodcastSpeed(r.podcastId, 2.0);
+    expect(await db.podcastSpeed(r.podcastId), 2.0);
+    final settings = await db.select(db.podcastSettings).getSingle();
+    expect(settings.dirty, isTrue);
+  });
+
+  test('эпизод по id', () async {
+    final r = await db.saveParsedFeed(feedUrl, parseFeed(feedWith([('1', 'Один')])));
+    final id = (await db.watchEpisodes(r.podcastId).first).single.id;
+    expect((await db.episodeById(id))!.title, 'Один');
+    expect(await db.episodeById(id + 100), isNull);
+  });
 }

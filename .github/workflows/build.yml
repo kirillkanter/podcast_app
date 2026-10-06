@@ -57,12 +57,13 @@ jobs:
           channel: stable
           cache: true
       - run: flutter create --platforms=android,windows --project-name podcast_app .
-      - name: Правка AndroidManifest (интернет, http, название)
+      - name: Правка AndroidManifest (интернет, http, фоновое аудио, название)
         run: |
           dart run tool/patch_platforms.dart
           grep -q 'android.permission.INTERNET' android/app/src/main/AndroidManifest.xml
           grep -q 'usesCleartextTraffic' android/app/src/main/AndroidManifest.xml
-          cat android/app/src/main/AndroidManifest.xml | head -20
+          grep -q 'AudioServiceActivity' android/app/src/main/AndroidManifest.xml
+          grep -q 'FOREGROUND_SERVICE_MEDIA_PLAYBACK' android/app/src/main/AndroidManifest.xml
       - run: flutter pub get
       - run: dart run build_runner build --delete-conflicting-outputs
       - run: flutter build apk --release

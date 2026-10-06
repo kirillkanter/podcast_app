@@ -319,6 +319,35 @@ class AppDatabase extends _$AppDatabase {
     );
   }
 
+  Future<Episode?> episodeById(int id) =>
+      (select(episodes)..where((e) => e.id.equals(id))).getSingleOrNull();
+
+  /// Скорость воспроизведения подкаста; `null` — не задана.
+  Future<double?> podcastSpeed(int podcastId) async {
+    final row = await (select(podcastSettings)..where((s) => s.podcastId.equals(podcastId)))
+        .getSingleOrNull();
+    return row?.playbackSpeed;
+  }
+
+  Future<void> setPodcastSpeed(int podcastId, double speed) {
+    final now = DateTime.now();
+    return into(podcastSettings).insert(
+      PodcastSettingsCompanion(
+        podcastId: Value(podcastId),
+        playbackSpeed: Value(speed),
+        updatedAt: Value(now),
+        dirty: const Value(true),
+      ),
+      onConflict: DoUpdate(
+        (_) => PodcastSettingsCompanion(
+          playbackSpeed: Value(speed),
+          updatedAt: Value(now),
+          dirty: const Value(true),
+        ),
+      ),
+    );
+  }
+
   Future<EpisodeState?> episodeState(int episodeId) =>
       (select(episodeStates)..where((s) => s.episodeId.equals(episodeId))).getSingleOrNull();
 }

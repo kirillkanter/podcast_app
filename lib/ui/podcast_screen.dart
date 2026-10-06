@@ -5,6 +5,8 @@ import '../data/podcast_repository.dart';
 import 'app_scope.dart';
 import 'episode_sheet.dart';
 import 'format.dart';
+import 'mini_player.dart';
+import 'now_playing.dart';
 import 'podcast_cover.dart';
 
 class PodcastScreen extends StatefulWidget {
@@ -54,6 +56,7 @@ class _PodcastScreenState extends State<PodcastScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      bottomNavigationBar: const MiniPlayer(),
       appBar: AppBar(
         actions: [
           IconButton(
@@ -224,13 +227,18 @@ class _EpisodeTile extends StatelessWidget {
     final theme = Theme.of(context);
     final e = item.episode;
     final played = item.state?.played ?? false;
+    final positionMs = item.state?.positionMs ?? 0;
+    final inProgress = !played && positionMs > 0;
     final meta = [
       formatEpisodeDate(e.pubDate),
-      formatDuration(e.durationMs),
+      if (inProgress && e.durationMs != null && e.durationMs! > positionMs)
+        'осталось ${formatDuration(e.durationMs! - positionMs)}'
+      else
+        formatDuration(e.durationMs),
     ].where((s) => s.isNotEmpty).join(' · ');
 
     return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      contentPadding: const EdgeInsets.only(left: 16, right: 4, top: 4, bottom: 4),
       title: Text(
         e.title,
         maxLines: 2,
@@ -238,8 +246,15 @@ class _EpisodeTile extends StatelessWidget {
         style: played ? TextStyle(color: theme.colorScheme.onSurfaceVariant) : null,
       ),
       subtitle: meta.isEmpty ? null : Text(meta),
-      trailing: played ? const Icon(Icons.check_circle_outline, semanticLabel: 'Прослушан') : null,
-      onTap: () => showEpisodeSheet(context, e),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (played)
+            Icon(Icons.check, size: 20, color: theme.colorScheme.outline, semanticLabel: 'Прослушан'),
+          EpisodePlayButton(episodeId: e.id, size: 32),
+        ],
+      ),
+      onTap: () => showEpisodeSheet(context, item),
     );
   }
 }

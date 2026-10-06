@@ -1,7 +1,7 @@
 name: podcast_app
 description: Кроссплатформенный подкаст-плеер (Android, Windows).
 publish_to: none
-version: 0.2.0+2
+version: 0.3.0+3
 
 environment:
   sdk: ^3.10.0
@@ -12,6 +12,20 @@ dependencies:
   drift: ^2.35.1
   drift_flutter: ^0.3.1
   http: ^1.2.0
+  just_audio: ^0.10.6
+  # Windows-реализация just_audio. Берём из репозитория: в опубликованной 0.2.3
+  # нет исправлений сентября 2026 и плеер сам захватывает системные медиа-кнопки,
+  # из-за чего кнопки на клавиатуре рассинхронизируют интерфейс.
+  just_audio_windows:
+    git:
+      url: https://github.com/bdlukaa/just_audio_windows.git
+      path: just_audio_windows
+      ref: 501f2ddddf2cdd9241213bcdaf05227a6c6a7c10
+  # Фоновое воспроизведение, уведомление и экран блокировки на Android.
+  audio_service: ^0.18.19
+  # audio_service на Windows: системная панель мультимедиа и медиа-клавиши.
+  audio_service_win: ^0.0.3
+  audio_session: ">=0.1.24 <0.3.0"
   # 7.x требует Dart 3.13; диапазон позволяет pub выбрать версию под ваш Flutter.
   xml: ">=6.6.1 <8.0.0"
 

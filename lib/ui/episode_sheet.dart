@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 
 import '../data/db/database.dart';
+import '../player/playback_logic.dart';
+import 'app_scope.dart';
 import 'format.dart';
+import 'now_playing.dart';
 import 'podcast_cover.dart';
 
-/// Карточка эпизода: название, дата, длительность, описание.
-Future<void> showEpisodeSheet(BuildContext context, Episode episode) {
+/// Карточка эпизода: название, дата, длительность, кнопки, описание.
+Future<void> showEpisodeSheet(BuildContext context, EpisodeWithState item) {
   return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
@@ -16,21 +19,23 @@ Future<void> showEpisodeSheet(BuildContext context, Episode episode) {
       initialChildSize: 0.7,
       minChildSize: 0.4,
       maxChildSize: 0.95,
-      builder: (context, controller) => _EpisodeDetails(episode: episode, controller: controller),
+      builder: (context, controller) => _EpisodeDetails(item: item, controller: controller),
     ),
   );
 }
 
 class _EpisodeDetails extends StatelessWidget {
-  const _EpisodeDetails({required this.episode, required this.controller});
+  const _EpisodeDetails({required this.item, required this.controller});
 
-  final Episode episode;
+  final EpisodeWithState item;
   final ScrollController controller;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final e = episode;
+    final e = item.episode;
+    final played = item.state?.played ?? false;
+    final positionMs = item.state?.positionMs ?? 0;
     final text = htmlToText(e.description ?? e.summary);
     final meta = [
       formatEpisodeDate(e.pubDate),
@@ -38,6 +43,7 @@ class _EpisodeDetails extends StatelessWidget {
       if (e.season != null) 'сезон ${e.season}',
       if (e.episodeNumber != null) 'эпизод ${e.episodeNumber}',
     ].where((s) => s.isNotEmpty).join(' · ');
+    final db = AppScope.of(context).db;
 
     return ListView(
       controller: controller,
@@ -67,15 +73,45 @@ class _EpisodeDetails extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 16),
-        Text(
-          'Воспроизведение появится в следующей версии.',
-          style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline),
+        Wrap(
+          spacing: 12,
+          runSpacing: 8,
+          children: [
+            NowPlayingBuilder(builder: (context, now, audio) {
+              if (audio == null) return const SizedBox.shrink();
+              final playing = now.isEpisode(e.id) && now.playing;
+              final label = playing
+                  ? 'Пауза'
+                  : (!played && positionMs > 0 ? 'Продолжить с ${formatClock(Duration(milliseconds: positionMs))}' : 'Слушать');
+              return FilledButton.icon(
+                icon: Icon(playing ? Icons.pause : Icons.play_arrow),
+                label: Text(label),
+                onPressed: () {
+                  if (playing) {
+                    audio.pause();
+                  } else {
+                    audio.playEpisode(e.id);
+                    Navigator.of(context).pop();
+                  }
+                },
+              );
+            }),
+            OutlinedButton.icon(
+              icon: Icon(played ? Icons.remove_done : Icons.done),
+              label: Text(played ? 'Снять отметку' : 'Отметить прослушанным'),
+              onPressed: () {
+                db.setPlayed(e.id, !played);
+                Navigator.of(context).pop();
+              },
+            ),
+          ],
         ),
         if (text.isNotEmpty) ...[
-          const SizedBox(height: 16),
+          const SizedBox(height: 20),
           SelectableText(text, style: theme.textTheme.bodyMedium),
         ],
       ],
     );
   }
+
 }

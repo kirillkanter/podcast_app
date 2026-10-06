@@ -78,6 +78,19 @@ void main() {
       expect(await db.watchIsSubscribed(first).first, isTrue);
     });
 
+    test('просмотр без подписки, потом подписка без повторной загрузки', () async {
+      web.serve('https://example.com/feed', feed('Тест', ['1']));
+
+      final id = await repo.add('https://example.com/feed', subscribe: false);
+      expect(await db.watchIsSubscribed(id).first, isFalse);
+      expect(await db.watchSubscribedPodcasts().first, isEmpty);
+
+      final requestsBefore = web.requests.length;
+      expect(await repo.add('https://example.com/feed', subscribe: true), id);
+      expect(await db.watchIsSubscribed(id).first, isTrue);
+      expect(web.requests.length, requestsBefore, reason: 'известный фид не загружается заново');
+    });
+
     test('по ссылке Apple Podcasts', () async {
       web.routes['https://itunes.apple.com/lookup?id=42&entity=podcast'] = (_) => http.Response(
             jsonEncode({

@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:podcast_app/catalog/podcast_catalog.dart';
 import 'package:podcast_app/data/db/database.dart';
 import 'package:podcast_app/data/podcast_repository.dart';
 import 'package:podcast_app/feed/feed_fetcher.dart';
@@ -116,6 +117,56 @@ void main() {
 
     expect(find.textContaining('404'), findsOneWidget);
     expect(find.byType(AlertDialog), findsOneWidget);
+    await disposeApp(tester);
+  });
+
+  testWidgets('поиск: популярное, результаты, отметка подписки', (tester) async {
+    await tester.runAsync(() => repo.addAndSubscribe('https://example.com/feed'));
+    final catalog = PodcastCatalog(
+      country: 'ru',
+      client: MockClient((request) async {
+        if (request.url.host == 'rss.marketingtools.apple.com') {
+          return http.Response.bytes(
+            utf8.encode(jsonEncode({
+              'feed': {
+                'results': [
+                  {'id': '1'},
+                ],
+              },
+            })),
+            200,
+          );
+        }
+        final results = request.url.path == '/lookup'
+            ? [
+                {'collectionId': 1, 'collectionName': 'Популярный подкаст', 'feedUrl': 'https://pop.example.com/rss'},
+              ]
+            : [
+                // Тот же фид, что в подписках, но с http и слэшем на конце.
+                {'collectionId': 2, 'collectionName': 'Тестовый подкаст', 'feedUrl': 'http://example.com/feed/'},
+                {'collectionId': 3, 'collectionName': 'Эксклюзив', 'artistName': 'Студия'},
+              ];
+        return http.Response.bytes(utf8.encode(jsonEncode({'results': results})), 200);
+      }),
+    );
+
+    await tester.pumpWidget(
+      PodcastApp(db: db, repository: repo, catalog: catalog, refreshOnStart: false),
+    );
+    await settle(tester, 'запуск');
+    await tester.tap(find.byTooltip('Поиск подкастов'));
+    await settle(tester, 'открытие поиска');
+    expect(find.text('Популярное'), findsOneWidget);
+    expect(find.text('Популярный подкаст'), findsOneWidget);
+
+    await tester.enterText(find.byKey(const Key('searchField')), 'тест');
+    await tester.pump(const Duration(milliseconds: 500));
+    await settle(tester, 'поиск');
+    expect(find.text('Результаты поиска'), findsOneWidget);
+    expect(find.text('Тестовый подкаст'), findsOneWidget);
+    expect(find.byIcon(Icons.check), findsOneWidget, reason: 'подписка узнана по адресу фида');
+    expect(find.textContaining('только в Apple Podcasts'), findsOneWidget);
+
     await disposeApp(tester);
   });
 }

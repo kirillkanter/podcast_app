@@ -7,6 +7,7 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 
+import 'catalog/podcast_catalog.dart';
 import 'data/db/database.dart';
 import 'data/podcast_repository.dart';
 import 'download/download_manager.dart';
@@ -30,6 +31,11 @@ Future<void> main() async {
     },
   );
   unawaited(downloads.start());
+  // Страна каталога — из языка системы: ru_RU → ru.
+  final region = Platform.localeName.split(RegExp('[_.-]')).elementAtOrNull(1);
+  final catalog = PodcastCatalog(
+    country: region != null && RegExp(r'^[A-Za-z]{2}$').hasMatch(region) ? region : 'us',
+  );
 
   PodcastAudioHandler? audio;
   try {
@@ -67,7 +73,13 @@ Future<void> main() async {
     }
   }
 
-  runApp(PodcastApp(db: db, repository: repository, audio: audio, downloads: downloads));
+  runApp(PodcastApp(
+    db: db,
+    repository: repository,
+    audio: audio,
+    downloads: downloads,
+    catalog: catalog,
+  ));
 }
 
 class PodcastApp extends StatefulWidget {
@@ -77,6 +89,7 @@ class PodcastApp extends StatefulWidget {
     required this.repository,
     this.audio,
     this.downloads,
+    this.catalog,
     this.refreshOnStart = true,
   });
 
@@ -84,6 +97,7 @@ class PodcastApp extends StatefulWidget {
   final PodcastRepository repository;
   final PodcastAudioHandler? audio;
   final DownloadManager? downloads;
+  final PodcastCatalog? catalog;
   final bool refreshOnStart;
 
   @override
@@ -145,6 +159,7 @@ class _PodcastAppState extends State<PodcastApp> {
       repository: widget.repository,
       audio: widget.audio,
       downloads: widget.downloads,
+      catalog: widget.catalog,
       child: MaterialApp(
         title: 'Подкасты',
         debugShowCheckedModeBanner: false,

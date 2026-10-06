@@ -1,5 +1,6 @@
 import 'package:flutter/widgets.dart';
 
+import '../catalog/podcast_catalog.dart';
 import '../data/db/database.dart';
 import '../data/podcast_repository.dart';
 import '../download/download_manager.dart';
@@ -13,6 +14,7 @@ class AppScope extends InheritedWidget {
     required this.repository,
     this.audio,
     this.downloads,
+    this.catalog,
     required super.child,
   });
 
@@ -25,6 +27,9 @@ class AppScope extends InheritedWidget {
   /// Загрузки. `null` в тестах интерфейса.
   final DownloadManager? downloads;
 
+  /// Каталог для поиска. `null` в тестах интерфейса.
+  final PodcastCatalog? catalog;
+
   static AppScope of(BuildContext context) {
     final scope = context.dependOnInheritedWidgetOfExactType<AppScope>();
     assert(scope != null, 'AppScope не найден выше по дереву виджетов');
@@ -35,5 +40,6 @@ class AppScope extends InheritedWidget {
   bool updateShouldNotify(AppScope oldWidget) =>
       db != oldWidget.db || repository != oldWidget.repository ||
       audio != oldWidget.audio ||
-      downloads != oldWidget.downloads;
+      downloads != oldWidget.downloads ||
+      catalog != oldWidget.catalog;
 }

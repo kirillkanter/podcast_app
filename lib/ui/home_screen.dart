@@ -11,6 +11,7 @@ import 'format.dart';
 import 'mini_player.dart';
 import 'podcast_cover.dart';
 import 'podcast_screen.dart';
+import 'search_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key, this.refreshOnStart = true});
@@ -81,6 +82,14 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         title: const Text('Подкасты'),
         actions: [
+          if (AppScope.of(context).catalog != null)
+            IconButton(
+              tooltip: 'Поиск подкастов',
+              icon: const Icon(Icons.search),
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(builder: (_) => const SearchScreen()),
+              ),
+            ),
           IconButton(
             tooltip: 'Обновить все',
             onPressed: _refreshing ? null : _refreshAll,
@@ -178,8 +187,8 @@ class _EmptyState extends StatelessWidget {
         Text('Подписок пока нет', textAlign: TextAlign.center, style: theme.textTheme.titleMedium),
         const SizedBox(height: 8),
         Text(
-          'Нажмите «Добавить» и вставьте ссылку на RSS-фид подкаста '
-          'или на его страницу в Apple Podcasts.',
+          'Найдите подкаст через поиск (значок лупы вверху) или нажмите «Добавить» '
+          'и вставьте ссылку на RSS-фид.',
           textAlign: TextAlign.center,
           style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
         ),

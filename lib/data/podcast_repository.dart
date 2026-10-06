@@ -50,7 +50,12 @@ class PodcastRepository {
 
   /// Добавляет подкаст по ссылке и подписывается на него.
   /// Возвращает id подкаста.
-  Future<int> addAndSubscribe(String input) async {
+  Future<int> addAndSubscribe(String input) => add(input, subscribe: true);
+
+  /// Загружает подкаст по ссылке и сохраняет в БД. С [subscribe] = false
+  /// подкаст можно посмотреть до подписки (например, из поиска).
+  /// Уже известный подкаст не загружается заново.
+  Future<int> add(String input, {required bool subscribe}) async {
     final parsed = parseFeedInput(input);
     if (parsed == null) {
       throw const PodcastException('Это не похоже на ссылку. Вставьте адрес RSS-фида.');
@@ -68,7 +73,7 @@ class PodcastRepository {
 
     final existing = await _db.findPodcastByUrl(requestedUrl);
     if (existing != null) {
-      await _db.setSubscribed(existing.id, true);
+      if (subscribe) await _db.setSubscribed(existing.id, true);
       return existing.id;
     }
 
@@ -87,7 +92,7 @@ class PodcastRepository {
 
     final already = await _db.findPodcastByUrl(loaded.url);
     if (already != null) {
-      await _db.setSubscribed(already.id, true);
+      if (subscribe) await _db.setSubscribed(already.id, true);
       await _save(already.id, loaded);
       return already.id;
     }
@@ -98,7 +103,7 @@ class PodcastRepository {
       etag: loaded.etag,
       lastModified: loaded.lastModified,
     );
-    await _db.setSubscribed(result.podcastId, true);
+    if (subscribe) await _db.setSubscribed(result.podcastId, true);
     return result.podcastId;
   }
 

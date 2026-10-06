@@ -9,7 +9,11 @@ if "$@" > "$log" 2>&1; then
   exit 0
 fi
 cat "$log"
-{ grep -n -i -E "error|fatal|failed|exception|cannot|could not|unresolved" "$log" | grep -v -i -E "^[0-9]+:\s*warning" ; } | head -80 > "$log.fail" || true
+{
+  # Gradle: блок «What went wrong» целиком — в нём причина.
+  grep -n -A25 "What went wrong" "$log" || true
+  grep -n -i -E "error|fatal|failed|exception|cannot|could not|unresolved" "$log" | grep -v -i -E "^[0-9]+:\s*warning" || true
+} | head -120 > "$log.fail" 
 [ -s "$log.fail" ] || tail -80 "$log" > "$log.fail"
 msg=$(sed -e 's/%/%25/g' -e 's/\r//g' "$log.fail" | cut -c1-400 | awk '{printf "%s%%0A", $0}')
 echo "::error title=${title}::${msg}"

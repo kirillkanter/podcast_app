@@ -126,4 +126,8 @@ void _patchAndroid() {
   if (generated.single.path != target.path) generated.single.deleteSync();
   File('tool/android/MainActivity.kt').copySync(target.path);
   stdout.writeln('MainActivity заменена: ${target.path}');
+
+  // Иконки audio_service не должны удаляться при сжатии ресурсов.
+  Directory('android/app/src/main/res/raw').createSync(recursive: true);
+  File('tool/android/keep.xml').copySync('android/app/src/main/res/raw/keep.xml');
 }

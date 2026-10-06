@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Иконки кнопок уведомления audio_service запрашиваются по имени из Dart
+  (getIdentifier), поэтому сжатие ресурсов в release-сборке считает их
+  неиспользуемыми и может удалить. Явно сохраняем их и иконку уведомления.
+-->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@drawable/audio_service_*,@mipmap/ic_launcher" />

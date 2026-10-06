@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 
 import '../data/db/database.dart';
 import '../data/podcast_repository.dart';
+import '../platform/open_url.dart';
 import 'app_scope.dart';
 import 'download_button.dart';
 import 'episode_sheet.dart';
 import 'format.dart';
 import 'now_playing.dart';
 import 'podcast_cover.dart';
+import 'theme.dart';
 
 class PodcastScreen extends StatefulWidget {
   const PodcastScreen({super.key, required this.podcastId});
@@ -153,6 +155,53 @@ class _PodcastScreenState extends State<PodcastScreen> {
   }
 }
 
+/// Домен сайта подкаста без «www.», если ссылка в RSS похожа на сайт.
+String? _siteHost(String? link) {
+  final uri = link == null ? null : Uri.tryParse(link);
+  if (uri == null || !(uri.isScheme('http') || uri.isScheme('https')) || uri.host.isEmpty) return null;
+  return uri.host.startsWith('www.') ? uri.host.substring(4) : uri.host;
+}
+
+/// Ссылка на сайт подкаста: откроется в браузере.
+class _SiteLink extends StatelessWidget {
+  const _SiteLink({required this.url, required this.host});
+
+  final String url;
+  final String host;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = BcColors.of(context);
+    return Tooltip(
+      message: 'Открыть сайт подкаста в браузере',
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: () async {
+          final messenger = ScaffoldMessenger.of(context);
+          if (!await openUrl(url)) {
+            messenger.showSnackBar(const SnackBar(content: Text('Не удалось открыть ссылку')));
+          }
+        },
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(Icons.public_rounded, size: 16, color: c.ink),
+            const SizedBox(width: 5),
+            Flexible(
+              child: Text(host,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: c.ink)),
+            ),
+            const SizedBox(width: 3),
+            Icon(Icons.north_east_rounded, size: 14, color: c.ink),
+          ]),
+        ),
+      ),
+    );
+  }
+}
+
 class _Header extends StatefulWidget {
   const _Header({required this.podcast, required this.subscribed});
 
@@ -194,6 +243,10 @@ class _HeaderState extends State<_Header> {
                       Text(p.author!, style: theme.textTheme.bodyMedium?.copyWith(
                         color: theme.colorScheme.onSurfaceVariant,
                       )),
+                    ],
+                    if (_siteHost(p.link) case final host?) ...[
+                      const SizedBox(height: 2),
+                      _SiteLink(url: p.link!, host: host),
                     ],
                     const SizedBox(height: 12),
                     StreamBuilder<bool>(

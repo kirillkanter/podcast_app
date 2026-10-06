@@ -6,6 +6,7 @@ import '../data/db/database.dart';
 import 'add_feed_dialog.dart';
 import 'app_scope.dart';
 import 'episode_sheet.dart';
+import 'feed_screen.dart';
 import 'format.dart';
 import 'now_playing.dart';
 import 'podcast_cover.dart';
@@ -135,27 +136,42 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
   }
 
-  Widget _filters() {
+  Widget _filters() => Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: FeedFilterChips(value: _filter, onChanged: (f) => setState(() => _filter = f)),
+      );
+}
+
+/// Фильтры ленты: «Новые», «Начатые», «Загруженные».
+class FeedFilterChips extends StatelessWidget {
+  const FeedFilterChips({super.key, required this.value, required this.onChanged});
+
+  final FeedFilter value;
+  final ValueChanged<FeedFilter> onChanged;
+
+  static const labels = {
+    FeedFilter.fresh: 'Новые',
+    FeedFilter.started: 'Начатые',
+    FeedFilter.downloaded: 'Загруженные',
+  };
+
+  @override
+  Widget build(BuildContext context) {
     final c = BcColors.of(context);
-    const labels = {
-      FeedFilter.fresh: 'Новые',
-      FeedFilter.started: 'Начатые',
-      FeedFilter.downloaded: 'Загруженные',
-    };
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+      padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Row(children: [
         for (final f in FeedFilter.values) ...[
           ChoiceChip(
-            label: Text(labels[f]!),
-            selected: f == _filter,
+            label: Text(labels[f]!, maxLines: 1),
+            selected: f == value,
             labelStyle: TextStyle(
-              fontWeight: f == _filter ? FontWeight.w600 : FontWeight.w500,
-              color: f == _filter ? c.onFill : c.text,
+              fontWeight: f == value ? FontWeight.w600 : FontWeight.w500,
+              color: f == value ? c.onFill : c.text,
             ),
-            side: f == _filter ? BorderSide.none : BorderSide(color: c.line),
-            onSelected: (_) => setState(() => _filter = f),
+            side: f == value ? BorderSide.none : BorderSide(color: c.line),
+            onSelected: (_) => onChanged(f),
           ),
           const SizedBox(width: 8),
         ],
@@ -163,6 +179,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
   }
 }
+
+/// Сколько эпизодов ленты показывать в библиотеке; остальные — на экране «Эпизоды».
+const _preview = 3;
 
 class _Feed extends StatelessWidget {
   const _Feed({required this.filter});
@@ -173,7 +192,7 @@ class _Feed extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = BcColors.of(context);
     return StreamBuilder<List<FeedEpisode>>(
-      stream: AppScope.of(context).db.watchFeed(filter, limit: 20),
+      stream: AppScope.of(context).db.watchFeed(filter, limit: _preview + 1),
       builder: (context, snapshot) {
         final items = snapshot.data;
         if (items == null) return const SliverToBoxAdapter(child: SizedBox(height: 80));
@@ -190,17 +209,63 @@ class _Feed extends StatelessWidget {
             ),
           );
         }
-        return SliverList.builder(
-          itemCount: items.length,
-          itemBuilder: (context, i) => _FeedRow(item: items[i]),
-        );
+        final more = items.length > _preview;
+        return SliverList.list(children: [
+          for (final item in items.take(_preview)) FeedEpisodeRow(item: item),
+          if (more) _ShowAll(filter: filter),
+        ]);
       },
     );
   }
 }
 
-class _FeedRow extends StatelessWidget {
-  const _FeedRow({required this.item});
+/// Плашка «Все новые эпизоды ›».
+class _ShowAll extends StatelessWidget {
+  const _ShowAll({required this.filter});
+
+  final FeedFilter filter;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = BcColors.of(context);
+    final text = switch (filter) {
+      FeedFilter.fresh => 'Все новые эпизоды',
+      FeedFilter.started => 'Все начатые эпизоды',
+      FeedFilter.downloaded => 'Все загруженные эпизоды',
+    };
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
+      child: Material(
+        color: c.card,
+        borderRadius: BorderRadius.circular(14),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(builder: (_) => FeedScreen(initialFilter: filter)),
+          ),
+          child: SizedBox(
+            height: 44,
+            child: Row(children: [
+              const SizedBox(width: 16),
+              Expanded(child: Text(text, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500))),
+              Icon(Icons.chevron_right_rounded, color: c.muted),
+              const SizedBox(width: 10),
+            ]),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Эпизод в ленте: обложка, подкаст и дата, название, прогресс, кнопка «слушать».
+class FeedEpisodeRow extends StatelessWidget {
+  const FeedEpisodeRow({super.key, required this.item, this.showDate = true});
+
+  final FeedEpisode item;
+
+  /// Дата рядом с названием подкаста; на экране «Эпизоды» она в заголовке группы.
+  final bool showDate;
 
   final FeedEpisode item;
 
@@ -211,7 +276,7 @@ class _FeedRow extends StatelessWidget {
     final position = item.state?.positionMs ?? 0;
     final started = position > 0 && !(item.state?.played ?? false);
     final downloaded = item.download?.status == DownloadStatus.completed;
-    final date = formatEpisodeDate(e.pubDate).toLowerCase();
+    final date = showDate ? formatEpisodeDate(e.pubDate).toLowerCase() : '';
     return InkWell(
       onTap: () => showEpisodeSheet(context, (episode: e, state: item.state, download: item.download)),
       child: Padding(

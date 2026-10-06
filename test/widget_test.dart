@@ -169,4 +169,35 @@ void main() {
 
     await disposeApp(tester);
   });
+
+  testWidgets('библиотека: три эпизода и экран «Эпизоды» со всеми', (tester) async {
+    final items = [
+      for (var i = 1; i <= 5; i++)
+        '<item><guid>$i</guid><title>Выпуск $i</title><pubDate>0$i Oct 2026 10:00:00 GMT</pubDate>'
+            '<enclosure url="https://cdn.example.com/$i.mp3" type="audio/mpeg"/></item>',
+    ].join();
+    final big = PodcastRepository(
+      db,
+      FeedFetcher(
+        client: MockClient((_) async => http.Response.bytes(
+            utf8.encode('<rss version="2.0"><channel><title>Пятёрка</title>$items</channel></rss>'), 200)),
+      ),
+      parser: PodcastRepository.parseInPlace,
+    );
+    await tester.runAsync(() => big.addAndSubscribe('https://example.com/five'));
+
+    await tester.pumpWidget(PodcastApp(db: db, repository: big, refreshOnStart: false));
+    await settle(tester, 'запуск');
+    expect(find.text('Выпуск 5'), findsOneWidget);
+    expect(find.text('Выпуск 3'), findsOneWidget);
+    expect(find.text('Выпуск 2'), findsNothing, reason: 'в библиотеке только три эпизода');
+
+    await tester.tap(find.text('Все новые эпизоды'));
+    await settle(tester, 'открытие всех эпизодов');
+    expect(find.text('Эпизоды'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('Выпуск 1'), 200);
+    expect(find.text('Выпуск 1'), findsOneWidget);
+
+    await disposeApp(tester);
+  });
 }

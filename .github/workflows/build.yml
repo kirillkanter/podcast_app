@@ -29,7 +29,7 @@ jobs:
           # её видно на странице Actions и через API.
           if ! flutter test --reporter expanded > test.log 2>&1; then
             cat test.log
-            grep -A30 '\[E\]' test.log | head -400 > fail.txt || true
+            { grep -B70 -A12 '\[E\]' test.log | grep -v -E '^#[0-9]+ |^\s+package:|dart:async|stack_trace' ; } | head -300 > fail.txt || true
             msg=$(sed -e 's/%/%25/g' -e 's/\r//g' fail.txt | awk '{printf "%s%%0A", $0}')
             echo "::error title=Упавшие тесты::${msg}"
             exit 1

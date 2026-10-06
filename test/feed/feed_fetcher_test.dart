@@ -155,7 +155,7 @@ void main() {
             jsonEncode({
               'resultCount': 1,
               'results': [
-                {'collectionName': 'Эксклюзив'},
+                {'collectionName': 'Exclusive'},
               ],
             }),
             200,

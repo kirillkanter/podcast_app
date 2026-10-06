@@ -39,9 +39,10 @@ void main() {
     repo = PodcastRepository(db, FeedFetcher(client: client), parser: PodcastRepository.parseInPlace);
   });
 
+  tearDown(() => db.close());
+
   Future<void> disposeApp(WidgetTester tester) async {
     await tester.pumpWidget(const SizedBox());
-    await db.close();
   }
 
   testWidgets('пустой список подписок', (tester) async {

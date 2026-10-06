@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../data/db/database.dart';
 import 'add_feed_dialog.dart';
 import 'app_scope.dart';
+import 'diagnostics_dialog.dart';
 import 'format.dart';
 import 'mini_player.dart';
 import 'podcast_cover.dart';
@@ -83,6 +84,15 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Icon(Icons.refresh),
+          ),
+          PopupMenuButton<void>(
+            tooltip: 'Ещё',
+            itemBuilder: (_) => [
+              PopupMenuItem<void>(
+                onTap: () => showDiagnosticsDialog(context),
+                child: const Text('Диагностика'),
+              ),
+            ],
           ),
         ],
       ),

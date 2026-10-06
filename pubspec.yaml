@@ -1,7 +1,7 @@
 name: podcast_app
 description: Кроссплатформенный подкаст-плеер (Android, Windows).
 publish_to: none
-version: 0.3.1+4
+version: 0.3.2+5
 
 environment:
   sdk: ^3.10.0
@@ -26,6 +26,8 @@ dependencies:
   # audio_service на Windows: системная панель мультимедиа и медиа-клавиши.
   audio_service_win: ^0.0.3
   audio_session: ">=0.1.24 <0.3.0"
+  # Разрешение на уведомления (Android 13+).
+  permission_handler: ">=12.0.0 <14.0.0"
   # 7.x требует Dart 3.13; диапазон позволяет pub выбрать версию под ваш Flutter.
   xml: ">=6.6.1 <8.0.0"
 

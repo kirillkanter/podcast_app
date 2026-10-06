@@ -166,9 +166,13 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
     await super.stop();
   }
 
-  /// Смахнули приложение из списка недавних на Android.
+  /// Смахнули приложение из списка недавних на Android. Если эпизод играет,
+  /// воспроизведение продолжается в фоне (как в других подкаст-плеерах);
+  /// если стоит на паузе — плеер закрывается.
   @override
-  Future<void> onTaskRemoved() => stop();
+  Future<void> onTaskRemoved() async {
+    if (!_player.playing) await stop();
+  }
 
   /// [duration] — через сколько поставить на паузу; `null` — выключить.
   void setSleepTimer(Duration? duration) {

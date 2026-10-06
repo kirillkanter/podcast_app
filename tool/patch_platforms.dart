@@ -44,16 +44,17 @@ void main() {
   _patchWindows();
 }
 
-const _windowsMarker = '# podcast_app: C++20 для плагинов';
+const _windowsMarker = '# podcast_app: совместимость плагинов с новым MSVC';
 const _windowsPatch = '''
 
 $_windowsMarker
-# Плагины на C++/WinRT (just_audio_windows, audio_service_win) в режиме C++17
-# подключают <experimental/coroutine>, а MSVC 14.51+ превращает это в ошибку
-# STL1011. В C++20 используется стандартный <coroutine>.
+# Плагины на C++/WinRT (just_audio_windows, audio_service_win) собираются
+# в C++17, где C++/WinRT подключает <experimental/coroutine>. MSVC 14.51+
+# превращает это в ошибку STL1011; макрос возвращает прежнее поведение.
+# Перевод плагинов на C++20 не подходит: их код не собирается в C++20.
 foreach(plugin \${FLUTTER_PLUGIN_LIST})
   if(TARGET \${plugin}_plugin)
-    target_compile_features(\${plugin}_plugin PRIVATE cxx_std_20)
+    target_compile_definitions(\${plugin}_plugin PRIVATE _SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS)
   endif()
 endforeach()
 ''';

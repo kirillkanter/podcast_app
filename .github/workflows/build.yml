@@ -62,7 +62,7 @@ jobs:
           dart run tool/patch_platforms.dart
           grep -q 'android.permission.INTERNET' android/app/src/main/AndroidManifest.xml
           grep -q 'usesCleartextTraffic' android/app/src/main/AndroidManifest.xml
-          grep -q 'AudioServiceActivity' android/app/src/main/AndroidManifest.xml
+          grep -rq 'AudioServiceActivity()' android/app/src/main/kotlin
           grep -q 'FOREGROUND_SERVICE_MEDIA_PLAYBACK' android/app/src/main/AndroidManifest.xml
       - run: flutter pub get
       - run: dart run build_runner build --delete-conflicting-outputs

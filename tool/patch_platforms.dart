@@ -7,7 +7,8 @@
 //   а многие старые фиды и аудиофайлы до сих пор отдаются по http);
 // - название приложения «Подкасты»;
 // - фоновое воспроизведение через audio_service: разрешения, сервис,
-//   приёмник медиа-кнопок и AudioServiceActivity вместо MainActivity.
+//   приёмник медиа-кнопок и MainActivity на основе AudioServiceActivity
+//   (tool/android/MainActivity.kt).
 //
 // Скрипт можно запускать повторно: уже внесённые правки не дублируются.
 // Запуск: dart run tool/patch_platforms.dart
@@ -100,12 +101,7 @@ void _patchAndroid() {
 
   xml = xml.replaceFirst(RegExp(r'android:label="[^"]*"'), 'android:label="Подкасты"');
 
-  // audio_service требует свою Activity, чтобы фоновый сервис и интерфейс
-  // работали с одним и тем же движком Flutter.
-  xml = xml.replaceFirst(
-    'android:name=".MainActivity"',
-    'android:name="com.ryanheise.audioservice.AudioServiceActivity"',
-  );
+  // MainActivity заменяется своей (наследник AudioServiceActivity), см. ниже.
 
   if (!xml.contains('com.ryanheise.audioservice.AudioService"')) {
     xml = xml.replaceFirst('</application>', '$_audioServiceComponents    </application>');
@@ -113,4 +109,21 @@ void _patchAndroid() {
 
   manifest.writeAsStringSync(xml);
   stdout.writeln('AndroidManifest.xml обновлён.');
+
+  // Своя MainActivity: наследник AudioServiceActivity (требование audio_service)
+  // с каналом для разрешения на уведомления.
+  final generated = Directory('android/app/src/main')
+      .listSync(recursive: true)
+      .whereType<File>()
+      .where((f) => f.path.endsWith('MainActivity.kt') || f.path.endsWith('MainActivity.java'))
+      .toList();
+  if (generated.length != 1) {
+    stderr.writeln('Ожидалась одна MainActivity, найдено: ${generated.length}');
+    exitCode = 1;
+    return;
+  }
+  final target = File(generated.single.path.replaceFirst(RegExp(r'\.java$'), '.kt'));
+  if (generated.single.path != target.path) generated.single.deleteSync();
+  File('tool/android/MainActivity.kt').copySync(target.path);
+  stdout.writeln('MainActivity заменена: ${target.path}');
 }

@@ -1,0 +1,84 @@
+package com.example.podcast_app
+
+import android.Manifest
+import android.app.NotificationManager
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
+import android.provider.Settings
+import com.ryanheise.audioservice.AudioServiceActivity
+import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.MethodChannel
+
+/**
+ * Activity приложения.
+ *
+ * Наследуется от AudioServiceActivity: этого требует audio_service, чтобы
+ * фоновый сервис и интерфейс работали с одним движком Flutter.
+ *
+ * Канал podcast_app/notifications: проверка и запрос разрешения на уведомления
+ * и переход в их настройки — без сторонних плагинов.
+ *
+ * Файл копируется поверх сгенерированного tool/patch_platforms.dart.
+ */
+class MainActivity : AudioServiceActivity() {
+    private var pendingPermissionResult: MethodChannel.Result? = null
+
+    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+        super.configureFlutterEngine(flutterEngine)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "enabled" -> result.success(notificationsEnabled())
+                    "request" -> requestPermission(result)
+                    "openSettings" -> {
+                        openNotificationSettings()
+                        result.success(null)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+    }
+
+    private fun notificationsEnabled(): Boolean {
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        return manager.areNotificationsEnabled()
+    }
+
+    private fun requestPermission(result: MethodChannel.Result) {
+        if (Build.VERSION.SDK_INT < 33 ||
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        ) {
+            result.success(notificationsEnabled())
+            return
+        }
+        pendingPermissionResult?.success(notificationsEnabled())
+        pendingPermissionResult = result
+        requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQUEST_CODE)
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray,
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQUEST_CODE) {
+            pendingPermissionResult?.success(notificationsEnabled())
+            pendingPermissionResult = null
+        }
+    }
+
+    private fun openNotificationSettings() {
+        val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+            .putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        startActivity(intent)
+    }
+
+    companion object {
+        private const val CHANNEL = "podcast_app/notifications"
+        private const val REQUEST_CODE = 4101
+    }
+}

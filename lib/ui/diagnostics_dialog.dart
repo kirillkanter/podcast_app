@@ -3,8 +3,8 @@ import 'dart:io';
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:permission_handler/permission_handler.dart';
 
+import '../platform/notifications.dart';
 import 'app_scope.dart';
 
 /// Ошибка запуска плеера, если она была (заполняется в main).
@@ -49,12 +49,12 @@ Future<String> _collect(PlaybackState? state) async {
       'Состояние плеера: ${state.processingState.name}, играет: ${state.playing ? 'да' : 'нет'}',
   ];
   if (Platform.isAndroid) {
-    try {
-      final status = await Permission.notification.status;
-      lines.add('Уведомления: ${status.isGranted ? 'разрешены' : 'запрещены (${status.name})'}');
-    } catch (e) {
-      lines.add('Уведомления: не удалось проверить ($e)');
-    }
+    final enabled = await notificationsEnabled();
+    lines.add('Уведомления: ${switch (enabled) {
+      true => 'разрешены',
+      false => 'запрещены',
+      null => 'не удалось проверить',
+    }}');
   }
   return lines.join('\n');
 }

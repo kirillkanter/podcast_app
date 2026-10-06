@@ -4,11 +4,11 @@ import 'dart:io';
 import 'package:audio_service/audio_service.dart';
 import 'package:audio_session/audio_session.dart';
 import 'package:flutter/material.dart';
-import 'package:permission_handler/permission_handler.dart';
 
 import 'data/db/database.dart';
 import 'data/podcast_repository.dart';
 import 'feed/feed_fetcher.dart';
+import 'platform/notifications.dart';
 import 'player/podcast_audio_handler.dart';
 import 'ui/app_scope.dart';
 import 'ui/diagnostics_dialog.dart';
@@ -95,16 +95,16 @@ class _PodcastAppState extends State<PodcastApp> {
     if (_notificationsChecked || !Platform.isAndroid) return;
     _notificationsChecked = true;
     try {
-      var status = await Permission.notification.status;
-      if (status.isDenied) status = await Permission.notification.request();
-      if (status.isGranted) return;
+      var enabled = await notificationsEnabled();
+      if (enabled == false) enabled = await requestNotifications();
+      if (enabled != false) return;
       _messenger.currentState?.showSnackBar(SnackBar(
         duration: const Duration(seconds: 10),
         content: const Text(
           'Уведомления для приложения выключены, поэтому Android может не показывать '
           'плеер в шторке и на экране блокировки.',
         ),
-        action: SnackBarAction(label: 'Настройки', onPressed: openAppSettings),
+        action: SnackBarAction(label: 'Настройки', onPressed: openNotificationSettings),
       ));
     } catch (e) {
       debugPrint('Не удалось проверить разрешение на уведомления: $e');

@@ -108,7 +108,10 @@ class _EpisodeDetails extends StatelessWidget {
         ),
         if (text.isNotEmpty) ...[
           const SizedBox(height: 20),
-          SelectableText(text, style: theme.textTheme.bodyMedium),
+          // SelectionArea, а не SelectableText: у SelectableText внутри своя
+          // прокручиваемая область, она перехватывала жест и описание
+          // не прокручивалось вверх.
+          SelectionArea(child: Text(text, style: theme.textTheme.bodyMedium)),
         ],
       ],
     );

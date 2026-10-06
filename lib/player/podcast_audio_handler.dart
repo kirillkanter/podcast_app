@@ -16,10 +16,15 @@ import 'playback_logic.dart';
 
 class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
   PodcastAudioHandler(this._db, {AudioPlayer? player}) : _player = player ?? AudioPlayer() {
+    // playbackEventStream не срабатывает на play/pause: флаг «играет» в него
+    // не входит, а поток пропускает повторяющиеся события. Без второй подписки
+    // системный плеер и кнопки в приложении не узнают о смене паузы, а Android
+    // не показывает уведомление (он ждёт состояния «играет»).
     _player.playbackEventStream.listen(
       (_) => _broadcastState(),
       onError: (Object e, StackTrace _) => _broadcastState(),
     );
+    _player.playerStateStream.listen((_) => _broadcastState());
     _player.errorStream.listen((e) {
       _errors.add('Не удалось воспроизвести эпизод: ${e.message ?? 'ошибка ${e.code}'}');
     });

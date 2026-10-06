@@ -1,7 +1,7 @@
 name: podcast_app
 description: Кроссплатформенный подкаст-плеер (Android, Windows).
 publish_to: none
-version: 0.3.0+3
+version: 0.3.1+4
 
 environment:
   sdk: ^3.10.0
@@ -35,6 +35,9 @@ dev_dependencies:
   flutter_lints: ^6.0.0
   drift_dev: ^2.35.1
   build_runner: ^2.16.1
+  # Для теста плеера с поддельной аудиоплатформой.
+  just_audio_platform_interface: ^4.6.0
+  plugin_platform_interface: ^2.0.0
 
 flutter:
   uses-material-design: true

@@ -24,7 +24,7 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
       (_) => _broadcastState(),
       onError: (Object e, StackTrace _) => _broadcastState(),
     );
-    _player.playerStateStream.listen((_) => _broadcastState());
+    // removed for verification
     _player.errorStream.listen((e) {
       _errors.add('Не удалось воспроизвести эпизод: ${e.message ?? 'ошибка ${e.code}'}');
     });

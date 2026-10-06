@@ -4,6 +4,9 @@ import '../data/db/database.dart';
 import '../download/download_manager.dart';
 import '../player/playback_logic.dart';
 import 'app_scope.dart';
+import 'chapters.dart';
+import 'description.dart';
+import 'description_view.dart';
 import 'download_button.dart';
 import 'format.dart';
 import 'now_playing.dart';
@@ -40,7 +43,7 @@ class _EpisodeDetails extends StatelessWidget {
     final e = item.episode;
     final played = item.state?.played ?? false;
     final positionMs = item.state?.positionMs ?? 0;
-    final text = htmlToText(e.description ?? e.summary);
+    final parts = parseDescription(e.description ?? e.summary);
     final meta = [
       formatEpisodeDate(e.pubDate),
       formatDuration(e.durationMs),
@@ -146,13 +149,26 @@ class _EpisodeDetails extends StatelessWidget {
           const SizedBox(height: 8),
           Text(item.download!.error!, style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.error)),
         ],
-        if (text.isNotEmpty) ...[
+        if (parts.isNotEmpty) ...[
           const SizedBox(height: 20),
-          // SelectionArea, а не SelectableText: у SelectableText внутри своя
-          // прокручиваемая область, она перехватывала жест и описание
-          // не прокручивалось вверх.
-          SelectionArea(child: Text(text, style: theme.textTheme.bodyMedium)),
+          // Ссылки и таймкоды нажимаются: таймкод запускает эпизод с этого места.
+          DescriptionText(episodeId: e.id, parts: parts),
         ],
+        FutureBuilder<List<Chapter>>(
+          future: ChaptersLoader.instance.load(e),
+          builder: (context, s) {
+            final chapters = s.data ?? const <Chapter>[];
+            if (chapters.isEmpty) return const SizedBox.shrink();
+            return Padding(
+              padding: const EdgeInsets.only(top: 20),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                Text('Главы', style: theme.textTheme.titleSmall),
+                const SizedBox(height: 4),
+                ChaptersList(episodeId: e.id, chapters: chapters, dividers: true),
+              ]),
+            );
+          },
+        ),
       ],
     );
   }

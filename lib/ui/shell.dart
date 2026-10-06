@@ -43,15 +43,20 @@ class AppShell extends StatefulWidget {
   final bool refreshOnStart;
 
   /// Открыть экран подкаста в разделе «Библиотека» (например, из бокового меню).
+  /// Работает и из экранов поверх каркаса (большой плеер).
   static void openPodcast(BuildContext context, int podcastId) =>
-      context.findAncestorStateOfType<_AppShellState>()?._openPodcast(podcastId);
+      (context.findAncestorStateOfType<_AppShellState>() ?? _AppShellState._current)?._openPodcast(podcastId);
 
   /// Открыть очередь: на компьютере — раздел меню, на телефоне — экран
   /// поверх текущего раздела.
   static void openQueue(BuildContext context) {
-    final shell = context.findAncestorStateOfType<_AppShellState>();
+    final shell = context.findAncestorStateOfType<_AppShellState>() ?? _AppShellState._current;
     if (shell != null && MediaQuery.sizeOf(context).width >= wideLayoutWidth) {
       shell._select(ShellTab.queue);
+    } else if (shell != null && context.findAncestorStateOfType<_AppShellState>() == null) {
+      // Вызов поверх каркаса — открываем в текущем разделе.
+      shell._navigators[shell._tab]!.currentState
+          ?.push(MaterialPageRoute<void>(builder: (_) => const QueueScreen()));
     } else {
       Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const QueueScreen()));
     }
@@ -62,6 +67,20 @@ class AppShell extends StatefulWidget {
 }
 
 class _AppShellState extends State<AppShell> {
+  static _AppShellState? _current;
+
+  @override
+  void initState() {
+    super.initState();
+    _current = this;
+  }
+
+  @override
+  void dispose() {
+    if (_current == this) _current = null;
+    super.dispose();
+  }
+
   final _navigators = {for (final t in ShellTab.values) t: GlobalKey<NavigatorState>()};
   final _visited = <ShellTab>{ShellTab.library};
   ShellTab _tab = ShellTab.library;

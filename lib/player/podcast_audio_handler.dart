@@ -71,16 +71,22 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
   Stream<String> get errors => _errors.stream;
 
   Stream<Duration> get positionStream => _player.positionStream;
+  Stream<double> get volumeStream => _player.volumeStream;
+  double get volume => _player.volume;
+
+  /// Громкость приложения от 0 до 1 (на компьютере — ползунок в плеере).
+  Future<void> setVolume(double volume) => _player.setVolume(volume.clamp(0.0, 1.0));
   Duration get position => _player.position;
   double get speed => _player.speed;
 
   /// id эпизода, который сейчас загружен в плеер.
   int? get currentEpisodeId => _episodeId;
 
-  /// Запускает эпизод с сохранённой позиции. Если он уже загружен —
-  /// продолжает воспроизведение.
-  Future<void> playEpisode(int episodeId) async {
+  /// Запускает эпизод с сохранённой позиции или с [at] (таймкод
+  /// в описании, глава). Если он уже загружен — продолжает воспроизведение.
+  Future<void> playEpisode(int episodeId, {Duration? at}) async {
     if (_episodeId == episodeId && _player.processingState != ProcessingState.idle) {
+      if (at != null) await seek(at);
       unawaited(_player.play());
       return;
     }
@@ -113,7 +119,7 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
     );
     mediaItem.add(item);
 
-    final start = resumePosition(
+    final start = at ?? resumePosition(
       positionMs: state?.positionMs ?? 0,
       played: state?.played ?? false,
       durationMs: episode.durationMs,

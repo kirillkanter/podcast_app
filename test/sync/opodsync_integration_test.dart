@@ -73,10 +73,10 @@ void main() {
       await a.repo.addAndSubscribe(_feedUrl);
       await a.db.savePosition(await a.episode(1), const Duration(minutes: 7));
       await a.db.setPlayed(await a.episode(2), true);
-      await a.sync.signIn(server: _server, username: _user, password: _password);
+      await a.sync.signIn(server: _server!, username: _user, password: _password);
       await a.sync.syncNow();
 
-      await b.sync.signIn(server: _server, username: _user, password: _password);
+      await b.sync.signIn(server: _server!, username: _user, password: _password);
       final result = await b.sync.syncNow();
       expect(result.feedErrors, isEmpty);
 

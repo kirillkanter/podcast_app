@@ -27,7 +27,8 @@ jobs:
       - name: Генерация кода БД
         run: dart run build_runner build --delete-conflicting-outputs
       - name: Анализ кода
-        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+        shell: bash
+        run: tool/ci_run.sh 'Ошибки анализа кода' flutter analyze --no-fatal-infos --no-fatal-warnings
       - name: PHP для сервера синхронизации
         uses: shivammathur/setup-php@v2
         with:

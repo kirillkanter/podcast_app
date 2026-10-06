@@ -4,7 +4,6 @@ import '../data/db/database.dart';
 import '../download/download_manager.dart';
 import 'app_scope.dart';
 import 'download_button.dart';
-import 'mini_player.dart';
 import 'podcast_cover.dart';
 
 /// Загрузки: настройки, занятое место и список загруженных эпизодов.
@@ -38,7 +37,6 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
     final theme = Theme.of(context);
     return Scaffold(
       appBar: AppBar(title: const Text('Загрузки')),
-      bottomNavigationBar: const MiniPlayer(),
       body: StreamBuilder<List<DownloadWithEpisode>>(
         stream: _list,
         builder: (context, snapshot) {
@@ -47,7 +45,7 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
               .where((i) => i.download.status == DownloadStatus.completed)
               .fold<int>(0, (sum, i) => sum + (i.download.totalBytes ?? 0));
           return ListView(
-            padding: const EdgeInsets.only(bottom: 24),
+            padding: EdgeInsets.only(bottom: MediaQuery.paddingOf(context).bottom + 24),
             children: [
               const _Settings(),
               const Divider(),

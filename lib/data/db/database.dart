@@ -23,6 +23,21 @@ typedef DirtyEpisodeState = ({
   int? durationMs,
 });
 
+/// Эпизод для общей ленты библиотеки.
+typedef FeedEpisode = ({Episode episode, Podcast podcast, EpisodeState? state, Download? download});
+
+/// Какие эпизоды показывать в ленте библиотеки.
+enum FeedFilter {
+  /// Непрослушанные эпизоды подписок, сначала свежие.
+  fresh,
+
+  /// Начатые и не дослушанные, сначала недавно слушавшиеся.
+  started,
+
+  /// Загруженные на устройство.
+  downloaded,
+}
+
 /// Загрузка вместе с эпизодом и подкастом — для экрана «Загрузки».
 typedef DownloadWithEpisode = ({Download download, Episode episode, Podcast podcast});
 
@@ -360,6 +375,59 @@ class AppDatabase extends _$AppDatabase {
               podcast: row.readTable(podcasts),
             ))
         .watch();
+  }
+
+  /// Лента библиотеки: эпизоды подписок по фильтру.
+  Stream<List<FeedEpisode>> watchFeed(FeedFilter filter, {int limit = 30}) {
+    final query = select(episodes).join([
+      innerJoin(podcasts, podcasts.id.equalsExp(episodes.podcastId)),
+      if (filter != FeedFilter.downloaded)
+        innerJoin(
+          subscriptions,
+          subscriptions.podcastId.equalsExp(episodes.podcastId) & subscriptions.subscribed.equals(true),
+          useColumns: false,
+        ),
+      leftOuterJoin(episodeStates, episodeStates.episodeId.equalsExp(episodes.id)),
+      leftOuterJoin(downloads, downloads.episodeId.equalsExp(episodes.id)),
+    ]);
+    final byDate = OrderingTerm(expression: episodes.pubDate, mode: OrderingMode.desc, nulls: NullsOrder.last);
+    switch (filter) {
+      case FeedFilter.fresh:
+        query
+          ..where(episodeStates.played.isNull() | episodeStates.played.equals(false))
+          ..orderBy([byDate, OrderingTerm.desc(episodes.id)]);
+      case FeedFilter.started:
+        query
+          ..where(episodeStates.positionMs.isBiggerThanValue(0) & episodeStates.played.equals(false))
+          ..orderBy([OrderingTerm.desc(episodeStates.updatedAt)]);
+      case FeedFilter.downloaded:
+        query
+          ..where(downloads.status.equals(DownloadStatus.completed.name))
+          ..orderBy([byDate, OrderingTerm.desc(episodes.id)]);
+    }
+    query.limit(limit);
+    return query
+        .map((row) => (
+              episode: row.readTable(episodes),
+              podcast: row.readTable(podcasts),
+              state: row.readTableOrNull(episodeStates),
+              download: row.readTableOrNull(downloads),
+            ))
+        .watch();
+  }
+
+  /// Сколько у каждого подкаста новых эпизодов: появившихся после добавления
+  /// подкаста и ещё не начатых. id подкаста → число.
+  Stream<Map<int, int>> watchNewEpisodeCounts() {
+    return customSelect(
+      'SELECT e.podcast_id AS pid, COUNT(*) AS n FROM episodes e '
+      'JOIN podcasts p ON p.id = e.podcast_id '
+      'LEFT JOIN episode_states s ON s.episode_id = e.id '
+      'WHERE julianday(e.first_seen_at) > julianday(p.created_at) + 0.001 '
+      'AND (s.episode_id IS NULL OR (s.played = 0 AND s.position_ms = 0)) '
+      'GROUP BY e.podcast_id',
+      readsFrom: {episodes, podcasts, episodeStates},
+    ).watch().map((rows) => {for (final r in rows) r.read<int>('pid'): r.read<int>('n')});
   }
 
   /// Последние [count] эпизодов подкаста по дате с их состоянием и загрузкой.

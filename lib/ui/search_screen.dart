@@ -7,7 +7,6 @@ import '../data/db/database.dart';
 import '../data/podcast_repository.dart';
 import '../feed/feed_url.dart';
 import 'app_scope.dart';
-import 'mini_player.dart';
 import 'podcast_cover.dart';
 import 'podcast_screen.dart';
 
@@ -97,12 +96,11 @@ class _SearchScreenState extends State<SearchScreen> {
   Widget build(BuildContext context) {
     final catalog = AppScope.of(context).catalog;
     return Scaffold(
-      bottomNavigationBar: const MiniPlayer(),
       appBar: AppBar(
         title: TextField(
           key: const Key('searchField'),
           controller: _controller,
-          autofocus: true,
+          autofocus: false,
           textInputAction: TextInputAction.search,
           onChanged: _onChanged,
           onSubmitted: (text) {

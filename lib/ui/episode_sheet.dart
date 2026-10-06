@@ -13,6 +13,8 @@ import 'podcast_cover.dart';
 Future<void> showEpisodeSheet(BuildContext context, EpisodeWithState item) {
   return showModalBottomSheet<void>(
     context: context,
+    // Поверх вкладок и мини-плеера, а не внутри раздела.
+    useRootNavigator: true,
     isScrollControlled: true,
     showDragHandle: true,
     useSafeArea: true,

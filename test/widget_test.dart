@@ -109,7 +109,7 @@ void main() {
     await tester.pumpWidget(PodcastApp(db: db, repository: repo, refreshOnStart: false));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byType(FloatingActionButton));
+    await tester.tap(find.byTooltip('Добавить по ссылке RSS'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byKey(const Key('feedUrlField')), 'https://example.com/missing');
     await tester.tap(find.byKey(const Key('addFeedButton')));
@@ -154,7 +154,7 @@ void main() {
       PodcastApp(db: db, repository: repo, catalog: catalog, refreshOnStart: false),
     );
     await settle(tester, 'запуск');
-    await tester.tap(find.byTooltip('Поиск подкастов'));
+    await tester.tap(find.byKey(const Key('tab-search')));
     await settle(tester, 'открытие поиска');
     expect(find.text('Популярное'), findsOneWidget);
     expect(find.text('Популярный подкаст'), findsOneWidget);

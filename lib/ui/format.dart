@@ -31,6 +31,24 @@ String formatDuration(int? milliseconds) {
   return '$totalSeconds сек';
 }
 
+/// «только что», «5 мин назад», «3 ч назад», «вчера», «5 октября».
+String formatAgo(DateTime time, {DateTime? now}) {
+  final current = now ?? DateTime.now();
+  final diff = current.difference(time);
+  if (diff.inMinutes < 1) return 'только что';
+  if (diff.inMinutes < 60) return '${diff.inMinutes} мин назад';
+  if (diff.inHours < 24 && current.day == time.toLocal().day) return '${diff.inHours} ч назад';
+  return formatEpisodeDate(time, now: current).toLowerCase();
+}
+
+/// Сколько осталось дослушать: «осталось 23 мин»; без позиции — длительность.
+String formatLeft(int? durationMs, int positionMs) {
+  if (durationMs == null || durationMs <= 0) return '';
+  if (positionMs <= 0) return formatDuration(durationMs);
+  final left = durationMs - positionMs;
+  return left <= 0 ? '' : 'осталось ${formatDuration(left)}';
+}
+
 /// Склонение: plural(5, 'эпизод', 'эпизода', 'эпизодов') → «эпизодов».
 String plural(int n, String one, String few, String many) {
   final mod10 = n % 10;

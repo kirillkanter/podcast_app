@@ -43,4 +43,15 @@ void main() {
     expect(htmlToText(null), '');
     expect(htmlToText('Просто текст'), 'Просто текст');
   });
+
+  test('formatAgo и formatLeft', () {
+    final now = DateTime(2026, 10, 6, 15, 0);
+    expect(formatAgo(now.subtract(const Duration(seconds: 20)), now: now), 'только что');
+    expect(formatAgo(now.subtract(const Duration(minutes: 7)), now: now), '7 мин назад');
+    expect(formatAgo(now.subtract(const Duration(hours: 3)), now: now), '3 ч назад');
+    expect(formatAgo(DateTime(2026, 10, 5, 22), now: now), 'вчера');
+    expect(formatLeft(60 * 60000, 0), '1 ч 00 мин');
+    expect(formatLeft(60 * 60000, 37 * 60000), 'осталось 23 мин');
+    expect(formatLeft(null, 1000), '');
+  });
 }

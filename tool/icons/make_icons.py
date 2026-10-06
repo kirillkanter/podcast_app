@@ -52,6 +52,9 @@ open(f'{res}/values/ic_launcher_background.xml', 'w').write('''<?xml version="1.
 </resources>
 ''')
 
+# Логотип для бокового меню приложения.
+png(full, 96, f'{repo}/assets/images/logo.png')
+
 big = io.BytesIO()
 cairosvg.svg2png(bytestring=full.encode(), write_to=big, output_width=256, output_height=256)
 os.makedirs(f'{repo}/tool/windows', exist_ok=True)

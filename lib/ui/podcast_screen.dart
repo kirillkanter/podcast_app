@@ -6,7 +6,6 @@ import 'app_scope.dart';
 import 'download_button.dart';
 import 'episode_sheet.dart';
 import 'format.dart';
-import 'mini_player.dart';
 import 'now_playing.dart';
 import 'podcast_cover.dart';
 
@@ -82,7 +81,6 @@ class _PodcastScreenState extends State<PodcastScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      bottomNavigationBar: const MiniPlayer(),
       appBar: AppBar(
         actions: [
           IconButton(
@@ -145,7 +143,7 @@ class _PodcastScreenState extends State<PodcastScreen> {
                     );
                   },
                 ),
-                const SliverToBoxAdapter(child: SizedBox(height: 24)),
+                SliverToBoxAdapter(child: SizedBox(height: MediaQuery.paddingOf(context).bottom + 24)),
               ],
             ),
           );

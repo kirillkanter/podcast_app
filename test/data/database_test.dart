@@ -141,4 +141,54 @@ void main() {
     expect((await db.episodeById(id))!.title, 'Один');
     expect(await db.episodeById(id + 100), isNull);
   });
+
+  group('лента библиотеки', () {
+    Future<int> addFeed(String url, List<(String, String)> items) async {
+      final r = await db.saveParsedFeed(url, parseFeed(feedWith(items)));
+      await db.setSubscribed(r.podcastId, true);
+      return r.podcastId;
+    }
+
+    Future<int> episodeId(String guid) async =>
+        (await (db.select(db.episodes)..where((e) => e.guid.equals(guid))).getSingle()).id;
+
+    test('новые, начатые и загруженные', () async {
+      await addFeed(feedUrl, [('a', 'A'), ('b', 'B'), ('c', 'C')]);
+      final other = await addFeed('https://example.com/other.xml', [('x', 'X')]);
+      await db.setSubscribed(other, false);
+
+      await db.setPlayed(await episodeId('a'), true);
+      await db.savePosition(await episodeId('b'), const Duration(minutes: 3));
+      await db.saveDownload(DownloadsCompanion(
+        episodeId: Value(await episodeId('c')),
+        status: const Value(DownloadStatus.completed),
+        filePath: const Value('/tmp/c.mp3'),
+      ));
+
+      final fresh = await db.watchFeed(FeedFilter.fresh).first;
+      expect(fresh.map((e) => e.episode.title), unorderedEquals(['B', 'C']),
+          reason: 'прослушанные и эпизоды без подписки не попадают');
+      expect(fresh.first.podcast.title, 'Тест');
+
+      final started = await db.watchFeed(FeedFilter.started).first;
+      expect(started.map((e) => e.episode.title), ['B']);
+      expect(started.single.state!.positionMs, 180000);
+
+      final downloaded = await db.watchFeed(FeedFilter.downloaded).first;
+      expect(downloaded.map((e) => e.episode.title), ['C']);
+    });
+
+    test('счётчик новых: только появившиеся после добавления и не начатые', () async {
+      final id = await addFeed(feedUrl, [('a', 'A')]);
+      expect(await db.watchNewEpisodeCounts().first, isEmpty, reason: 'эпизоды при добавлении не новые');
+
+      // Подкаст добавлен вчера, потом вышли два эпизода, один начали слушать.
+      await (db.update(db.podcasts)..where((p) => p.id.equals(id)))
+          .write(PodcastsCompanion(createdAt: Value(DateTime.now().subtract(const Duration(days: 1)))));
+      await db.saveParsedFeed(feedUrl, parseFeed(feedWith([('a', 'A'), ('b', 'B'), ('c', 'C')])));
+      await db.savePosition(await episodeId('c'), const Duration(seconds: 30));
+
+      expect(await db.watchNewEpisodeCounts().first, {id: 1});
+    });
+  });
 }

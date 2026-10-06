@@ -17,7 +17,8 @@ import 'player/podcast_audio_handler.dart';
 import 'sync/sync_service.dart';
 import 'ui/app_scope.dart';
 import 'ui/diagnostics_dialog.dart';
-import 'ui/home_screen.dart';
+import 'ui/shell.dart';
+import 'ui/theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -119,6 +120,9 @@ class _PodcastAppState extends State<PodcastApp> {
   AppLifecycleListener? _lifecycle;
   Timer? _periodicSync;
   bool _notificationsChecked = false;
+  late final Stream<String?> _themeSetting = widget.db.watchSetting(themeSettingKey);
+  static final _light = buildTheme(Brightness.light);
+  static final _dark = buildTheme(Brightness.dark);
 
   @override
   void initState() {
@@ -194,17 +198,17 @@ class _PodcastAppState extends State<PodcastApp> {
       downloads: widget.downloads,
       catalog: widget.catalog,
       sync: widget.sync,
-      child: MaterialApp(
-        title: 'Basic Caster',
-        debugShowCheckedModeBanner: false,
-        scaffoldMessengerKey: _messenger,
-        theme: ThemeData(colorSchemeSeed: Colors.deepPurple, useMaterial3: true),
-        darkTheme: ThemeData(
-          colorSchemeSeed: Colors.deepPurple,
-          brightness: Brightness.dark,
-          useMaterial3: true,
+      child: StreamBuilder<String?>(
+        stream: _themeSetting,
+        builder: (context, theme) => MaterialApp(
+          title: 'Basic Caster',
+          debugShowCheckedModeBanner: false,
+          scaffoldMessengerKey: _messenger,
+          theme: _light,
+          darkTheme: _dark,
+          themeMode: themeModeFrom(theme.data),
+          home: AppShell(refreshOnStart: widget.refreshOnStart),
         ),
-        home: HomeScreen(refreshOnStart: widget.refreshOnStart),
       ),
     );
   }

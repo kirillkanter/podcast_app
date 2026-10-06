@@ -73,6 +73,10 @@ jobs:
             exit 1
           fi
           tail -3 test.log
+          # Итог и строка интеграционного теста — в заметку к запуску.
+          summary=$(tail -1 test.log)
+          integration=$(grep -E 'oPodSync: вход' test.log | tail -1 | sed -e 's/%/%25/g')
+          echo "::notice title=Тесты::${summary}%0A${integration}"
 
   android:
     needs: test

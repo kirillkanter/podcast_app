@@ -111,7 +111,7 @@ void main() {
       throwsA(isA<CatalogException>().having((e) => e.message, 'message', contains('503'))),
     );
 
-    final broken = PodcastCatalog(client: MockClient((_) async => http.Response('не json', 200)));
+    final broken = PodcastCatalog(client: MockClient((_) async => http.Response('not json', 200)));
     await expectLater(broken.search('x'), throwsA(isA<CatalogException>()));
   });
 }

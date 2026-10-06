@@ -55,6 +55,8 @@ abstract final class EpisodeActions {
     messenger?.showSnackBar(SnackBar(
       content: Text(text),
       duration: const Duration(seconds: 3),
+      // С кнопкой «Отменить» SnackBar по умолчанию висит, пока его не смахнут.
+      persist: false,
       action: undo == null ? null : SnackBarAction(label: 'Отменить', onPressed: undo),
     ));
   }

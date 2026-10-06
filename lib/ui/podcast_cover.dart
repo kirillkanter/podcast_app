@@ -1,5 +1,15 @@
 import 'package:flutter/material.dart';
 
+/// Ширина декодирования: вдвое больше пикселей на экране, округлённая
+/// до 256/512/1024 — одна картинка в кэше на несколько размеров.
+int decodeWidth(double pixels) {
+  final want = pixels * 2;
+  for (final w in const [256, 512, 1024]) {
+    if (want <= w) return w;
+  }
+  return 1600;
+}
+
 /// Обложка подкаста или эпизода с заглушкой, если картинки нет
 /// или она не загрузилась.
 class PodcastCover extends StatelessWidget {
@@ -29,8 +39,11 @@ class PodcastCover extends StatelessWidget {
               width: size,
               height: size,
               fit: BoxFit.cover,
-              // Декодируем картинку в нужном размере, а не в исходном 3000×3000.
-              cacheWidth: (size * MediaQuery.devicePixelRatioOf(context)).round(),
+              // Декодируем не в исходном 3000×3000, но с запасом: уменьшение
+              // ровно до размера на экране делает декодер грубо, края идут
+              // лесенкой. Запас вдвое дальше сглаживает видеокарта.
+              cacheWidth: decodeWidth(size * MediaQuery.devicePixelRatioOf(context)),
+              filterQuality: FilterQuality.medium,
               errorBuilder: (_, _, _) => placeholder,
               loadingBuilder: (_, child, progress) => progress == null ? child : placeholder,
             ),

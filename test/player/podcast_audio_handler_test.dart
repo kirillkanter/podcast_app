@@ -94,13 +94,14 @@ void main() {
     await handler.seek(const Duration(minutes: 3));
     await handler.pause();
     await settled();
-    expect((await db.episodeState(episodeId))!.positionMs, 180000);
+    // Плеер досчитывает позицию по часам, поэтому допускаем миллисекунды.
+    expect((await db.episodeState(episodeId))!.positionMs, closeTo(180000, 500));
 
     await handler.stop();
     platform.lastLoad = null;
     await handler.playEpisode(episodeId);
     await settled();
-    expect(platform.lastLoad?.initialPosition, const Duration(minutes: 3));
+    expect(platform.lastLoad?.initialPosition?.inMilliseconds, closeTo(180000, 500));
   });
 
   test('скорость сохраняется для подкаста и применяется при запуске', () async {

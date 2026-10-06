@@ -48,7 +48,7 @@ Future<void> main() async {
         onPlayed: downloads.onPlayed,
       ),
       config: const AudioServiceConfig(
-        androidNotificationChannelId: 'com.example.podcast_app.audio',
+        androidNotificationChannelId: 'ru.bcaster.app.playback',
         androidNotificationChannelName: 'Воспроизведение',
         androidNotificationOngoing: true,
         // Белый силуэт логотипа: цветная иконка в строке состояния стала бы белым кругом.

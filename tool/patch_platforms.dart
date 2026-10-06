@@ -89,6 +89,8 @@ void _patchWindows() {
       res = res.replaceFirst(RegExp('VALUE "$key", "[^"]*"'), 'VALUE "$key", "Basic Caster"');
     }
     res = res.replaceFirst(RegExp(r'VALUE "OriginalFilename", "[^"]*"'), 'VALUE "OriginalFilename", "BasicCaster.exe"');
+    res = res.replaceFirst(RegExp(r'VALUE "CompanyName", "[^"]*"'), 'VALUE "CompanyName", "bcaster.ru"');
+    res = res.replaceFirst(RegExp(r'VALUE "LegalCopyright", "[^"]*"'), 'VALUE "LegalCopyright", "Basic Caster"');
     rc.writeAsStringSync(res);
   }
 
@@ -151,6 +153,8 @@ void _patchAndroid() {
   File('tool/android/MainActivity.kt').copySync(target.path);
   stdout.writeln('MainActivity заменена: ${target.path}');
 
+  _patchGradle();
+
   // Иконки audio_service не должны удаляться при сжатии ресурсов.
   Directory('android/app/src/main/res/raw').createSync(recursive: true);
   File('tool/android/keep.xml').copySync('android/app/src/main/res/raw/keep.xml');
@@ -160,6 +164,51 @@ void _patchAndroid() {
   _copyTree(Directory('tool/android/res'), 'android/app/src/main/res');
   stdout.writeln('Иконки Android скопированы.');
 }
+
+/// Идентификатор приложения и постоянный ключ подписи release-сборки.
+/// Ключ берётся из переменных окружения (в CI — из секретов репозитория);
+/// без них сборка подписывается отладочным ключом, как раньше.
+void _patchGradle() {
+  final gradle = File('android/app/build.gradle.kts');
+  if (!gradle.existsSync()) {
+    stderr.writeln('Не найден android/app/build.gradle.kts');
+    exitCode = 1;
+    return;
+  }
+  var text = gradle.readAsStringSync();
+  text = text.replaceFirst(RegExp(r'applicationId = "[^"]*"'), 'applicationId = "$androidApplicationId"');
+  const debugSigning = 'signingConfig = signingConfigs.getByName("debug")';
+  if (!text.contains('BCASTER_KEYSTORE')) {
+    if (!text.contains(debugSigning) || !text.contains('    buildTypes {')) {
+      stderr.writeln('build.gradle.kts: не найдено место для настройки подписи');
+      exitCode = 1;
+      return;
+    }
+    text = text.replaceFirst('    buildTypes {', _signingConfig);
+    text = text.replaceFirst(
+      debugSigning,
+      'signingConfig = signingConfigs.getByName(if (System.getenv("BCASTER_KEYSTORE") != null) "release" else "debug")',
+    );
+  }
+  gradle.writeAsStringSync(text);
+  stdout.writeln('build.gradle.kts: applicationId $androidApplicationId, подпись настроена.');
+}
+
+const androidApplicationId = 'ru.bcaster.app';
+
+const _signingConfig = '''    signingConfigs {
+        create("release") {
+            val keystore = System.getenv("BCASTER_KEYSTORE")
+            if (keystore != null) {
+                storeFile = file(keystore)
+                storePassword = System.getenv("BCASTER_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("BCASTER_KEY_ALIAS")
+                keyPassword = System.getenv("BCASTER_KEYSTORE_PASSWORD")
+            }
+        }
+    }
+
+    buildTypes {''';
 
 void _copyTree(Directory from, String to) {
   for (final f in from.listSync(recursive: true).whereType<File>()) {

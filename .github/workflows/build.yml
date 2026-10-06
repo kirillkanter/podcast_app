@@ -105,13 +105,48 @@ jobs:
           test -f android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
           test -f android/app/src/main/res/drawable-xxhdpi/ic_stat_bcaster.png
           cmp tool/android/res/mipmap-xxxhdpi/ic_launcher.png android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+          grep -q 'applicationId = "ru.bcaster.app"' android/app/build.gradle.kts
+          grep -q 'BCASTER_KEYSTORE' android/app/build.gradle.kts
           # Итоговый манифест — в лог сборки.
           cat android/app/src/main/AndroidManifest.xml
       - run: flutter pub get
       - run: dart run build_runner build --delete-conflicting-outputs
+      - name: Ключ подписи
+        shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KEYSTORE_PASSWORD" ] || [ -z "$KEY_ALIAS" ]; then
+            echo "::warning title=Нет ключа подписи::Секреты ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS не заданы — APK подписан временным ключом и не обновится поверх установленного."
+            exit 0
+          fi
+          echo "$KEYSTORE_BASE64" | tr -d ' \r\n' | base64 -d > "$RUNNER_TEMP/release.jks"
+          {
+            echo "BCASTER_KEYSTORE=$RUNNER_TEMP/release.jks"
+            echo "BCASTER_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD"
+            echo "BCASTER_KEY_ALIAS=$KEY_ALIAS"
+          } >> "$GITHUB_ENV"
       - name: Сборка APK
         shell: bash
         run: tool/ci_run.sh 'Ошибка сборки Android' flutter build apk --release
+      - name: Проверка подписи
+        shell: bash
+        run: |
+          apksigner=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
+          certs=$("$apksigner" verify --print-certs build/app/outputs/flutter-apk/app-release.apk)
+          echo "$certs"
+          if [ -n "$BCASTER_KEYSTORE" ]; then
+            if echo "$certs" | grep -qi "SHA-256 digest: $RELEASE_CERT_SHA256"; then
+              echo "::notice title=Подпись::APK подписан постоянным ключом Basic Caster."
+            else
+              echo "::error title=Подпись::APK подписан не тем ключом: отпечаток не совпадает."
+              exit 1
+            fi
+          fi
+        env:
+          RELEASE_CERT_SHA256: 0b2334f9c4e8c34f97efdfa2f75cdfee7bb5d85e9623161c16388527978f0559
       - uses: actions/upload-artifact@v4
         with:
           name: podcast_app-android

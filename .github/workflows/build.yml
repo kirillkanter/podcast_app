@@ -25,7 +25,7 @@ jobs:
         run: flutter create --platforms=android,windows --project-name podcast_app .
       - run: flutter pub get
       - name: Генерация кода БД
-        run: dart run build_runner build --delete-conflicting-outputs
+        run: bash tool/ci_run.sh 'Ошибка генерации кода' dart run build_runner build --delete-conflicting-outputs
       - name: Анализ кода
         shell: bash
         run: tool/ci_run.sh 'Ошибки анализа кода' flutter analyze --no-fatal-infos --no-fatal-warnings
@@ -110,7 +110,7 @@ jobs:
           # Итоговый манифест — в лог сборки.
           cat android/app/src/main/AndroidManifest.xml
       - run: flutter pub get
-      - run: dart run build_runner build --delete-conflicting-outputs
+      - run: bash tool/ci_run.sh 'Ошибка генерации кода' dart run build_runner build --delete-conflicting-outputs
       - name: Ключ подписи
         shell: bash
         env:
@@ -170,7 +170,7 @@ jobs:
           grep -q '_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS' windows/CMakeLists.txt
           cmp tool/windows/app_icon.ico windows/runner/resources/app_icon.ico
       - run: flutter pub get
-      - run: dart run build_runner build --delete-conflicting-outputs
+      - run: bash tool/ci_run.sh 'Ошибка генерации кода' dart run build_runner build --delete-conflicting-outputs
       - name: Сборка Windows
         shell: bash
         run: tool/ci_run.sh 'Ошибка сборки Windows' flutter build windows --release

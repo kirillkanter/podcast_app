@@ -260,6 +260,11 @@ ThemeData buildTheme(Brightness brightness) {
       side: BorderSide(color: c.line),
       shape: const StadiumBorder(),
       showCheckmark: false,
+      // Без тени: при листании ряда пилюль нажатие поднимало пилюлю тенью.
+      elevation: 0,
+      pressElevation: 0,
+      shadowColor: Colors.transparent,
+      selectedShadowColor: Colors.transparent,
     ),
     listTileTheme: ListTileThemeData(iconColor: c.muted, textColor: c.text),
     dialogTheme: DialogThemeData(backgroundColor: c.card, surfaceTintColor: Colors.transparent),

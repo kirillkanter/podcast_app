@@ -335,7 +335,8 @@ class _SearchScreenState extends State<SearchScreen> {
         );
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
-      child: Row(children: [
+      // По нижнему краю: на компьютере над пилюлями стоят стрелки.
+      child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
         Padding(
           padding: EdgeInsets.only(left: side, right: 8),
           child: chip('Все', _page == 0, () => _goTo(0)),
@@ -344,7 +345,8 @@ class _SearchScreenState extends State<SearchScreen> {
           child: ScrollArrows(
             controller: _chips,
             enabled: wide,
-            size: 32,
+            above: true,
+            size: 28,
             child: ShaderMask(
             // Пилюли растворяются у «Все», а не обрезаются ножом.
             shaderCallback: (rect) => LinearGradient(
@@ -497,14 +499,24 @@ class _ShelfState extends State<_Shelf> {
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             Padding(
               padding: EdgeInsets.fromLTRB(widget.side, 0, widget.side - 8, 8),
+              // «Все» сразу за названием: на широком экране справа его не видно.
               child: Row(children: [
-                Expanded(child: Text(widget.title, style: sectionTitleStyle(context))),
-                if (items != null && items.isNotEmpty)
+                Flexible(child: Text(widget.title, style: sectionTitleStyle(context))),
+                if (items != null && items.isNotEmpty) ...[
+                  const SizedBox(width: 8),
                   TextButton(
-                    style: TextButton.styleFrom(foregroundColor: c.ink, minimumSize: const Size(0, 32)),
+                    style: TextButton.styleFrom(
+                      foregroundColor: c.ink,
+                      minimumSize: const Size(0, 32),
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                    ),
                     onPressed: () => widget.onAll(items),
-                    child: const Text('Все'),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      const Text('Все'),
+                      BcIcon(BcIcons.chevronRight, size: 16, color: c.ink),
+                    ]),
                   ),
+                ],
               ]),
             ),
             SizedBox(

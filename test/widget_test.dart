@@ -191,6 +191,10 @@ void main() {
     await tester.binding.handlePopRoute();
     await settle(tester, 'назад из рубрики');
     expect(find.text('Популярное'), findsOneWidget);
+    // Ещё раз «назад» — не выход, а библиотека.
+    await tester.binding.handlePopRoute();
+    await settle(tester, 'назад из поиска');
+    expect(find.byTooltip('Добавить по ссылке RSS'), findsOneWidget, reason: 'открылась библиотека');
 
     await tester.enterText(find.byKey(const Key('searchField')), 'тест');
     await tester.pump(const Duration(milliseconds: 500));

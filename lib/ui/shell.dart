@@ -184,6 +184,11 @@ class _AppShellState extends State<AppShell> {
         }
         final handler = AppShell._backHandlers[_tab];
         if (handler != null && handler()) return;
+        // Из любого раздела — сначала в библиотеку, это главный экран.
+        if (_tab != ShellTab.library) {
+          _select(ShellTab.library);
+          return;
+        }
         SystemNavigator.pop();
       },
       child: SwipeSettingsProvider(

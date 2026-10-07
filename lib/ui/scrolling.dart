@@ -32,6 +32,7 @@ class ScrollArrows extends StatefulWidget {
     this.enabled = true,
     this.top,
     this.size = 40,
+    this.above = false,
   });
 
   final ScrollController controller;
@@ -41,6 +42,10 @@ class ScrollArrows extends StatefulWidget {
   /// Отступ стрелок сверху; `null` — по центру ряда.
   final double? top;
   final double size;
+
+  /// Стрелки парой над рядом справа, а не поверх него (для узких рядов
+  /// вроде пилюль, которые стрелки иначе закрывали бы).
+  final bool above;
 
   @override
   State<ScrollArrows> createState() => _ScrollArrowsState();
@@ -108,6 +113,31 @@ class _ScrollArrowsState extends State<ScrollArrows> {
             onPressed: () => _page(forward ? 1 : -1),
           ),
         );
+    if (widget.above) {
+      Widget small(bool forward, bool active) => RoundIconButton(
+            icon: forward ? BcIcons.chevronRight : BcIcons.chevronLeft,
+            tooltip: forward ? 'Дальше' : 'Назад',
+            size: widget.size,
+            iconSize: 16,
+            style: RoundStyle.raised,
+            color: active ? colors.text : colors.line,
+            onPressed: active ? () => _page(forward ? 1 : -1) : null,
+          );
+      return Column(crossAxisAlignment: CrossAxisAlignment.stretch, mainAxisSize: MainAxisSize.min, children: [
+        Align(
+          alignment: Alignment.centerRight,
+          child: Padding(
+            padding: const EdgeInsets.only(right: 20, bottom: 6),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              small(false, left),
+              const SizedBox(width: 6),
+              small(true, right),
+            ]),
+          ),
+        ),
+        body,
+      ]);
+    }
     return Stack(children: [
       body,
       if (left)

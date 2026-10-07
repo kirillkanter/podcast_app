@@ -16,6 +16,7 @@ class EpisodeRef {
     this.queued = false,
     this.archived = false,
     this.played = false,
+    this.positionMs = 0,
     this.download,
   });
 
@@ -23,6 +24,9 @@ class EpisodeRef {
   final bool queued;
   final bool archived;
   final bool played;
+
+  /// Позиция прослушивания — чтобы «Отменить» вернул её после отметки.
+  final int positionMs;
   final Download? download;
 }
 
@@ -32,6 +36,7 @@ extension FeedEpisodeRef on FeedEpisode {
         queued: queued,
         archived: archived,
         played: state?.played ?? false,
+        positionMs: state?.positionMs ?? 0,
         download: download,
       );
 
@@ -45,15 +50,20 @@ extension EpisodeWithStateRef on EpisodeWithState {
         queued: queued,
         archived: archived,
         played: state?.played ?? false,
+        positionMs: state?.positionMs ?? 0,
         download: download,
       );
 }
 
 abstract final class EpisodeActions {
-  static void _say(BuildContext context, String text, {VoidCallback? undo}) {
+  static ScaffoldFeatureController<SnackBar, SnackBarClosedReason>? _say(
+    BuildContext context,
+    String text, {
+    VoidCallback? undo,
+  }) {
     final messenger = ScaffoldMessenger.maybeOf(context);
     messenger?.hideCurrentSnackBar();
-    messenger?.showSnackBar(SnackBar(
+    return messenger?.showSnackBar(SnackBar(
       content: Text(text),
       duration: const Duration(seconds: 3),
       // С кнопкой «Отменить» SnackBar по умолчанию висит, пока его не смахнут.
@@ -96,9 +106,24 @@ abstract final class EpisodeActions {
 
   static Future<void> togglePlayed(BuildContext context, EpisodeRef e) async {
     final scope = AppScope.of(context);
-    await scope.db.setPlayed(e.id, !e.played);
-    if (!e.played) await scope.downloads?.onPlayed(e.id);
-    if (context.mounted) _say(context, e.played ? 'Отметка снята' : 'Отмечено прослушанным');
+    final db = scope.db;
+    if (e.played) {
+      await db.setPlayed(e.id, false);
+      if (context.mounted) _say(context, 'Отметка снята', undo: () => db.setPlayed(e.id, true));
+      return;
+    }
+    await db.setPlayed(e.id, true);
+    if (!context.mounted) return;
+    final bar = _say(context, 'Отмечено прослушанным', undo: () async {
+      // Как было: позиция, архив, место в очереди.
+      await db.setPlayed(e.id, false);
+      if (e.positionMs > 0) await db.savePosition(e.id, Duration(milliseconds: e.positionMs));
+      if (e.archived) await db.setArchived(e.id, true);
+      if (e.queued) await db.addToQueue(e.id);
+    });
+    // Загрузку прослушанного удаляем, только когда отмена уже невозможна.
+    final reason = await bar?.closed;
+    if (reason != SnackBarClosedReason.action) await scope.downloads?.onPlayed(e.id);
   }
 
   static Future<void> download(BuildContext context, EpisodeRef e) async {
@@ -183,7 +208,7 @@ class SwipeSettingsProvider extends StatelessWidget {
 
 /// Строка эпизода со свайпами влево и вправо. Строка возвращается на место,
 /// а список обновится сам, если эпизод из него ушёл (архив).
-class SwipeableEpisode extends StatelessWidget {
+class SwipeableEpisode extends StatefulWidget {
   const SwipeableEpisode({super.key, required this.episode, required this.child, this.left, this.right});
 
   final EpisodeRef episode;
@@ -194,10 +219,23 @@ class SwipeableEpisode extends StatelessWidget {
   final SwipeAction? right;
 
   @override
+  State<SwipeableEpisode> createState() => _SwipeableEpisodeState();
+}
+
+class _SwipeableEpisodeState extends State<SwipeableEpisode> {
+  /// Насколько далеко дотянули строку (0…1). Действие срабатывает, только
+  /// если дотянули до порога: быстрый короткий мах не считается.
+  double _progress = 0;
+
+  static const _threshold = 0.45;
+
+  @override
   Widget build(BuildContext context) {
+    final episode = widget.episode;
+    final child = widget.child;
     final scope = SwipeSettingsScope.maybeOf(context);
-    final left = this.left ?? scope?.left ?? SwipeSettingsScope.defaultLeft;
-    final right = this.right ?? scope?.right ?? SwipeSettingsScope.defaultRight;
+    final left = widget.left ?? scope?.left ?? SwipeSettingsScope.defaultLeft;
+    final right = widget.right ?? scope?.right ?? SwipeSettingsScope.defaultRight;
     final c = BcColors.of(context);
     final row = Material(color: c.bg, child: child);
     if (left == SwipeAction.none && right == SwipeAction.none) return row;
@@ -208,8 +246,15 @@ class SwipeableEpisode extends StatelessWidget {
           : right == SwipeAction.none
               ? DismissDirection.endToStart
               : DismissDirection.horizontal,
-      dismissThresholds: const {DismissDirection.startToEnd: 0.3, DismissDirection.endToStart: 0.3},
+      dismissThresholds: const {
+        DismissDirection.startToEnd: _threshold,
+        DismissDirection.endToStart: _threshold,
+      },
+      onUpdate: (d) => _progress = d.progress,
       confirmDismiss: (direction) async {
+        final far = _progress >= _threshold;
+        _progress = 0;
+        if (!far) return false;
         final action = direction == DismissDirection.endToStart ? left : right;
         await EpisodeActions.run(context, action, episode);
         return false;

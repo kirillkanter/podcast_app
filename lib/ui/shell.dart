@@ -311,8 +311,13 @@ class _Sidebar extends StatelessWidget {
               Image.asset('assets/images/logo.png', width: 32, height: 32,
                   errorBuilder: (_, _, _) => const SizedBox.square(dimension: 32)),
               const SizedBox(width: 10),
-              const Text('Basic Caster',
-                  style: TextStyle(fontFamily: displayFont, fontWeight: FontWeight.w600, fontSize: 17)),
+              const Flexible(
+                child: Text('Basic Caster',
+                    maxLines: 1,
+                    softWrap: false,
+                    overflow: TextOverflow.fade,
+                    style: TextStyle(fontFamily: displayFont, fontWeight: FontWeight.w600, fontSize: 17)),
+              ),
             ]),
           ),
           for (final tab in ShellTab.values)

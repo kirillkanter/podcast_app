@@ -23,12 +23,15 @@ import 'package:http/http.dart' as http;
 import '../data/db/database.dart';
 import '../data/podcast_repository.dart';
 import '../feed/feed_url.dart';
+import 'credentials.dart';
 import 'gpodder_client.dart';
 
 /// Ключи настроек синхронизации в таблице app_settings.
 abstract final class SyncSettings {
   static const server = 'sync.server';
   static const username = 'sync.username';
+  /// Прежнее место пароля (открытым текстом в базе). Теперь пароль —
+  /// в системном хранилище, а это поле очищается при переезде.
   static const password = 'sync.password';
   static const deviceId = 'sync.deviceId';
   static const deviceRegistered = 'sync.deviceRegistered';
@@ -75,13 +78,18 @@ class SyncService {
     http.Client Function()? clientFactory,
     String? deviceCaption,
     String? deviceType,
+    PasswordStore? passwordStore,
   })  : _db = db,
+        _password = SyncPassword(db, passwordStore),
         _repository = repository,
         _clientFactory = clientFactory,
         _caption = deviceCaption ?? _defaultCaption(),
         _type = deviceType ?? _defaultType();
 
   final AppDatabase _db;
+
+  /// Пароль — в системном хранилище (см. credentials.dart).
+  final SyncPassword _password;
   final PodcastRepository _repository;
   final http.Client Function()? _clientFactory;
   final String _caption;
@@ -95,7 +103,7 @@ class SyncService {
 
   Future<bool> get isConfigured async =>
       (await _db.setting(SyncSettings.username))?.isNotEmpty == true &&
-      (await _db.setting(SyncSettings.password))?.isNotEmpty == true;
+      (await _password.read())?.isNotEmpty == true;
 
   /// Проверяет логин и пароль и сохраняет их. Счётчики «с какого момента»
   /// сбрасываются: первая синхронизация отправит и получит всё.
@@ -113,16 +121,17 @@ class SyncService {
     }
     await _db.setSetting(SyncSettings.server, client.baseUrl);
     await _db.setSetting(SyncSettings.username, username.trim());
-    await _db.setSetting(SyncSettings.password, password);
+    await _password.write(password);
     await _resetProgress();
   }
 
   /// Выход: забываем логин и пароль. Подписки и прогресс на устройстве остаются.
   Future<void> signOut() async {
     _scheduled?.cancel();
-    for (final key in [SyncSettings.username, SyncSettings.password, SyncSettings.lastError]) {
+    for (final key in [SyncSettings.username, SyncSettings.lastError]) {
       await _db.setSetting(key, '');
     }
+    await _password.write(null);
     await _resetProgress();
   }
 
@@ -156,7 +165,7 @@ class SyncService {
 
   Future<SyncResult> _sync({bool progressOnly = false}) async {
     final username = await _db.setting(SyncSettings.username);
-    final password = await _db.setting(SyncSettings.password);
+    final password = await _password.read();
     if (username == null || username.isEmpty || password == null || password.isEmpty) {
       return const SyncResult();
     }

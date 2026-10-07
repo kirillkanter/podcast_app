@@ -42,6 +42,8 @@ dependencies:
   # снова после сворачивания в трей.
   windows_taskbar:
     path: third_party/windows_taskbar
+  # Пароль синхронизации — в Keystore (Android) и через DPAPI (Windows).
+  flutter_secure_storage: ">=9.2.4 <11.0.0"
   # Android: проверка фидов и загрузки в фоне, когда приложение закрыто.
   workmanager: ^0.10.10
   # Android: экспорт подписок через «Поделиться».

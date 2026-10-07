@@ -189,7 +189,7 @@ void main() {
     await settle(tester, 'поиск');
     expect(find.text('Результаты поиска'), findsOneWidget);
     expect(find.text('Тестовый подкаст'), findsOneWidget);
-    expect(find.byIcon(Icons.check), findsOneWidget, reason: 'подписка узнана по адресу фида');
+    expect(find.byTooltip('Вы подписаны'), findsOneWidget, reason: 'подписка узнана по адресу фида');
     expect(find.textContaining('только в Apple Podcasts'), findsOneWidget);
 
     await disposeApp(tester);

@@ -114,4 +114,74 @@ void main() {
     final broken = PodcastCatalog(client: MockClient((_) async => http.Response('not json', 200)));
     await expectLater(broken.search('x'), throwsA(isA<CatalogException>()));
   });
+
+  test('чарт рубрики: старая лента iTunes, крупные обложки, адреса фидов дозапросом', () async {
+    final seen = <Uri>[];
+    final chart = {
+      'feed': {
+        'entry': [
+          {
+            'im:name': {'label': 'Наука за 5 минут'},
+            'im:artist': {'label': 'Автор'},
+            'im:image': [
+              {'label': 'https://is1.mzstatic.com/image/thumb/a/55x55bb.png'},
+              {'label': 'https://is1.mzstatic.com/image/thumb/a/170x170bb.png'},
+            ],
+            'id': {
+              'label': 'https://podcasts.apple.com/ru/podcast/id101',
+              'attributes': {'im:id': '101'},
+            },
+            'category': {
+              'attributes': {'im:id': '1533', 'label': 'Наука'},
+            },
+          },
+          {
+            'im:name': {'label': 'Эксклюзив'},
+            'id': {
+              'attributes': {'im:id': '202'},
+            },
+          },
+        ],
+      },
+    };
+    final catalog = PodcastCatalog(
+      country: 'ru',
+      client: MockClient((request) async {
+        seen.add(request.url);
+        final body = request.url.path == '/lookup' ? itunesJson([science, exclusive]) : jsonEncode(chart);
+        return http.Response.bytes(utf8.encode(body), 200);
+      }),
+    );
+
+    final items = await catalog.chart(genreId: 1533, limit: 25);
+    expect(seen.single.path, '/ru/rss/toppodcasts/limit=25/genre=1533/json');
+    expect(items.map((p) => p.title), ['Наука за 5 минут', 'Эксклюзив']);
+    expect(items.first.artworkUrl, 'https://is1.mzstatic.com/image/thumb/a/600x600bb.jpg');
+    expect(items.first.genre, 'Наука');
+    expect(items.first.feedUrl, isNull);
+
+    await catalog.chart(genreId: 1533, limit: 25);
+    expect(seen, hasLength(1), reason: 'чарт запоминается');
+
+    final full = await catalog.withFeeds(items);
+    expect(seen.last.path, '/lookup');
+    expect(seen.last.queryParameters['id'], '101,202');
+    expect(full.first.feedUrl, 'https://example.com/science.xml');
+    expect(full.last.feedUrl, isNull);
+  });
+
+  test('чарт из одной записи: entry — объект, а не список', () {
+    final items = PodcastCatalog.parseChart({
+      'feed': {
+        'entry': {
+          'im:name': {'label': 'Один'},
+          'id': {
+            'attributes': {'im:id': '7'},
+          },
+        },
+      },
+    });
+    expect(items.single.id, '7');
+    expect(PodcastCatalog.parseChart({'feed': {}}), isEmpty);
+  });
 }

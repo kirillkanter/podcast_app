@@ -34,6 +34,34 @@ class CatalogPodcast {
   final int? episodeCount;
 }
 
+/// Рубрика Apple Podcasts для подборок.
+class CatalogGenre {
+  const CatalogGenre(this.id, this.name);
+
+  /// id жанра в Apple Podcasts.
+  final int id;
+  final String name;
+}
+
+/// Рубрики подборок на экране поиска, в порядке показа.
+const catalogGenres = [
+  CatalogGenre(1489, 'Новости'),
+  CatalogGenre(1324, 'Общество'),
+  CatalogGenre(1321, 'Бизнес'),
+  CatalogGenre(1533, 'Наука'),
+  CatalogGenre(1318, 'Технологии'),
+  CatalogGenre(1487, 'История'),
+  CatalogGenre(1303, 'Юмор'),
+  CatalogGenre(1304, 'Образование'),
+  CatalogGenre(1301, 'Искусство'),
+  CatalogGenre(1512, 'Здоровье'),
+  CatalogGenre(1488, 'Тру-крайм'),
+  CatalogGenre(1309, 'Кино и сериалы'),
+  CatalogGenre(1545, 'Спорт'),
+  CatalogGenre(1310, 'Музыка'),
+  CatalogGenre(1305, 'Дети и семья'),
+];
+
 class CatalogException implements Exception {
   const CatalogException(this.message);
   final String message;
@@ -92,6 +120,91 @@ class PodcastCatalog {
     final byId = {for (final p in _parseItunesResults(lookup)) p.id: p};
     // Порядок — как в чарте.
     return [for (final id in ids) ?byId[id]];
+  }
+
+  final _charts = <int?, Future<List<CatalogPodcast>>>{};
+
+  /// Чарт рубрики [genreId] (`null` — все подкасты) без адресов фидов:
+  /// быстро, для обложек в подборках. Адреса — через [withFeeds].
+  /// Результат запоминается на время работы приложения.
+  Future<List<CatalogPodcast>> chart({int? genreId, int limit = 50}) {
+    final future = _charts.putIfAbsent(genreId, () => _chart(genreId, limit));
+    // Ошибку не запоминаем: в следующий раз — новая попытка.
+    future.catchError((Object _) {
+      _charts.remove(genreId);
+      return const <CatalogPodcast>[];
+    });
+    return future;
+  }
+
+  Future<List<CatalogPodcast>> _chart(int? genreId, int limit) async {
+    // Старая лента iTunes: единственная, где есть чарты по рубрикам.
+    final path = genreId == null
+        ? '/$country/rss/toppodcasts/limit=$limit/json'
+        : '/$country/rss/toppodcasts/limit=$limit/genre=$genreId/json';
+    return parseChart(await _getJson(Uri.https('itunes.apple.com', path)));
+  }
+
+  /// Разбор старой ленты чартов iTunes: feed.entry — список (или один объект).
+  static List<CatalogPodcast> parseChart(Object? data) {
+    final feed = data is Map<String, Object?> ? data['feed'] : null;
+    var entries = feed is Map<String, Object?> ? feed['entry'] : null;
+    if (entries is Map) entries = [entries];
+    if (entries is! List) return const [];
+    String? label(Object? v) => v is Map ? _str(v['label']) : null;
+    final out = <CatalogPodcast>[];
+    for (final e in entries) {
+      if (e is! Map) continue;
+      final idAttr = e['id'] is Map ? (e['id'] as Map)['attributes'] : null;
+      final id = idAttr is Map ? _str(idAttr['im:id']) : null;
+      final title = label(e['im:name']);
+      if (id == null || title == null) continue;
+      final images = e['im:image'];
+      final image = images is List && images.isNotEmpty ? label(images.last) : null;
+      final cat = e['category'] is Map ? (e['category'] as Map)['attributes'] : null;
+      out.add(CatalogPodcast(
+        id: id,
+        title: title,
+        author: label(e['im:artist']),
+        // Картинка чарта маленькая (170 px): просим крупнее.
+        artworkUrl: image?.replaceFirst(RegExp(r'/\d+x\d+(bb)?\.(png|jpg)$'), '/600x600bb.jpg'),
+        genre: cat is Map ? _str(cat['label']) : null,
+      ));
+    }
+    return out;
+  }
+
+  /// Дополняет подкасты адресами фидов (одним запросом iTunes Lookup).
+  Future<List<CatalogPodcast>> withFeeds(List<CatalogPodcast> items) async {
+    final missing = [for (final p in items) if (p.feedUrl == null) p.id];
+    if (missing.isEmpty) return items;
+    final byId = <String, CatalogPodcast>{};
+    for (var i = 0; i < missing.length; i += 150) {
+      final ids = missing.sublist(i, i + 150 > missing.length ? missing.length : i + 150);
+      final lookup = await _getJson(Uri.https('itunes.apple.com', '/lookup', {
+        'id': ids.join(','),
+        'entity': 'podcast',
+        'country': country,
+      }));
+      for (final p in _parseItunesResults(lookup)) {
+        byId[p.id] = p;
+      }
+    }
+    return [
+      for (final p in items)
+        if (p.feedUrl != null)
+          p
+        else
+          CatalogPodcast(
+            id: p.id,
+            title: p.title,
+            author: p.author ?? byId[p.id]?.author,
+            feedUrl: byId[p.id]?.feedUrl,
+            artworkUrl: byId[p.id]?.artworkUrl ?? p.artworkUrl,
+            genre: p.genre ?? byId[p.id]?.genre,
+            episodeCount: byId[p.id]?.episodeCount,
+          ),
+    ];
   }
 
   void close() => _client.close();

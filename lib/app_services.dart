@@ -17,7 +17,9 @@ class AppServices {
 
   /// Открыть базу и создать сервисы. Загрузки не запускаются: это делает
   /// тот, кто ими владеет (приложение или фоновая задача).
-  factory AppServices.open() {
+  /// [externalDownloads] — качает сервис загрузок (окно на Android):
+  /// вызывается, когда в очереди что-то появилось.
+  factory AppServices.open({void Function()? externalDownloads}) {
     final db = AppDatabase.defaults();
     final repository = PodcastRepository(db, FeedFetcher());
     final downloads = DownloadManager(
@@ -34,6 +36,7 @@ class AppServices {
         final types = await Connectivity().checkConnectivity();
         return types.contains(ConnectivityResult.wifi) || types.contains(ConnectivityResult.ethernet);
       },
+      external: externalDownloads,
     );
     final sync = SyncService(db: db, repository: repository);
     return AppServices._(db, repository, downloads, sync);

@@ -59,18 +59,7 @@ class MainActivity : AudioServiceActivity() {
                             }
                         }
                     }
-                    "downloadsProgress" -> result.success(
-                        DownloadService.show(
-                            applicationContext,
-                            call.argument<String>("title") ?: "Загрузка эпизодов",
-                            call.argument<String>("text") ?: "",
-                            call.argument<Int>("progress") ?: -1,
-                        )
-                    )
-                    "downloadsDone" -> {
-                        DownloadService.hide(applicationContext)
-                        result.success(null)
-                    }
+                    "downloadsStart" -> result.success(DownloadService.start(applicationContext))
                     "batteryUnrestricted" -> result.success(batteryUnrestricted())
                     "requestBatteryUnrestricted" -> {
                         requestBatteryUnrestricted()

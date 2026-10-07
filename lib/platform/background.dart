@@ -1,16 +1,18 @@
-// Фоновая работа на Android: проверка фидов и загрузка эпизодов, когда
-// приложение закрыто. Задачи планирует WorkManager (Android сам выбирает
-// время, объединяя их с задачами других приложений).
+// Фоновая работа на Android.
 //
-// Задача может выполниться в трёх положениях:
-// - в работающем приложении (WorkManager запускает её в его движке) —
-//   работают сервисы приложения;
-// - в отдельном движке, пока в том же процессе живёт приложение (например,
-//   играет звук) — задача просит приложение сделать работу само, чтобы два
-//   загрузчика не качали один файл;
-// - приложение не запущено — задача открывает свою базу и качает сама.
-//   Если в это время открыть приложение, оно попросит задачу остановиться
-//   и продолжит загрузки само.
+// Загрузки качает не окно приложения, а сервис DownloadService со своим
+// движком Flutter (точка входа downloadServiceMain в main.dart): Android
+// выгружает движок окна, когда приложение закрывают из списка недавних,
+// а сервис с уведомлением продолжает работать. Окно только ставит эпизоды
+// в очередь (в базе) и будит сервис.
+//
+// Проверку фидов по расписанию и загрузки, когда приложение вообще не
+// запускали, делает WorkManager. Одновременно качает только один
+// «загрузчик» (сервис или задача WorkManager): он регистрирует свой порт
+// под общим именем, а новый загрузчик просит старого остановиться.
+//
+// Все они пишут в одну базу через разные соединения, поэтому окно
+// получает сообщение «таблицы изменились» и перечитывает списки.
 import 'dart:async';
 import 'dart:io';
 import 'dart:isolate';
@@ -22,6 +24,7 @@ import 'package:workmanager/workmanager.dart';
 
 import '../app_services.dart';
 import '../data/db/database.dart';
+import 'download_notification.dart';
 
 /// Ключи настроек фоновой работы.
 abstract final class BackgroundSettings {
@@ -33,12 +36,165 @@ const refreshTask = 'bcaster.refresh';
 const downloadsTask = 'bcaster.downloads';
 
 const _appPortName = 'bcaster.app';
-const _backgroundPortName = 'bcaster.background';
+const _downloaderPortName = 'bcaster.downloader';
 
-/// Сервисы работающего приложения (в его изоляте).
+/// Сервисы работающего приложения (в изоляте окна).
 AppServices? runningApp;
 
 bool get backgroundSupported => !kIsWeb && Platform.isAndroid;
+
+const _system = MethodChannel('basic_caster/system');
+const _serviceChannel = MethodChannel('basic_caster/download_service');
+
+// ---------------------------------------------------------------------------
+// Окно приложения
+// ---------------------------------------------------------------------------
+
+/// Окно запущено: слушать сообщения загрузчиков об изменениях в базе.
+void attachRunningApp(AppServices services) {
+  runningApp = services;
+  if (!backgroundSupported) return;
+  final port = ReceivePort();
+  IsolateNameServer.removePortNameMapping(_appPortName);
+  IsolateNameServer.registerPortWithName(port.sendPort, _appPortName);
+  port.listen((message) {
+    // Другое соединение с базой что-то записало — обновить списки.
+    final db = services.db;
+    if (message == 'downloads') db.markTablesUpdated([db.downloads]);
+    if (message == 'all') db.markTablesUpdated(db.allTables);
+  });
+}
+
+/// Разбудить сервис загрузок (окно на Android): он сам возьмёт очередь.
+Future<void> requestDownloadService() async {
+  if (!backgroundSupported) return;
+  try {
+    final started = await _system.invokeMethod<bool>('downloadsStart') ?? false;
+    if (!started) {
+      // Android не дал запустить сервис (приложение в фоне) — пусть
+      // докачает WorkManager, когда сможет.
+      final app = runningApp;
+      if (app != null) await scheduleDownloads(app.db, userInitiated: true);
+    }
+  } catch (e) {
+    debugPrint('Не удалось запустить загрузки: $e');
+  }
+}
+
+/// Сообщить окну, что в базе что-то поменялось: 'downloads' — только
+/// загрузки (каждую секунду, пока качаем), 'all' — всё (после проверки фидов).
+void _notifyApp([String what = 'downloads']) => IsolateNameServer.lookupPortByName(_appPortName)?.send(what);
+
+// ---------------------------------------------------------------------------
+// Загрузчик: один на устройство
+// ---------------------------------------------------------------------------
+
+/// Жив ли другой загрузчик (отвечает ли его порт).
+Future<SendPort?> _liveDownloader() async {
+  final port = IsolateNameServer.lookupPortByName(_downloaderPortName);
+  if (port == null) return null;
+  final reply = ReceivePort();
+  try {
+    port.send(['ping', reply.sendPort]);
+    await reply.first.timeout(const Duration(seconds: 2));
+    return port;
+  } catch (_) {
+    // Изолят завершился, а имя осталось.
+    IsolateNameServer.removePortNameMapping(_downloaderPortName);
+    return null;
+  } finally {
+    reply.close();
+  }
+}
+
+/// Стать загрузчиком: прежний (если есть) возвращает загрузки в очередь.
+Future<ReceivePort> _becomeDownloader(AppServices s, {void Function()? onPoke}) async {
+  final previous = await _liveDownloader();
+  if (previous != null) {
+    final reply = ReceivePort();
+    try {
+      previous.send(['suspend', reply.sendPort]);
+      await reply.first.timeout(const Duration(seconds: 5));
+    } catch (_) {
+    } finally {
+      reply.close();
+    }
+  }
+  final own = ReceivePort();
+  IsolateNameServer.removePortNameMapping(_downloaderPortName);
+  IsolateNameServer.registerPortWithName(own.sendPort, _downloaderPortName);
+  own.listen((message) async {
+    if (message is! List || message.length != 2 || message[1] is! SendPort) return;
+    final reply = message[1] as SendPort;
+    switch (message[0]) {
+      case 'ping':
+        reply.send(true);
+      case 'suspend':
+        await s.downloads.suspend();
+        reply.send(true);
+    }
+  });
+  return own;
+}
+
+void _leaveDownloader(ReceivePort own) {
+  if (IsolateNameServer.lookupPortByName(_downloaderPortName) == own.sendPort) {
+    IsolateNameServer.removePortNameMapping(_downloaderPortName);
+  }
+  own.close();
+}
+
+/// Качать очередь, пока есть что, сообщая окну об изменениях.
+Future<void> _download(AppServices s, {bool Function()? again}) async {
+  final ticker = Timer.periodic(const Duration(seconds: 1), (_) => _notifyApp());
+  try {
+    do {
+      await s.downloads.runUntilIdle();
+    } while (again?.call() ?? false);
+  } finally {
+    ticker.cancel();
+    _notifyApp();
+  }
+}
+
+/// Точка входа сервиса загрузок (свой движок Flutter, см. DownloadService.kt).
+Future<void> runDownloadService() async {
+  final services = AppServices.open();
+  var poked = false;
+  _serviceChannel.setMethodCallHandler((call) async {
+    if (call.method == 'poke') {
+      // Окно поставило ещё что-то в очередь.
+      poked = true;
+      services.downloads.resume();
+    }
+    return null;
+  });
+  final notifier = DownloadNotifier(
+    services.db,
+    show: (title, text, progress) =>
+        _serviceChannel.invokeMethod<void>('progress', {'title': title, 'text': text, 'progress': progress}),
+  )..start();
+  final lock = await _becomeDownloader(services);
+  try {
+    await _download(services, again: () {
+      final repeat = poked;
+      poked = false;
+      return repeat;
+    });
+  } catch (e) {
+    debugPrint('Сервис загрузок: $e');
+  } finally {
+    notifier.dispose();
+    _leaveDownloader(lock);
+    await services.db.close();
+    // Сервис убирает уведомление и останавливается.
+    await _serviceChannel.invokeMethod<void>('done');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// WorkManager
+// ---------------------------------------------------------------------------
 
 @pragma('vm:entry-point')
 void backgroundDispatcher() {
@@ -55,87 +211,35 @@ void backgroundDispatcher() {
 }
 
 Future<void> runBackgroundTask(String task) async {
-  final app = runningApp;
-  if (app != null) return _work(app, task, background: false);
-
-  // Приложение живёт в этом же процессе — работу делает оно.
-  final appPort = IsolateNameServer.lookupPortByName(_appPortName);
-  if (appPort != null) {
-    final reply = ReceivePort();
-    appPort.send([task, reply.sendPort]);
-    try {
-      await reply.first.timeout(const Duration(minutes: 55));
-    } on TimeoutException {
-      // Пусть WorkManager завершит задачу; продолжим в следующий раз.
-    } finally {
-      reply.close();
-    }
-    return;
-  }
-
-  final services = AppServices.open();
-  final control = ReceivePort();
-  IsolateNameServer.removePortNameMapping(_backgroundPortName);
-  IsolateNameServer.registerPortWithName(control.sendPort, _backgroundPortName);
-  control.listen((message) async {
-    // Открылось приложение: отдаём ему загрузки.
-    if (message is SendPort) {
-      await services.downloads.suspend();
-      message.send(true);
-    }
-  });
-  try {
-    await _work(services, task, background: true);
-  } finally {
-    IsolateNameServer.removePortNameMapping(_backgroundPortName);
-    control.close();
-  }
-}
-
-Future<void> _work(AppServices s, String task, {required bool background}) async {
   switch (task) {
     case refreshTask:
-      // В фоне проверка только ставит эпизоды в очередь; качает отдельная
-      // задача — со своими условиями (Wi‑Fi, зарядка) и уведомлением.
-      if (background) s.downloads.hold = true;
-      await s.refreshAndQueue();
-      // В работающем приложении загрузки идут сами (с его уведомлением).
-      if (background && await s.downloads.hasPending()) await scheduleDownloads(s.db);
-    case downloadsTask:
-      await s.downloads.runUntilIdle();
-  }
-}
-
-/// Приложение запущено: принимать работу от фоновых задач и забрать
-/// загрузки у задачи, если она сейчас качает сама.
-Future<void> attachRunningApp(AppServices services) async {
-  runningApp = services;
-  if (!backgroundSupported) return;
-  final port = ReceivePort();
-  IsolateNameServer.removePortNameMapping(_appPortName);
-  IsolateNameServer.registerPortWithName(port.sendPort, _appPortName);
-  port.listen((message) async {
-    if (message is List && message.length == 2 && message[0] is String && message[1] is SendPort) {
+      final app = runningApp;
+      final s = app ?? AppServices.open();
+      // Проверка только ставит эпизоды в очередь; качает отдельная задача —
+      // со своими условиями (Wi‑Fi, зарядка) и уведомлением.
+      s.downloads.hold = true;
       try {
-        await _work(services, message[0] as String, background: false);
-      } catch (e) {
-        debugPrint('Фоновая задача в приложении: $e');
+        await s.refreshAndQueue();
+        _notifyApp('all');
+        if (await s.downloads.hasPending() && await _liveDownloader() == null) await scheduleDownloads(s.db);
+      } finally {
+        if (app == null) {
+          await s.db.close();
+        } else {
+          s.downloads.hold = false;
+        }
       }
-      (message[1] as SendPort).send(true);
-    }
-  });
-
-  final background = IsolateNameServer.lookupPortByName(_backgroundPortName);
-  if (background != null) {
-    final reply = ReceivePort();
-    background.send(reply.sendPort);
-    try {
-      await reply.first.timeout(const Duration(seconds: 5));
-    } catch (_) {
-      // Задача не ответила — скорее всего, уже завершилась.
-    } finally {
-      reply.close();
-    }
+    case downloadsTask:
+      // Уже качает сервис — ему не мешаем.
+      if (await _liveDownloader() != null) return;
+      final s = AppServices.open();
+      final lock = await _becomeDownloader(s);
+      try {
+        await _download(s);
+      } finally {
+        _leaveDownloader(lock);
+        await s.db.close();
+      }
   }
 }
 
@@ -156,8 +260,8 @@ Future<void> initBackground() async {
   );
 }
 
-/// Докачать очередь в фоне. [userInitiated] — загрузки, запущенные
-/// человеком (приложение закрыли, пока они шли): им зарядка не нужна.
+/// Докачать очередь в фоне через WorkManager. [userInitiated] — загрузки,
+/// запущенные человеком: им зарядка не нужна.
 Future<void> scheduleDownloads(AppDatabase db, {bool userInitiated = false, bool replace = false}) async {
   if (!backgroundSupported) return;
   final chargingOnly = !userInitiated && await db.setting(BackgroundSettings.chargingOnly) != 'false';
@@ -185,7 +289,9 @@ Future<void> scheduleDownloads(AppDatabase db, {bool userInitiated = false, bool
   }
 }
 
-const _system = MethodChannel('basic_caster/system');
+// ---------------------------------------------------------------------------
+// Батарея
+// ---------------------------------------------------------------------------
 
 /// Снято ли с приложения ограничение батареи. `null` — узнать не удалось.
 Future<bool?> batteryUnrestricted() async {

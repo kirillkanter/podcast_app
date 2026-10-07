@@ -1,17 +1,11 @@
-// Уведомление о загрузках на Android: прогресс в шторке, и пока оно
-// показано, система не останавливает загрузки, даже если приложение
-// закрыли из списка недавних (сервис DownloadService в MainActivity).
+// Текст уведомления сервиса загрузок на Android (DownloadService.kt).
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
 
 import '../data/db/database.dart';
 import '../ui/download_button.dart' show formatBytes;
 import '../ui/format.dart' show plural;
-
-const _system = MethodChannel('basic_caster/system');
 
 /// Текст уведомления по списку загрузок; `null` — ничего не качается.
 @visibleForTesting
@@ -45,51 +39,27 @@ const _system = MethodChannel('basic_caster/system');
   );
 }
 
+/// Обновляет уведомление сервиса загрузок по базе (не чаще раза в секунду).
 class DownloadNotifier {
-  DownloadNotifier(this._db);
+  DownloadNotifier(this._db, {required this.show});
 
   final AppDatabase _db;
+  final Future<void> Function(String title, String text, int progress) show;
   StreamSubscription<List<DownloadWithEpisode>>? _sub;
-  Timer? _hide;
-  DateTime _lastShown = DateTime.fromMillisecondsSinceEpoch(0);
-  bool _visible = false;
+  DateTime _last = DateTime.fromMillisecondsSinceEpoch(0);
 
   void start() {
-    if (!Platform.isAndroid) return;
-    _sub = _db.watchDownloadList().listen(_onChange);
-  }
-
-  void _onChange(List<DownloadWithEpisode> items) {
-    final notice = downloadNotice(items);
-    if (notice == null) {
-      // Между двумя загрузками очереди — короткая пауза: не мигаем.
-      _hide ??= Timer(const Duration(seconds: 3), () {
-        _hide = null;
-        if (!_visible) return;
-        _visible = false;
-        _call('downloadsDone');
+    _sub = _db.watchDownloadList().listen((items) {
+      final notice = downloadNotice(items);
+      if (notice == null) return;
+      final now = DateTime.now();
+      if (now.difference(_last) < const Duration(seconds: 1)) return;
+      _last = now;
+      show(notice.title, notice.text, notice.progress).catchError((Object e) {
+        debugPrint('Уведомление о загрузках: $e');
       });
-      return;
-    }
-    _hide?.cancel();
-    _hide = null;
-    final now = DateTime.now();
-    if (_visible && now.difference(_lastShown) < const Duration(seconds: 1)) return;
-    _lastShown = now;
-    _visible = true;
-    _call('downloadsProgress', {'title': notice.title, 'text': notice.text, 'progress': notice.progress});
+    });
   }
 
-  Future<void> _call(String method, [Object? args]) async {
-    try {
-      await _system.invokeMethod<Object?>(method, args);
-    } catch (e) {
-      debugPrint('Уведомление о загрузках: $e');
-    }
-  }
-
-  void dispose() {
-    _sub?.cancel();
-    _hide?.cancel();
-  }
+  void dispose() => _sub?.cancel();
 }

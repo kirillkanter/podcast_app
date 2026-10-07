@@ -15,7 +15,6 @@ import 'data/podcast_repository.dart';
 import 'download/download_manager.dart';
 import 'platform/background.dart';
 import 'platform/desktop.dart';
-import 'platform/download_notification.dart';
 import 'platform/notifications.dart';
 import 'player/podcast_audio_handler.dart';
 import 'sync/sync_service.dart';
@@ -25,15 +24,31 @@ import 'ui/diagnostics_dialog.dart';
 import 'ui/shell.dart';
 import 'ui/theme.dart';
 
+/// Сервис загрузок Android (DownloadService.kt) запускает свой движок отсюда.
+@pragma('vm:entry-point')
+Future<void> downloadServiceMain() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await runDownloadService();
+}
+
 Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
-  final services = AppServices.open();
+  // На Android качает отдельный сервис (переживает закрытие окна);
+  // окно только будит его, когда в очереди что-то появилось.
+  Timer? wake;
+  final services = AppServices.open(
+    externalDownloads: Platform.isAndroid
+        ? () {
+            wake?.cancel();
+            wake = Timer(const Duration(milliseconds: 300), () => unawaited(requestDownloadService()));
+          }
+        : null,
+  );
   final db = services.db;
   final repository = services.repository;
   final downloads = services.downloads;
   final sync = services.sync;
-  // Если фоновая задача сейчас качает сама — забрать у неё загрузки.
-  await attachRunningApp(services);
+  attachRunningApp(services);
   unawaited(downloads.start());
   unawaited(initBackground().catchError((Object e) => debugPrint('Фоновая работа: $e')));
   if (Platform.isWindows) {
@@ -152,7 +167,6 @@ class _PodcastAppState extends State<PodcastApp> {
   StreamSubscription<String?>? _lastEpisode;
   StreamSubscription<String?>? _rotate;
   AppLifecycleListener? _lifecycle;
-  DownloadNotifier? _downloadNotifier;
   Timer? _periodicSync;
   bool _notificationsChecked = false;
   late final Stream<String?> _themeSetting = widget.db.watchSetting(themeSettingKey);
@@ -191,9 +205,6 @@ class _PodcastAppState extends State<PodcastApp> {
         audio.restoreLast();
       }
     });
-    // Пока идут загрузки — уведомление с прогрессом; оно же не даёт
-    // Android остановить их, если приложение закроют.
-    if (widget.downloads != null) _downloadNotifier = DownloadNotifier(widget.db)..start();
     if (sync != null) {
       sync.schedule(const Duration(seconds: 3));
       // Подписка или отписка — синхронизировать через несколько секунд.
@@ -247,7 +258,7 @@ class _PodcastAppState extends State<PodcastApp> {
     _lastEpisode?.cancel();
     _rotate?.cancel();
     _lifecycle?.dispose();
-    _downloadNotifier?.dispose();
+
     _periodicSync?.cancel();
     super.dispose();
   }

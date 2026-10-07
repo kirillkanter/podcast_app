@@ -43,6 +43,7 @@ class DownloadManager {
     required Future<bool> Function() isUnmetered,
     http.Client Function()? clientFactory,
     this.parallel = 2,
+    this.external,
   })  : _db = db,
         _directory = directory,
         _isUnmetered = isUnmetered,
@@ -53,6 +54,10 @@ class DownloadManager {
   final Future<bool> Function() _isUnmetered;
   final http.Client Function() _clientFactory;
   final int parallel;
+
+  /// Качает кто-то другой (сервис загрузок Android): вместо загрузки
+  /// здесь — разбудить его. Очередь общая, в базе.
+  final void Function()? external;
 
   /// Активные загрузки: id эпизода → клиент (закрытие отменяет загрузку).
   final _active = <int, http.Client>{};
@@ -65,6 +70,10 @@ class DownloadManager {
   /// Возвращает в очередь загрузки, прерванные закрытием приложения,
   /// и запускает очередь.
   Future<void> start() async {
+    if (external != null) {
+      if (await hasPending()) external!();
+      return;
+    }
     for (final d in await _db.downloadsWithStatus([DownloadStatus.running])) {
       if (_active.containsKey(d.episodeId)) continue; // качается прямо сейчас
       await _db.updateDownload(d.episodeId, const DownloadsCompanion(status: Value(DownloadStatus.queued)));
@@ -225,6 +234,10 @@ class DownloadManager {
   /// Запускает загрузки из очереди, пока есть свободные слоты.
   Future<void> _pump() async {
     if (hold || _suspended) return;
+    if (external != null) {
+      external!();
+      return;
+    }
     if (_pumping) {
       _pumpAgain = true;
       return;
@@ -321,6 +334,10 @@ class DownloadManager {
           final now = DateTime.now();
           if (now.difference(lastReport) >= _progressInterval) {
             lastReport = now;
+            // Отменили в окне приложения (другое соединение с базой).
+            if ((await _db.download(episodeId))?.status == DownloadStatus.removed) {
+              throw const _DownloadError('Отменено');
+            }
             await _db.updateDownload(episodeId, DownloadsCompanion(receivedBytes: Value(received)));
           }
         }
@@ -337,6 +354,13 @@ class DownloadManager {
     } catch (e) {
       if (_cancelled.remove(episodeId)) return; // отменено пользователем — remove() уже всё убрал
       if (_suspended) return; // остановлено — suspend() вернул в очередь
+      if ((await _db.download(episodeId))?.status == DownloadStatus.removed) {
+        // Отменено в окне приложения: недокачанный файл не нужен.
+        try {
+          if (await part.exists()) await part.delete();
+        } catch (_) {}
+        return;
+      }
       final message = switch (e) {
         _DownloadError(:final message) => message,
         TimeoutException() => 'Сервер перестал отвечать. Загрузка продолжится при следующей попытке.',

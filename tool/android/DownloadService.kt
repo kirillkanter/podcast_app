@@ -9,85 +9,120 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
+import io.flutter.FlutterInjector
+import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.embedding.engine.dart.DartExecutor
+import io.flutter.plugin.common.MethodChannel
 
 /**
- * Сервис «на переднем плане», пока качаются эпизоды: уведомление
- * с прогрессом, и Android не останавливает загрузки, даже если приложение
- * закрыли из списка недавних. Сами загрузки идут в Dart (движок Flutter
- * переживает закрытие окна, его держит audio_service).
+ * Загрузки эпизодов на Android.
+ *
+ * Сервис «на переднем плане» со своим движком Flutter: в нём работает
+ * downloadServiceMain (lib/main.dart), который качает очередь из базы.
+ * Движок окна Android выгружает, когда приложение закрывают из списка
+ * недавних, а этот сервис продолжает работать, показывая прогресс
+ * в уведомлении. Когда очередь пуста, Dart сообщает «done», и сервис
+ * останавливается вместе с уведомлением.
  *
  * Файл копируется tool/patch_platforms.dart рядом с MainActivity.
  */
 class DownloadService : Service() {
+    private var engine: FlutterEngine? = null
+    private var channel: MethodChannel? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
+
     override fun onBind(intent: Intent?): IBinder? = null
 
-    override fun onCreate() {
-        super.onCreate()
-        instance = this
-    }
-
-    override fun onDestroy() {
-        instance = null
-        super.onDestroy()
-    }
-
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val notification = build(
-            this,
-            intent?.getStringExtra(EXTRA_TITLE) ?: "Загрузка эпизодов",
-            intent?.getStringExtra(EXTRA_TEXT) ?: "",
-            intent?.getIntExtra(EXTRA_PROGRESS, -1) ?: -1,
-        )
+        val notification = build(this, "Загрузка эпизодов", "Подготовка…", -1)
         if (Build.VERSION.SDK_INT >= 29) {
             startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
+        if (engine == null) {
+            startEngine()
+        } else {
+            // Окно поставило ещё эпизоды в очередь.
+            channel?.invokeMethod("poke", null)
+        }
         return START_NOT_STICKY
     }
 
-    /** Android 15+: лимит времени для dataSync исчерпан — уходим тихо. */
-    override fun onTimeout(startId: Int, fgsType: Int) {
+    private fun startEngine() {
+        val loader = FlutterInjector.instance().flutterLoader()
+        if (!loader.initialized()) loader.startInitialization(applicationContext)
+        loader.ensureInitializationComplete(applicationContext, null)
+        val flutter = FlutterEngine(applicationContext)
+        val methods = MethodChannel(flutter.dartExecutor.binaryMessenger, SERVICE_CHANNEL)
+        methods.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "progress" -> {
+                    update(
+                        call.argument<String>("title") ?: "Загрузка эпизодов",
+                        call.argument<String>("text") ?: "",
+                        call.argument<Int>("progress") ?: -1,
+                    )
+                    result.success(null)
+                }
+                "done" -> {
+                    result.success(null)
+                    mainHandler.post { finish() }
+                }
+                else -> result.notImplemented()
+            }
+        }
+        engine = flutter
+        channel = methods
+        flutter.dartExecutor.executeDartEntrypoint(
+            DartExecutor.DartEntrypoint(loader.findAppBundlePath(), "downloadServiceMain")
+        )
+    }
+
+    private fun update(title: String, text: String, progress: Int) {
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        manager.notify(NOTIFICATION_ID, build(this, title, text, progress))
+    }
+
+    private fun finish() {
+        engine?.destroy()
+        engine = null
+        channel = null
+        if (Build.VERSION.SDK_INT >= 24) {
+            stopForeground(Service.STOP_FOREGROUND_REMOVE)
+        } else {
+            @Suppress("DEPRECATION")
+            stopForeground(true)
+        }
         stopSelf()
     }
 
-    fun update(title: String, text: String, progress: Int) {
-        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        manager.notify(NOTIFICATION_ID, build(this, title, text, progress))
+    override fun onDestroy() {
+        engine?.destroy()
+        engine = null
+        super.onDestroy()
+    }
+
+    /** Android 15+: лимит времени для dataSync исчерпан — остановиться. */
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        finish()
     }
 
     companion object {
         private const val CHANNEL_ID = "ru.bcaster.app.downloads"
         private const val NOTIFICATION_ID = 2101
-        private const val EXTRA_TITLE = "title"
-        private const val EXTRA_TEXT = "text"
-        private const val EXTRA_PROGRESS = "progress"
+        private const val SERVICE_CHANNEL = "basic_caster/download_service"
 
-        @Volatile
-        var instance: DownloadService? = null
-
-        /** Показать или обновить уведомление. `false` — Android не дал запустить сервис. */
-        fun show(context: Context, title: String, text: String, progress: Int): Boolean {
-            val running = instance
-            if (running != null) {
-                running.update(title, text, progress)
-                return true
-            }
-            return try {
-                val intent = Intent(context, DownloadService::class.java)
-                    .putExtra(EXTRA_TITLE, title)
-                    .putExtra(EXTRA_TEXT, text)
-                    .putExtra(EXTRA_PROGRESS, progress)
-                if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent) else context.startService(intent)
-                true
-            } catch (e: Exception) {
-                false
-            }
-        }
-
-        fun hide(context: Context) {
-            context.stopService(Intent(context, DownloadService::class.java))
+        /** Запустить или разбудить сервис. `false` — Android не дал (приложение в фоне). */
+        fun start(context: Context): Boolean = try {
+            val intent = Intent(context, DownloadService::class.java)
+            if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent) else context.startService(intent)
+            true
+        } catch (e: Exception) {
+            false
         }
 
         private fun build(context: Context, title: String, text: String, progress: Int): Notification {
@@ -107,7 +142,9 @@ class DownloadService : Service() {
             val launch = context.packageManager.getLaunchIntentForPackage(context.packageName)
             if (launch != null) {
                 builder.setContentIntent(
-                    PendingIntent.getActivity(context, 0, launch, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+                    PendingIntent.getActivity(
+                        context, 0, launch, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+                    )
                 )
             }
             return builder

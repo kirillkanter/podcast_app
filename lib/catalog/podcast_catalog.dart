@@ -138,8 +138,20 @@ class PodcastCatalog {
     return _parseItunesResults(data);
   }
 
-  /// Популярные подкасты в стране [country].
+  /// Популярные подкасты в стране [country]. Основной источник — лента
+  /// Apple Marketing Tools; она временами отвечает ошибкой 502, тогда
+  /// берём общий чарт из старой ленты iTunes.
   Future<List<CatalogPodcast>> top({int limit = 50}) async {
+    try {
+      final items = await _topMarketing(limit);
+      if (items.isNotEmpty) return items;
+    } on CatalogException {
+      // Пробуем запасной источник ниже.
+    }
+    return withFeeds(await chart(limit: limit));
+  }
+
+  Future<List<CatalogPodcast>> _topMarketing(int limit) async {
     final chart = await _getJson(Uri.https(
       'rss.marketingtools.apple.com',
       '/api/v2/$country/podcasts/top/$limit/podcasts.json',
@@ -251,18 +263,37 @@ class PodcastCatalog {
 
   void close() => _client.close();
 
+  /// GET с JSON в ответе. Ошибки сервера (5xx) и обрывы повторяем
+  /// дважды с паузой: каталог Apple иногда кратковременно отвечает 502.
   Future<Object?> _getJson(Uri uri) async {
+    for (var attempt = 0;; attempt++) {
+      try {
+        return await _getJsonOnce(uri);
+      } on _Retryable catch (e) {
+        if (attempt >= 2) throw e.error;
+        await Future<void>.delayed(retryDelay * (attempt + 1));
+      }
+    }
+  }
+
+  /// Пауза между повторами (в тестах — ноль).
+  Duration retryDelay = const Duration(milliseconds: 700);
+
+  Future<Object?> _getJsonOnce(Uri uri) async {
     final http.Response response;
     try {
       response = await _client
           .get(uri, headers: {'user-agent': 'BasicCaster/0.8 (+https://bcaster.ru)'})
           .timeout(_timeout);
     } on TimeoutException {
-      throw const CatalogException('Каталог не ответил вовремя. Попробуйте позже.');
+      throw const _Retryable(CatalogException('Каталог не ответил вовремя. Попробуйте позже.'));
     } on SocketException {
       throw const CatalogException('Нет соединения с интернетом.');
     } on http.ClientException catch (e) {
-      throw CatalogException('Ошибка соединения: ${e.message}');
+      throw _Retryable(CatalogException('Ошибка соединения: ${e.message}'));
+    }
+    if (response.statusCode >= 500) {
+      throw _Retryable(CatalogException('Каталог временно недоступен (код ${response.statusCode}). Попробуйте позже.'));
     }
     if (response.statusCode != 200) {
       throw CatalogException('Каталог вернул ошибку (код ${response.statusCode}).');
@@ -297,4 +328,10 @@ class PodcastCatalog {
     final t = v.trim();
     return t.isEmpty ? null : t;
   }
+}
+
+/// Ошибка, после которой запрос стоит повторить.
+class _Retryable implements Exception {
+  const _Retryable(this.error);
+  final CatalogException error;
 }

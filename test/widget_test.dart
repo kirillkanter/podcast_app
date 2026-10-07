@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:drift/drift.dart' show DatabaseConnection;
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -61,6 +62,18 @@ void main() {
     }
   }
 
+  /// Жест «назад» от края экрана, как его присылает Android 14+.
+  Future<void> backGesture(WidgetTester tester) async {
+    const codec = StandardMethodCodec();
+    Future<void> send(String method, [Object? args]) => tester.binding.defaultBinaryMessenger
+        .handlePlatformMessage('flutter/backgesture', codec.encodeMethodCall(MethodCall(method, args)), (_) {});
+    await send('startBackGesture', {'touchOffset': [0.0, 300.0], 'progress': 0.0, 'swipeEdge': 0});
+    await tester.pump();
+    await send('updateBackGestureProgress', {'touchOffset': [120.0, 300.0], 'progress': 0.5, 'swipeEdge': 0});
+    await tester.pump();
+    await send('commitBackGesture');
+  }
+
   testWidgets('пустой список подписок', (tester) async {
     await tester.pumpWidget(PodcastApp(db: db, repository: repo, refreshOnStart: false));
     await tester.pumpAndSettle();
@@ -101,6 +114,15 @@ void main() {
     await settle(tester, 'назад при открытой карточке');
     expect(find.text('О чём выпуск'), findsNothing);
     expect(find.text('Вы подписаны'), findsOneWidget, reason: 'страница подкаста осталась');
+
+    // То же жестом «назад» от края экрана (предиктивный «назад» Android).
+    await tester.tap(find.text('Первый выпуск'));
+    await settle(tester, 'снова открытие эпизода');
+    expect(find.text('О чём выпуск'), findsOneWidget);
+    await backGesture(tester);
+    await settle(tester, 'жест назад при открытой карточке');
+    expect(find.text('О чём выпуск'), findsNothing);
+    expect(find.text('Вы подписаны'), findsOneWidget, reason: 'жест закрыл карточку, а не страницу');
     await tester.pageBack();
     await settle(tester, 'возврат назад');
     expect(find.text('Тестовый подкаст'), findsOneWidget);

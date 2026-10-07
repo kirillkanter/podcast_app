@@ -7,6 +7,7 @@ import 'diagnostics_dialog.dart';
 import 'episode_actions.dart';
 import 'format.dart';
 import 'sync_screen.dart';
+import 'icons.dart';
 import 'theme.dart';
 
 /// Версия для экрана настроек; совпадает с pubspec.yaml.
@@ -37,6 +38,11 @@ class SettingsScreen extends StatelessWidget {
                 label: 'Играть следующий из очереди',
                 hint: 'Когда эпизод закончится',
                 settingKey: QueueSettings.continuePlayback,
+              ),
+              _SwitchRow(
+                label: 'Прерванный эпизод — первым в очередь',
+                hint: 'Если переключиться на другой эпизод, не дослушав',
+                settingKey: QueueSettings.requeueInterrupted,
               ),
               _SwitchRow(
                 label: 'Прослушанные — в архив',
@@ -76,7 +82,7 @@ class SettingsScreen extends StatelessWidget {
                 label: 'Диагностика',
                 hint: 'Состояние плеера и уведомлений',
                 onTap: () => showDiagnosticsDialog(context),
-                trailing: Icon(Icons.chevron_right_rounded, color: c.muted),
+                trailing: BcIcon(BcIcons.chevronRight, size: 20, color: c.muted),
               ),
               _Row(label: 'Версия', trailing: Text(appVersion, style: TextStyle(color: c.muted))),
             ]),
@@ -112,7 +118,7 @@ class _SyncCard extends StatelessWidget {
               width: 44,
               height: 44,
               decoration: BoxDecoration(color: c.fill, shape: BoxShape.circle),
-              child: Icon(Icons.sync_rounded, color: c.onFill),
+              child: Center(child: BcIcon(BcIcons.sync, size: 22, color: c.onFill)),
             ),
             const SizedBox(width: 14),
             Expanded(
@@ -137,7 +143,7 @@ class _SyncCard extends StatelessWidget {
                 ),
               ),
             ),
-            Icon(Icons.chevron_right_rounded, color: c.muted),
+            BcIcon(BcIcons.chevronRight, size: 20, color: c.muted),
           ]),
         ),
       ),
@@ -267,7 +273,7 @@ class _SwipeRow extends StatelessWidget {
             trailing: Row(mainAxisSize: MainAxisSize.min, children: [
               Text(value.label, style: TextStyle(color: c.muted)),
               const SizedBox(width: 4),
-              Icon(Icons.unfold_more_rounded, size: 18, color: c.muted),
+              BcIcon(BcIcons.chevronDown, size: 16, color: c.muted),
             ]),
           ),
         );

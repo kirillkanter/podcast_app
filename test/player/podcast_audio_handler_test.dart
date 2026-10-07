@@ -138,6 +138,28 @@ void main() {
     expect(await db.queueIds(), [nextId]);
   });
 
+  test('переключились с недослушанного — он первым в очереди; настройка выключает', () async {
+    final other = await db.saveParsedFeed('https://example.com/other', parseFeed(_feed.replaceAll('1.mp3', '2.mp3')));
+    final secondId = (await db.watchEpisodes(other.podcastId).first).single.id;
+
+    await handler.playEpisode(episodeId);
+    await settled();
+    await handler.playEpisode(secondId);
+    await settled();
+    expect(await db.queueIds(), [episodeId]);
+
+    // Обратно: первый уходит из очереди (играет), второй встаёт в неё.
+    await handler.playEpisode(episodeId);
+    await settled();
+    expect(await db.queueIds(), [secondId]);
+
+    await db.clearQueue();
+    await db.setSetting(QueueSettings.requeueInterrupted, 'false');
+    await handler.playEpisode(secondId);
+    await settled();
+    expect(await db.queueIds(), isEmpty);
+  });
+
   test('карточка эпизода для системного плеера', () async {
     await handler.playEpisode(episodeId);
     await settled();

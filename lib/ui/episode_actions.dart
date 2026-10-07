@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 
 import '../data/db/database.dart';
 import 'app_scope.dart';
+import 'icons.dart';
 import 'theme.dart';
 
 /// Что нужно знать об эпизоде, чтобы показать и выполнить действие.
@@ -125,15 +126,15 @@ abstract final class EpisodeActions {
       };
 
   /// Подпись и значок действия для эпизода в его текущем состоянии.
-  static (String, IconData) look(SwipeAction action, EpisodeRef e) => switch (action) {
+  static (String, BcIcons) look(SwipeAction action, EpisodeRef e) => switch (action) {
         SwipeAction.archive =>
-          e.archived ? ('Из архива', Icons.unarchive_outlined) : ('В архив', Icons.archive_outlined),
+          e.archived ? ('Из архива', BcIcons.unarchive) : ('В архив', BcIcons.archive),
         SwipeAction.queue =>
-          e.queued ? ('Из очереди', Icons.playlist_remove_rounded) : ('В очередь', Icons.playlist_add_rounded),
+          e.queued ? ('Из очереди', BcIcons.queueRemove) : ('В очередь', BcIcons.queue),
         SwipeAction.played =>
-          e.played ? ('Не прослушан', Icons.remove_done_rounded) : ('Прослушан', Icons.done_all_rounded),
-        SwipeAction.download => ('Скачать', Icons.download_rounded),
-        SwipeAction.none => ('', Icons.block),
+          e.played ? ('Не прослушан', BcIcons.uncheck) : ('Прослушан', BcIcons.check),
+        SwipeAction.download => ('Скачать', BcIcons.download),
+        SwipeAction.none => ('', BcIcons.close),
       };
 }
 
@@ -223,7 +224,7 @@ class SwipeableEpisode extends StatelessWidget {
 class _SwipeBackground extends StatelessWidget {
   const _SwipeBackground({required this.look, required this.alignEnd});
 
-  final (String, IconData) look;
+  final (String, BcIcons) look;
   final bool alignEnd;
 
   @override
@@ -236,7 +237,7 @@ class _SwipeBackground extends StatelessWidget {
         child: SizedBox(
           width: 112,
           child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Icon(look.$2, color: c.onFill, size: 22),
+            BcIcon(look.$2, color: c.onFill, size: 22),
             const SizedBox(height: 6),
             Text(look.$1, style: TextStyle(color: c.onFill, fontSize: 13, fontWeight: FontWeight.w600)),
           ]),

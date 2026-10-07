@@ -9,6 +9,7 @@ import 'description.dart';
 import 'description_view.dart';
 import 'download_button.dart';
 import 'format.dart';
+import 'icons.dart';
 import 'now_playing.dart';
 import 'podcast_cover.dart';
 
@@ -105,7 +106,7 @@ class _EpisodeDetails extends StatelessWidget {
               );
             }),
             OutlinedButton.icon(
-              icon: Icon(played ? Icons.remove_done : Icons.done),
+              icon: BcIcon(played ? BcIcons.uncheck : BcIcons.check, size: 18),
               label: Text(played ? 'Снять отметку' : 'Отметить прослушанным'),
               onPressed: () async {
                 Navigator.of(context).pop();
@@ -114,7 +115,7 @@ class _EpisodeDetails extends StatelessWidget {
               },
             ),
             OutlinedButton.icon(
-              icon: Icon(item.queued ? Icons.playlist_remove_rounded : Icons.playlist_add_rounded),
+              icon: BcIcon(item.queued ? BcIcons.queueRemove : BcIcons.queue, size: 18),
               label: Text(item.queued ? 'Убрать из очереди' : 'В очередь'),
               onPressed: () {
                 final messenger = ScaffoldMessenger.of(context);
@@ -127,7 +128,7 @@ class _EpisodeDetails extends StatelessWidget {
               },
             ),
             OutlinedButton.icon(
-              icon: const Icon(Icons.queue_play_next_rounded),
+              icon: const BcIcon(BcIcons.playNext, size: 18),
               label: const Text('Играть следующим'),
               onPressed: () {
                 Navigator.of(context).pop();
@@ -135,7 +136,7 @@ class _EpisodeDetails extends StatelessWidget {
               },
             ),
             OutlinedButton.icon(
-              icon: Icon(item.archived ? Icons.unarchive_outlined : Icons.archive_outlined),
+              icon: BcIcon(item.archived ? BcIcons.unarchive : BcIcons.archive, size: 18),
               label: Text(item.archived ? 'Вернуть из архива' : 'В архив'),
               onPressed: () {
                 Navigator.of(context).pop();
@@ -180,7 +181,7 @@ class _EpisodeDetails extends StatelessWidget {
     void close() => Navigator.of(context).pop();
     return switch (d?.status) {
       null || DownloadStatus.removed => OutlinedButton.icon(
-          icon: const Icon(Icons.download_outlined),
+          icon: const BcIcon(BcIcons.download, size: 18),
           label: const Text('Скачать'),
           onPressed: () {
             downloads.enqueue(id);
@@ -188,7 +189,7 @@ class _EpisodeDetails extends StatelessWidget {
           },
         ),
       DownloadStatus.queued || DownloadStatus.running => OutlinedButton.icon(
-          icon: const Icon(Icons.close),
+          icon: const BcIcon(BcIcons.close, size: 18),
           label: Text(downloadLabel(d) == null ? 'Отменить загрузку' : 'Отменить (${downloadLabel(d)})'),
           onPressed: () {
             downloads.remove(id);
@@ -196,7 +197,7 @@ class _EpisodeDetails extends StatelessWidget {
           },
         ),
       DownloadStatus.completed => OutlinedButton.icon(
-          icon: const Icon(Icons.delete_outline),
+          icon: const BcIcon(BcIcons.trash, size: 18),
           label: Text(d!.totalBytes == null ? 'Удалить загрузку' : 'Удалить загрузку (${formatBytes(d.totalBytes!)})'),
           onPressed: () {
             downloads.remove(id);
@@ -204,7 +205,7 @@ class _EpisodeDetails extends StatelessWidget {
           },
         ),
       DownloadStatus.failed => OutlinedButton.icon(
-          icon: const Icon(Icons.refresh),
+          icon: const BcIcon(BcIcons.refresh, size: 18),
           label: const Text('Повторить загрузку'),
           onPressed: () {
             downloads.retry(id);

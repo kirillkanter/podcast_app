@@ -14,6 +14,7 @@ import 'podcast_cover.dart';
 import 'podcast_screen.dart';
 import 'queue_screen.dart';
 import 'shell.dart';
+import 'icons.dart';
 import 'theme.dart';
 
 /// Библиотека: лента эпизодов подписок и сетка подписок.
@@ -125,10 +126,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 dimension: 44,
                 child: Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator(strokeWidth: 2)),
               )
-            : RoundIconButton(icon: Icons.refresh_rounded, tooltip: 'Обновить все', onPressed: _refreshAll),
+            : RoundIconButton(icon: BcIcons.refresh, tooltip: 'Обновить все', onPressed: _refreshAll),
         const SizedBox(width: 4),
         RoundIconButton(
-          icon: Icons.add_rounded,
+          icon: BcIcons.plus,
           tooltip: 'Добавить по ссылке RSS',
           style: RoundStyle.raised,
           onPressed: _add,
@@ -373,7 +374,7 @@ class _ShowAll extends StatelessWidget {
             child: Row(children: [
               const SizedBox(width: 16),
               Expanded(child: Text(text, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500))),
-              Icon(Icons.chevron_right_rounded, color: c.muted),
+              BcIcon(BcIcons.chevronRight, size: 20, color: c.muted),
               const SizedBox(width: 10),
             ]),
           ),
@@ -435,7 +436,7 @@ class FeedEpisodeRow extends StatelessWidget {
                 ),
                 if (downloaded) ...[
                   const SizedBox(width: 6),
-                  Tooltip(message: 'Загружен', child: Icon(Icons.download_done_rounded, size: 15, color: c.muted)),
+                  Tooltip(message: 'Загружен', child: BcIcon(BcIcons.downloaded, size: 15, color: c.muted)),
                 ],
               ]),
             ]),

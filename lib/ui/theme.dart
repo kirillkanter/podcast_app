@@ -2,6 +2,8 @@ import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 
+import 'icons.dart';
+
 /// Цвета Basic Caster. Тёмная тема — основная: салатовый акцент из логотипа.
 /// В светлой салатовый плохо читается на белом, поэтому заливки и ссылки
 /// там травяные (#557F00 — светлейший оттенок, на котором белый текст ещё
@@ -309,7 +311,8 @@ class RoundIconButton extends StatelessWidget {
     this.color,
   });
 
-  final IconData icon;
+  /// `IconData`, [BcIcons] или готовый виджет.
+  final Object icon;
   final String tooltip;
   final VoidCallback? onPressed;
   final double size;
@@ -336,7 +339,7 @@ class RoundIconButton extends StatelessWidget {
           clipBehavior: Clip.antiAlias,
           child: InkWell(
             onTap: onPressed,
-            child: Center(child: Icon(icon, size: iconSize, color: fg)),
+            child: Center(child: anyIcon(icon, size: iconSize, color: fg)),
           ),
         ),
       ),

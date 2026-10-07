@@ -7,6 +7,7 @@ import 'format.dart';
 import 'now_playing.dart';
 import 'podcast_cover.dart';
 import 'shell.dart';
+import 'icons.dart';
 import 'theme.dart';
 
 /// Сколько осталось слушать во всей очереди, мс.
@@ -153,7 +154,7 @@ class _QueueScreenState extends State<QueueScreen> {
   Widget _header(BuildContext context, List<QueueItem>? items, bool wide) {
     final count = items?.length ?? 0;
     final clear = RoundIconButton(
-      icon: Icons.delete_outline_rounded,
+      icon: BcIcons.trash,
       tooltip: 'Очистить очередь',
       style: RoundStyle.raised,
       onPressed: count == 0 ? null : () => _clear(count),
@@ -181,7 +182,7 @@ class _QueueScreenState extends State<QueueScreen> {
   Widget _empty(BcColors c) => Padding(
         padding: const EdgeInsets.fromLTRB(32, 40, 32, 24),
         child: Column(children: [
-          Icon(Icons.playlist_play_rounded, size: 56, color: c.line),
+          BcIcon(BcIcons.queue, size: 56, color: c.line),
           const SizedBox(height: 12),
           Text('Очередь пуста', style: sectionTitleStyle(context)),
           const SizedBox(height: 8),
@@ -284,7 +285,7 @@ class _QueueRow extends StatelessWidget {
         message: 'Перетащить, чтобы изменить порядок',
         child: SizedBox.square(
           dimension: 44,
-          child: Icon(Icons.drag_handle_rounded, color: c.muted),
+          child: Center(child: BcIcon(BcIcons.drag, size: 20, color: c.muted)),
         ),
       ),
     );
@@ -319,7 +320,7 @@ class _QueueRow extends StatelessWidget {
           const SizedBox(width: 12),
           _PlayButton(episodeId: e.id),
           RoundIconButton(
-            icon: Icons.close_rounded,
+            icon: BcIcons.close,
             tooltip: 'Убрать из очереди',
             size: 40,
             color: c.muted,

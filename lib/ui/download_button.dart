@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../data/db/database.dart';
 import 'app_scope.dart';
+import 'icons.dart';
+import 'theme.dart';
 
 /// Доля загруженного, если известен размер.
 double? downloadFraction(Download d) {
@@ -55,13 +57,13 @@ class DownloadButton extends StatelessWidget {
       case DownloadStatus.removed:
         return IconButton(
           tooltip: 'Скачать',
-          icon: const Icon(Icons.download_outlined),
+          icon: const BcIcon(BcIcons.download, size: 22),
           onPressed: () => manager.enqueue(episodeId),
         );
       case DownloadStatus.queued:
         return IconButton(
           tooltip: d!.auto ? 'Ждёт Wi-Fi или очереди. Нажмите, чтобы отменить' : 'В очереди. Нажмите, чтобы отменить',
-          icon: const Icon(Icons.schedule),
+          icon: const BcIcon(BcIcons.clock, size: 22),
           onPressed: () => manager.remove(episodeId),
         );
       case DownloadStatus.running:
@@ -74,7 +76,7 @@ class DownloadButton extends StatelessWidget {
               alignment: Alignment.center,
               children: [
                 CircularProgressIndicator(value: downloadFraction(d!), strokeWidth: 2.5),
-                const Icon(Icons.close, size: 14),
+                const BcIcon(BcIcons.close, size: 12),
               ],
             ),
           ),
@@ -82,13 +84,13 @@ class DownloadButton extends StatelessWidget {
       case DownloadStatus.completed:
         return IconButton(
           tooltip: 'Загружено. Нажмите, чтобы удалить файл',
-          icon: Icon(Icons.download_done, color: scheme.primary),
+          icon: BcIcon(BcIcons.downloaded, size: 22, color: BcColors.of(context).ink),
           onPressed: () => _confirmDelete(context, () => manager.remove(episodeId)),
         );
       case DownloadStatus.failed:
         return IconButton(
           tooltip: '${d!.error ?? 'Ошибка загрузки'} Нажмите, чтобы повторить',
-          icon: Icon(Icons.error_outline, color: scheme.error),
+          icon: BcIcon(BcIcons.alert, size: 22, color: scheme.error),
           onPressed: () => manager.retry(episodeId),
         );
     }

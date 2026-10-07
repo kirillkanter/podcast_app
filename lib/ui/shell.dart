@@ -14,20 +14,21 @@ import 'podcast_screen.dart';
 import 'queue_screen.dart';
 import 'search_screen.dart';
 import 'settings_screen.dart';
+import 'icons.dart';
 import 'theme.dart';
 
 /// Разделы приложения: нижние вкладки на телефоне, боковое меню на компьютере.
 enum ShellTab {
-  library('Библиотека', Icons.grid_view_rounded),
-  search('Поиск', Icons.search_rounded),
-  downloads('Загрузки', Icons.download_rounded),
+  library('Библиотека', BcIcons.library),
+  search('Поиск', BcIcons.search),
+  downloads('Загрузки', BcIcons.download),
   // На телефоне очередь — блок в библиотеке и отдельный экран оттуда.
-  queue('Очередь', Icons.playlist_play_rounded, phone: false),
-  settings('Настройки', Icons.tune_rounded);
+  queue('Очередь', BcIcons.queue, phone: false),
+  settings('Настройки', BcIcons.settings);
 
   const ShellTab(this.label, this.icon, {this.phone = true});
   final String label;
-  final IconData icon;
+  final BcIcons icon;
 
   /// Есть ли вкладка внизу на телефоне.
   final bool phone;
@@ -222,7 +223,7 @@ class _PhoneNav extends StatelessWidget {
                     child: Padding(
                       padding: const EdgeInsets.symmetric(vertical: 6),
                       child: Column(mainAxisSize: MainAxisSize.min, children: [
-                        Icon(tab.icon, size: 24, color: tab == selected ? c.ink : c.muted),
+                        BcIcon(tab.icon, size: 24, color: tab == selected ? c.ink : c.muted),
                         const SizedBox(height: 4),
                         Text(
                           tab.label,
@@ -328,7 +329,7 @@ class _Sidebar extends StatelessWidget {
 class _SideItem extends StatelessWidget {
   const _SideItem({super.key, required this.icon, required this.label, required this.selected, required this.onTap});
 
-  final IconData icon;
+  final BcIcons icon;
   final String label;
   final bool selected;
   final VoidCallback onTap;
@@ -348,7 +349,7 @@ class _SideItem extends StatelessWidget {
             height: 44,
             child: Row(children: [
               const SizedBox(width: 12),
-              Icon(icon, size: 20, color: selected ? c.ink : c.muted),
+              BcIcon(icon, size: 20, color: selected ? c.ink : c.muted),
               const SizedBox(width: 12),
               Text(label,
                   style: TextStyle(
@@ -386,7 +387,7 @@ class _SyncStatus extends StatelessWidget {
           return Padding(
             padding: const EdgeInsets.all(12),
             child: Row(children: [
-              Icon(Icons.sync_rounded, size: 16, color: c.muted),
+              BcIcon(BcIcons.sync, size: 16, color: c.muted),
               const SizedBox(width: 8),
               Expanded(child: Text(text, style: TextStyle(fontSize: 12, color: c.muted))),
             ]),

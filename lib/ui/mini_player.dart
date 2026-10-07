@@ -7,6 +7,7 @@ import 'now_playing.dart';
 import 'player_screen.dart';
 import 'podcast_cover.dart';
 import 'shell.dart';
+import 'icons.dart';
 import 'theme.dart';
 
 void _openPlayer(BuildContext context) =>
@@ -39,7 +40,7 @@ class MiniPlayer extends StatelessWidget {
                     const SizedBox(width: 12),
                     Expanded(child: _Titles(item: item)),
                     RoundIconButton(
-                      icon: Icons.replay_10_rounded,
+                      icon: const SkipIcon(forward: false, seconds: 10, size: 26),
                       tooltip: 'Назад на 10 секунд',
                       onPressed: audio.rewind,
                     ),
@@ -104,12 +105,12 @@ class DesktopPlayerBar extends StatelessWidget {
                   child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
                     Row(mainAxisAlignment: MainAxisAlignment.center, children: [
                       RoundIconButton(
-                          icon: Icons.replay_10_rounded, tooltip: 'Назад на 10 секунд', size: 38, onPressed: audio.rewind),
+                          icon: const SkipIcon(forward: false, seconds: 10, size: 26), tooltip: 'Назад на 10 секунд', size: 38, onPressed: audio.rewind),
                       const SizedBox(width: 10),
                       _PlayPause(now: now, audio: audio, size: 40),
                       const SizedBox(width: 10),
                       RoundIconButton(
-                          icon: Icons.forward_30_rounded,
+                          icon: const SkipIcon(forward: true, seconds: 30, size: 26),
                           tooltip: 'Вперёд на 30 секунд',
                           size: 38,
                           onPressed: audio.fastForward),
@@ -124,7 +125,7 @@ class DesktopPlayerBar extends StatelessWidget {
                     _SpeedButton(audio: audio, color: c.ink),
                     const SizedBox(width: 4),
                     RoundIconButton(
-                      icon: Icons.playlist_play_rounded,
+                      icon: BcIcons.queue,
                       tooltip: 'Очередь воспроизведения',
                       size: 40,
                       onPressed: () => AppShell.openQueue(context),

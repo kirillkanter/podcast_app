@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../data/db/database.dart';
 import '../download/download_manager.dart';
 import 'app_scope.dart';
+import 'icons.dart';
 import 'download_button.dart';
 import 'podcast_cover.dart';
 
@@ -58,7 +59,7 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                     ),
                     TextButton.icon(
                       onPressed: _removePlayed,
-                      icon: const Icon(Icons.delete_sweep_outlined),
+                      icon: const BcIcon(BcIcons.trash),
                       label: const Text('Удалить прослушанные'),
                     ),
                   ],

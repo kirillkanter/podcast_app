@@ -16,6 +16,7 @@ import 'format.dart';
 import 'now_playing.dart';
 import 'podcast_cover.dart';
 import 'shell.dart';
+import 'icons.dart';
 import 'theme.dart';
 
 /// Порядок эпизодов на странице подкаста.
@@ -307,7 +308,7 @@ class _SiteLink extends StatelessWidget {
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 6),
           child: Row(mainAxisSize: MainAxisSize.min, children: [
-            Icon(Icons.public_rounded, size: 16, color: c.ink),
+            BcIcon(BcIcons.globe, size: 16, color: c.ink),
             const SizedBox(width: 5),
             Flexible(
               child: Text(host,
@@ -316,7 +317,7 @@ class _SiteLink extends StatelessWidget {
                   style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: c.ink)),
             ),
             const SizedBox(width: 3),
-            Icon(Icons.north_east_rounded, size: 14, color: c.ink),
+            BcIcon(BcIcons.external, size: 14, color: c.ink),
           ]),
         ),
       ),
@@ -330,7 +331,8 @@ class _Pill extends StatelessWidget {
 
   final String label;
   final VoidCallback? onTap;
-  final IconData? icon;
+  /// `IconData` или [BcIcons].
+  final Object? icon;
   final bool filled;
   final Color? iconColor;
   final double height;
@@ -351,7 +353,7 @@ class _Pill extends StatelessWidget {
             padding: EdgeInsets.fromLTRB(icon == null ? 16 : 12, 0, 16, 0),
             child: Row(mainAxisSize: MainAxisSize.min, mainAxisAlignment: MainAxisAlignment.center, children: [
               if (icon != null) ...[
-                Icon(icon, size: 18, color: iconColor ?? fg),
+                anyIcon(icon!, size: 18, color: iconColor ?? fg),
                 const SizedBox(width: 8),
               ],
               Flexible(
@@ -447,14 +449,14 @@ class _HeaderState extends State<_Header> {
         return subscribed
             ? _Pill(
                 label: 'Вы подписаны',
-                icon: Icons.check_rounded,
+                icon: BcIcons.check,
                 iconColor: c.ink,
                 height: wide ? 40 : 44,
                 onTap: () => scope.repository.setSubscribed(p.id, false),
               )
             : _Pill(
                 label: 'Подписаться',
-                icon: Icons.add_rounded,
+                icon: BcIcons.plus,
                 filled: playLatest == null,
                 height: wide ? 40 : 44,
                 onTap: () async {
@@ -467,7 +469,11 @@ class _HeaderState extends State<_Header> {
 
     final desc = description.isEmpty
         ? null
-        : InkWell(
+        : AnimatedSize(
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeInOutCubic,
+            alignment: Alignment.topCenter,
+            child: InkWell(
             borderRadius: BorderRadius.circular(8),
             onTap: () => setState(() => _expanded = !_expanded),
             child: Text.rich(
@@ -476,6 +482,7 @@ class _HeaderState extends State<_Header> {
               overflow: _expanded ? TextOverflow.visible : TextOverflow.ellipsis,
               style: TextStyle(fontSize: 14, height: 1.45, color: c.body),
             ),
+          ),
           );
     final more = description.length > (wide ? 160 : 120)
         ? Align(
@@ -603,7 +610,7 @@ class _AutoDownloadChip extends StatelessWidget {
                   child: Row(mainAxisSize: MainAxisSize.min, children: [
                     Text(label, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
                     const SizedBox(width: 4),
-                    Icon(Icons.expand_more_rounded, size: 18, color: c.muted),
+                    BcIcon(BcIcons.chevronDown, size: 16, color: c.muted),
                   ]),
                 ),
               ),
@@ -656,7 +663,7 @@ class _EpisodesHeader extends StatelessWidget {
                     child: Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 12),
                       child: Row(mainAxisSize: MainAxisSize.min, children: [
-                        Icon(showArchived ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                        BcIcon(showArchived ? BcIcons.eye : BcIcons.eyeOff,
                             size: 16, color: c.text),
                         const SizedBox(width: 6),
                         Text('Архив $archived', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
@@ -681,7 +688,7 @@ class _EpisodesHeader extends StatelessWidget {
               Text(wide ? order.label : (order == EpisodeOrder.newest ? 'Новые' : 'Старые'),
                   style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
               const SizedBox(width: 4),
-              Icon(Icons.expand_more_rounded, size: 18, color: c.muted),
+              BcIcon(BcIcons.chevronDown, size: 16, color: c.muted),
             ]),
           ),
         ),
@@ -857,13 +864,13 @@ class _EpisodeAside extends StatelessWidget {
             }),
           _Pill(
             label: item.queued ? 'Из очереди' : 'В очередь',
-            icon: item.queued ? Icons.playlist_remove_rounded : Icons.playlist_add_rounded,
+            icon: item.queued ? BcIcons.queueRemove : BcIcons.queue,
             height: 36,
             onTap: () => EpisodeActions.toggleQueue(context, ref),
           ),
           _Pill(
             label: item.archived ? 'Из архива' : 'В архив',
-            icon: item.archived ? Icons.unarchive_outlined : Icons.archive_outlined,
+            icon: item.archived ? BcIcons.unarchive : BcIcons.archive,
             height: 36,
             onTap: () => EpisodeActions.toggleArchive(context, ref),
           ),

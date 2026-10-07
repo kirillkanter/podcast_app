@@ -12,6 +12,7 @@ import 'chapters.dart';
 import 'description.dart';
 import 'description_view.dart';
 import 'format.dart';
+import 'icons.dart';
 import 'now_playing.dart';
 import 'podcast_cover.dart';
 import 'shell.dart';
@@ -194,9 +195,9 @@ class _Header extends StatelessWidget {
         padding: wide ? const EdgeInsets.fromLTRB(48, 8, 48, 16) : const EdgeInsets.fromLTRB(8, 0, 8, 4),
         child: Row(children: [
           RoundIconButton(
-            icon: Icons.keyboard_arrow_down_rounded,
+            icon: BcIcons.chevronDown,
             tooltip: 'Свернуть',
-            iconSize: 28,
+            iconSize: 26,
             color: c.text,
             onPressed: () => Navigator.of(context).pop(),
           ),
@@ -243,7 +244,7 @@ class _PodcastLink extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(fontSize: size, fontWeight: FontWeight.w500, color: c.ink)),
             ),
-            Icon(Icons.chevron_right_rounded, size: size + 3, color: c.ink),
+            BcIcon(BcIcons.chevronRight, size: size + 2, color: c.ink),
             if (suffix != null) Text(' · $suffix', style: TextStyle(fontSize: size, color: c.muted)),
           ]),
         ),
@@ -321,16 +322,14 @@ class _Controls extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = BcColors.of(context);
-    Widget skip(IconData icon, String tooltip, VoidCallback onPressed) => IconButton(
+    Widget skip(bool forward, String tooltip, VoidCallback onPressed) => IconButton(
           tooltip: tooltip,
-          iconSize: 36,
-          color: c.text,
           constraints: const BoxConstraints.tightFor(width: 56, height: 56),
-          icon: Icon(icon),
+          icon: SkipIcon(forward: forward, seconds: forward ? 30 : 10, color: c.text),
           onPressed: onPressed,
         );
     return Row(mainAxisSize: MainAxisSize.min, children: [
-      skip(Icons.replay_10_rounded, 'Назад на 10 секунд', audio.rewind),
+      skip(false, 'Назад на 10 секунд', audio.rewind),
       const SizedBox(width: 28),
       SizedBox.square(
         dimension: 80,
@@ -353,7 +352,7 @@ class _Controls extends StatelessWidget {
         ),
       ),
       const SizedBox(width: 28),
-      skip(Icons.forward_30_rounded, 'Вперёд на 30 секунд', audio.fastForward),
+      skip(true, 'Вперёд на 30 секунд', audio.fastForward),
     ]);
   }
 }
@@ -481,53 +480,17 @@ void _showChapters(BuildContext context, int episodeId, List<Chapter> chapters) 
   );
 }
 
-/// Описание эпизода на весь экран.
-class _DescriptionPage extends StatelessWidget {
-  const _DescriptionPage({required this.episode, required this.parts});
-
-  final Episode episode;
-  final List<DescPart> parts;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = BcColors.of(context);
-    final meta = [formatEpisodeDate(episode.pubDate), formatDuration(episode.durationMs)]
-        .where((t) => t.isNotEmpty)
-        .join(' · ');
-    return Scaffold(
-      backgroundColor: c.bg,
-      appBar: AppBar(title: const Text('Об эпизоде')),
-      body: _ChaptersBuilder(
-        episode: episode,
-        builder: (context, chapters) => ListView(
-          padding: const EdgeInsets.fromLTRB(20, 4, 20, 32),
-          children: [
-            Text(episode.title, style: sectionTitleStyle(context)),
-            if (meta.isNotEmpty) ...[
-              const SizedBox(height: 6),
-              Text(meta, style: TextStyle(fontSize: 13, color: c.muted)),
-            ],
-            const SizedBox(height: 16),
-            DescriptionText(episodeId: episode.id, parts: parts),
-            if (chapters.isNotEmpty) ...[
-              const SizedBox(height: 20),
-              Text('Главы', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: c.muted)),
-              const SizedBox(height: 4),
-              ChaptersList(episodeId: episode.id, chapters: chapters, dividers: true),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 /// Блок «Об эпизоде»: прокручиваемый текст с таймкодами.
 class _AboutCard extends StatelessWidget {
-  const _AboutCard({required this.frost, required this.episode});
+  const _AboutCard({required this.frost, required this.episode, required this.expanded, required this.onToggle});
 
   final _Frost frost;
   final Episode? episode;
+
+  /// Блок развёрнут: на телефоне он занимает место обложки, на компьютере
+  /// вытягивается вниз. Разворачивается на месте, без перехода на другой экран.
+  final bool expanded;
+  final VoidCallback onToggle;
 
   @override
   Widget build(BuildContext context) {
@@ -553,10 +516,8 @@ class _AboutCard extends StatelessWidget {
                 minimumSize: const Size(0, 36),
                 padding: const EdgeInsets.symmetric(horizontal: 8),
               ),
-              onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(
-                builder: (_) => _DescriptionPage(episode: e, parts: parts),
-              )),
-              child: const Text('Развернуть'),
+              onPressed: onToggle,
+              child: Text(expanded ? 'Свернуть' : 'Развернуть'),
             ),
         ]),
         Flexible(
@@ -607,7 +568,7 @@ class _Cover extends StatelessWidget {
 // Телефон
 // ---------------------------------------------------------------------------
 
-class _PhoneLayout extends StatelessWidget {
+class _PhoneLayout extends StatefulWidget {
   const _PhoneLayout({
     required this.frost,
     required this.now,
@@ -625,10 +586,34 @@ class _PhoneLayout extends StatelessWidget {
   final Podcast? podcast;
 
   @override
+  State<_PhoneLayout> createState() => _PhoneLayoutState();
+}
+
+class _PhoneLayoutState extends State<_PhoneLayout> with SingleTickerProviderStateMixin {
+  /// 0 — обложка на месте, 1 — описание развёрнуто вместо неё.
+  late final AnimationController _expand = AnimationController(vsync: this, duration: const Duration(milliseconds: 380));
+  late final Animation<double> _shown = CurvedAnimation(
+    parent: ReverseAnimation(_expand),
+    curve: Curves.easeInOutCubic,
+  );
+
+  @override
+  void dispose() {
+    _expand.dispose();
+    super.dispose();
+  }
+
+  void _toggle() => _expand.isForwardOrCompleted ? _expand.reverse() : _expand.forward();
+
+  @override
   Widget build(BuildContext context) {
     final c = BcColors.of(context);
-    final p = podcast;
-    final e = episode;
+    final frost = widget.frost;
+    final now = widget.now;
+    final audio = widget.audio;
+    final item = widget.item;
+    final p = widget.podcast;
+    final e = widget.episode;
     return LayoutBuilder(builder: (context, box) {
       final cover = math.min(232.0, math.min(box.maxWidth - 64, box.maxHeight * 0.3));
       return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -652,7 +637,15 @@ class _PhoneLayout extends StatelessWidget {
             ],
           ),
         ),
-        Center(child: _Cover(url: item.artUri?.toString(), size: cover, radius: 22)),
+        // Обложка уезжает вверх и сворачивается, когда описание развёрнуто.
+        SizeTransition(
+          sizeFactor: _shown,
+          axisAlignment: 1,
+          child: FadeTransition(
+            opacity: _shown,
+            child: Center(child: _Cover(url: item.artUri?.toString(), size: cover, radius: 22)),
+          ),
+        ),
         Padding(
           padding: const EdgeInsets.fromLTRB(32, 20, 32, 0),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -675,7 +668,15 @@ class _PhoneLayout extends StatelessWidget {
         Expanded(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(20, 16, 20, 10),
-            child: _AboutCard(frost: frost, episode: e),
+            child: AnimatedBuilder(
+              animation: _expand,
+              builder: (context, _) => _AboutCard(
+                frost: frost,
+                episode: e,
+                expanded: _expand.isForwardOrCompleted,
+                onToggle: _toggle,
+              ),
+            ),
           ),
         ),
         _ChaptersBuilder(
@@ -698,8 +699,7 @@ class _PhoneLayout extends StatelessWidget {
                   audio: audio,
                   builder: (timer, label) => _BottomAction(
                     label: label,
-                    top: Icon(timer == null ? Icons.bedtime_outlined : Icons.bedtime_rounded,
-                        size: 22, color: timer == null ? c.text : c.ink),
+                    top: BcIcon(BcIcons.timer, size: 22, color: timer == null ? c.text : c.ink),
                   ),
                 ),
               ),
@@ -707,7 +707,7 @@ class _PhoneLayout extends StatelessWidget {
                 child: _BottomAction(
                   label: 'Главы',
                   dimmed: chapters.isEmpty,
-                  top: Icon(Icons.format_list_bulleted_rounded, size: 22, color: chapters.isEmpty ? c.muted : c.text),
+                  top: BcIcon(BcIcons.chapters, size: 22, color: chapters.isEmpty ? c.muted : c.text),
                   tooltip: chapters.isEmpty ? 'У эпизода нет глав' : 'Главы эпизода',
                   onTap: chapters.isEmpty || e == null ? null : () => _showChapters(context, e.id, chapters),
                 ),
@@ -715,7 +715,7 @@ class _PhoneLayout extends StatelessWidget {
               Expanded(
                 child: _BottomAction(
                   label: 'Очередь',
-                  top: Icon(Icons.playlist_play_rounded, size: 24, color: c.text),
+                  top: BcIcon(BcIcons.queue, size: 22, color: c.text),
                   tooltip: 'Очередь воспроизведения',
                   onTap: () => _openQueue(context),
                 ),
@@ -765,7 +765,7 @@ class _BottomAction extends StatelessWidget {
 // Компьютер
 // ---------------------------------------------------------------------------
 
-class _WideLayout extends StatelessWidget {
+class _WideLayout extends StatefulWidget {
   const _WideLayout({
     required this.frost,
     required this.now,
@@ -783,9 +783,21 @@ class _WideLayout extends StatelessWidget {
   final Podcast? podcast;
 
   @override
+  State<_WideLayout> createState() => _WideLayoutState();
+}
+
+class _WideLayoutState extends State<_WideLayout> {
+  bool _expanded = false;
+
+  @override
   Widget build(BuildContext context) {
     final c = BcColors.of(context);
-    final e = episode;
+    final frost = widget.frost;
+    final now = widget.now;
+    final audio = widget.audio;
+    final item = widget.item;
+    final podcast = widget.podcast;
+    final e = widget.episode;
     final date = formatEpisodeDate(e?.pubDate);
     final pill = BoxDecoration(color: frost.tint, borderRadius: BorderRadius.circular(20));
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -802,7 +814,7 @@ class _WideLayout extends StatelessWidget {
             child: Padding(
               padding: const EdgeInsets.fromLTRB(12, 10, 16, 10),
               child: Row(mainAxisSize: MainAxisSize.min, children: [
-                Icon(Icons.playlist_play_rounded, size: 20, color: c.text),
+                BcIcon(BcIcons.queue, size: 20, color: c.text),
                 const SizedBox(width: 8),
                 const Text('Очередь', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
               ]),
@@ -826,49 +838,62 @@ class _WideLayout extends StatelessWidget {
                 const SizedBox(height: 20),
                 _SeekBar(audio: audio, duration: item.duration, frost: frost),
                 const SizedBox(height: 16),
-                Wrap(
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  spacing: 12,
-                  runSpacing: 12,
-                  children: [
-                    _Controls(audio: audio, now: now),
-                    const SizedBox(width: 12),
-                    _SpeedMenu(
-                      audio: audio,
-                      builder: (speed) => Container(
-                        height: 40,
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        alignment: Alignment.center,
-                        decoration: pill,
-                        child: Text(speed,
+                LayoutBuilder(builder: (context, row) {
+                  final speed = _SpeedMenu(
+                    audio: audio,
+                    builder: (speed) => Container(
+                      height: 40,
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                      decoration: pill,
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        Text(speed,
                             style: TextStyle(
                                 fontFamily: displayFont, fontWeight: FontWeight.w600, fontSize: 15, color: c.ink)),
-                      ),
+                      ]),
                     ),
-                    _SleepMenu(
-                      audio: audio,
-                      builder: (timer, label) => Container(
-                        height: 40,
-                        padding: EdgeInsets.symmetric(horizontal: timer == null ? 10 : 14),
-                        decoration: pill,
-                        child: Row(mainAxisSize: MainAxisSize.min, children: [
-                          Icon(timer == null ? Icons.bedtime_outlined : Icons.bedtime_rounded,
-                              size: 20, color: timer == null ? c.text : c.ink),
-                          if (timer != null) ...[
-                            const SizedBox(width: 6),
-                            Text(label, style: const TextStyle(fontSize: 13)),
-                          ],
-                        ]),
-                      ),
+                  );
+                  final timer = _SleepMenu(
+                    audio: audio,
+                    builder: (timer, label) => Container(
+                      height: 40,
+                      constraints: const BoxConstraints(minWidth: 40),
+                      padding: EdgeInsets.symmetric(horizontal: timer == null ? 10 : 14),
+                      decoration: pill,
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        BcIcon(BcIcons.timer, size: 20, color: timer == null ? c.text : c.ink),
+                        if (timer != null) ...[
+                          const SizedBox(width: 6),
+                          Text(label, style: const TextStyle(fontSize: 13)),
+                        ],
+                      ]),
                     ),
-                    _Volume(audio: audio, frost: frost),
-                  ],
-                ),
+                  );
+                  final extras = [speed, const SizedBox(width: 8), timer, const SizedBox(width: 8), _Volume(audio: audio, frost: frost)];
+                  if (row.maxWidth >= 620) {
+                    return Row(children: [_Controls(audio: audio, now: now), const Spacer(), ...extras]);
+                  }
+                  return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    _Controls(audio: audio, now: now),
+                    const SizedBox(height: 12),
+                    Row(mainAxisSize: MainAxisSize.min, children: extras),
+                  ]);
+                }),
                 const SizedBox(height: 24),
                 _ChaptersBuilder(
                   episode: e,
                   builder: (context, chapters) {
-                    final about = SizedBox(height: 300, child: _AboutCard(frost: frost, episode: e));
+                    // «Развернуть» вытягивает блок вниз на месте.
+                    final about = AnimatedContainer(
+                      duration: const Duration(milliseconds: 360),
+                      curve: Curves.easeInOutCubic,
+                      height: _expanded ? 680 : 300,
+                      child: _AboutCard(
+                        frost: frost,
+                        episode: e,
+                        expanded: _expanded,
+                        onToggle: () => setState(() => _expanded = !_expanded),
+                      ),
+                    );
                     if (chapters.isEmpty || e == null) return about;
                     final chapterCard = Container(
                       decoration: BoxDecoration(color: frost.tint, borderRadius: BorderRadius.circular(16)),
@@ -936,7 +961,7 @@ class _Volume extends StatelessWidget {
         return Row(mainAxisSize: MainAxisSize.min, children: [
           IconButton(
             tooltip: v == 0 ? 'Включить звук' : 'Выключить звук',
-            icon: Icon(v == 0 ? Icons.volume_off_rounded : Icons.volume_up_rounded, size: 20, color: c.text),
+            icon: BcIcon(v == 0 ? BcIcons.volumeOff : BcIcons.volume, size: 20, color: c.text),
             onPressed: () => audio.setVolume(v == 0 ? 1 : 0),
           ),
           SizedBox(

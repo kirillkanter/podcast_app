@@ -38,6 +38,10 @@ abstract final class QueueSettings {
   /// Дослушав эпизод, играть следующий из очереди. По умолчанию включено.
   static const continuePlayback = 'queue.continue';
 
+  /// Недослушанный эпизод, с которого переключились на другой, встаёт
+  /// первым в очередь. По умолчанию включено.
+  static const requeueInterrupted = 'queue.requeueInterrupted';
+
   /// Прослушанные эпизоды сразу уходят в архив. По умолчанию включено.
   static const autoArchive = 'archive.autoPlayed';
 

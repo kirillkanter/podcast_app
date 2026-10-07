@@ -94,6 +94,8 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
     await _savePosition();
     final episode = await _db.episodeById(episodeId);
     if (episode == null) return;
+    final previous = _episodeId;
+    if (previous != null && previous != episodeId) await _requeue(previous);
     // Запущенный эпизод — уже не «далее»: он уходит из очереди.
     try {
       await _db.removeFromQueue(episodeId);
@@ -245,6 +247,20 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
       debugPrint('Ошибка после окончания эпизода: $e');
     }
     if (next != null) await playEpisode(next);
+  }
+
+  /// Переключились с недослушанного эпизода — он встаёт первым в очередь,
+  /// чтобы к нему было легко вернуться.
+  Future<void> _requeue(int episodeId) async {
+    try {
+      if (await _db.setting(QueueSettings.requeueInterrupted) == 'false') return;
+      final state = await _db.episodeState(episodeId);
+      if (state?.played ?? false) return;
+      if (await _db.isArchived(episodeId)) return;
+      await _db.addToQueue(episodeId, next: true);
+    } catch (e) {
+      debugPrint('Не удалось вернуть эпизод в очередь: $e');
+    }
   }
 
   /// Следующий эпизод очереди, если включено «Играть дальше по очереди».

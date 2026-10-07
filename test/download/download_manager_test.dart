@@ -268,4 +268,41 @@ void main() {
     await db.setSetting('x', '2');
     expect(await db.setting('x'), '2');
   });
+
+  test('фон: без зарядки только в очередь, потом задача докачивает всё', () async {
+    final m = manager()..hold = true;
+    await m.enqueue(ids[1]!);
+    await m.enqueue(ids[2]!);
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    expect(requests, isEmpty, reason: 'проверка фидов ничего не качает');
+    expect(await m.hasPending(), isTrue);
+
+    final worker = manager();
+    await worker.runUntilIdle(max: const Duration(seconds: 20));
+    expect(await hasStatus(1, DownloadStatus.completed), isTrue);
+    expect(await hasStatus(2, DownloadStatus.completed), isTrue);
+    expect(await worker.hasPending(), isFalse);
+  });
+
+  test('фон: открыли приложение — задача отдаёт загрузки обратно в очередь', () async {
+    final gate = Completer<void>();
+    server = (_) async => http.StreamedResponse(
+          (() async* {
+            yield audioBytes.sublist(0, 100);
+            await gate.future;
+            yield audioBytes.sublist(100);
+          })(),
+          200,
+          contentLength: audioBytes.length,
+          headers: {'content-type': 'audio/mpeg'},
+        );
+    final worker = manager();
+    await worker.enqueue(ids[1]!);
+    await waitFor(() => hasStatus(1, DownloadStatus.running), reason: 'загрузка началась');
+
+    await worker.suspend();
+    gate.complete();
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    expect(await hasStatus(1, DownloadStatus.queued), isTrue, reason: 'не ошибка, а снова в очереди');
+  });
 }

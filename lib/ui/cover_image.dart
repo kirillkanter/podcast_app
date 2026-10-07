@@ -65,7 +65,7 @@ class CoverCache {
 
   Future<Uint8List> _download(String url) async {
     final response = await _client
-        .get(Uri.parse(url), headers: {'user-agent': 'BasicCaster/0.8 (+https://bcaster.ru)'})
+        .get(Uri.parse(url), headers: {'user-agent': 'BasicCaster/0.9 (+https://bcaster.ru)'})
         .timeout(const Duration(seconds: 30));
     final type = response.headers['content-type'] ?? '';
     if (response.statusCode != 200 ||

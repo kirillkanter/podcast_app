@@ -20,6 +20,8 @@ const _permissions = [
   'android.permission.FOREGROUND_SERVICE',
   'android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK',
   'android.permission.POST_NOTIFICATIONS',
+  // Запрос «не ограничивать батарею» для фоновых загрузок.
+  'android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS',
 ];
 
 const _audioServiceComponents = '''
@@ -206,7 +208,18 @@ void _patchAndroid() {
 /// Идентификатор приложения и постоянный ключ подписи release-сборки.
 /// Ключ берётся из переменных окружения (в CI — из секретов репозитория);
 /// без них сборка подписывается отладочным ключом, как раньше.
+/// Фоновые загрузки идут как сервис типа dataSync (плагин workmanager
+/// включает его разрешение только по этому флагу).
+void _patchGradleProperties() {
+  final file = File('android/gradle.properties');
+  if (!file.existsSync()) return;
+  final text = file.readAsStringSync();
+  if (text.contains('workmanager.enableDataSyncForegroundService')) return;
+  file.writeAsStringSync('${text.trimRight()}\nworkmanager.enableDataSyncForegroundService=true\n');
+}
+
 void _patchGradle() {
+  _patchGradleProperties();
   final gradle = File('android/app/build.gradle.kts');
   if (!gradle.existsSync()) {
     stderr.writeln('Не найден android/app/build.gradle.kts');

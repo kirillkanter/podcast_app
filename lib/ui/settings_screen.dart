@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../catalog/podcast_catalog.dart';
 import '../data/db/database.dart';
 import '../download/download_manager.dart';
+import '../platform/background.dart';
 import '../platform/desktop.dart';
 import '../sync/sync_service.dart';
 import 'app_scope.dart';
@@ -19,7 +20,7 @@ import 'theme.dart';
 import 'menu.dart';
 
 /// Версия для экрана настроек; совпадает с pubspec.yaml.
-const appVersion = '0.8.0';
+const appVersion = '0.9.0';
 
 /// Настройки. На широком экране — в две колонки.
 class SettingsScreen extends StatelessWidget {
@@ -144,6 +145,17 @@ class SettingsScreen extends StatelessWidget {
             onChanged: (_) async => downloads.resume(),
           ),
           if (Platform.isWindows) const _FolderRow(),
+          if (Platform.isAndroid) ...[
+            _SwitchRow(
+              label: 'Скачивать в фоне только на зарядке',
+              hint: 'Новые эпизоды проверяются и в фоне, а скачиваются, когда телефон заряжается',
+              settingKey: BackgroundSettings.chargingOnly,
+              onChanged: (_) async {
+                if (await downloads.hasPending()) await scheduleDownloads(scope.db, replace: true);
+              },
+            ),
+            const _BatteryRow(),
+          ],
         ]),
       ],
     ];
@@ -556,6 +568,55 @@ class _FolderRow extends StatelessWidget {
               : BcIcon(BcIcons.chevronRight, size: 20, color: c.muted),
         );
       },
+    );
+  }
+}
+
+/// Ограничение батареи: с ним Android может не давать фоновым загрузкам
+/// работать (особенно на прошивках со строгой экономией).
+class _BatteryRow extends StatefulWidget {
+  const _BatteryRow();
+
+  @override
+  State<_BatteryRow> createState() => _BatteryRowState();
+}
+
+class _BatteryRowState extends State<_BatteryRow> {
+  bool? _free;
+  late final AppLifecycleListener _lifecycle = AppLifecycleListener(onResume: _check);
+
+  @override
+  void initState() {
+    super.initState();
+    _lifecycle;
+    _check();
+  }
+
+  Future<void> _check() async {
+    final free = await batteryUnrestricted();
+    if (mounted) setState(() => _free = free);
+  }
+
+  @override
+  void dispose() {
+    _lifecycle.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = BcColors.of(context);
+    final free = _free;
+    if (free == null) return const SizedBox.shrink();
+    return _Row(
+      label: 'Работа в фоне',
+      hint: free
+          ? 'Разрешена: проверка фидов и загрузки идут, даже когда приложение закрыто'
+          : 'Ограничена экономией батареи — фоновые загрузки могут не приходить. Нажмите, чтобы разрешить',
+      onTap: free ? null : requestBatteryUnrestricted,
+      trailing: free
+          ? BcIcon(BcIcons.check, size: 20, color: c.ink)
+          : BcIcon(BcIcons.chevronRight, size: 20, color: c.muted),
     );
   }
 }

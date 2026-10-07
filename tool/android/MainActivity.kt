@@ -59,9 +59,37 @@ class MainActivity : AudioServiceActivity() {
                             }
                         }
                     }
+                    "batteryUnrestricted" -> result.success(batteryUnrestricted())
+                    "requestBatteryUnrestricted" -> {
+                        requestBatteryUnrestricted()
+                        result.success(null)
+                    }
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    /** Снято ли с приложения ограничение батареи (фоновая работа без помех). */
+    private fun batteryUnrestricted(): Boolean {
+        val power = getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+        return power.isIgnoringBatteryOptimizations(packageName)
+    }
+
+    /** Системный запрос «разрешить работу в фоне»; если его нет — настройки приложения. */
+    private fun requestBatteryUnrestricted() {
+        try {
+            startActivity(
+                Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+                    .setData(android.net.Uri.parse("package:$packageName"))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        } catch (e: Exception) {
+            startActivity(
+                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                    .setData(android.net.Uri.parse("package:$packageName"))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        }
     }
 
     private fun notificationsEnabled(): Boolean {

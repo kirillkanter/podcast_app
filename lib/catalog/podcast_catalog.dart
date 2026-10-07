@@ -454,7 +454,7 @@ class PodcastCatalog {
     final http.Response response;
     try {
       response = await _client
-          .get(uri, headers: {'user-agent': 'BasicCaster/0.8 (+https://bcaster.ru)'})
+          .get(uri, headers: {'user-agent': 'BasicCaster/0.9 (+https://bcaster.ru)'})
           .timeout(_timeout);
     } on TimeoutException {
       throw const _Retryable(CatalogException('Каталог не ответил вовремя. Попробуйте позже.'));

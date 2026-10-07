@@ -181,6 +181,15 @@ class AppDatabase extends _$AppDatabase {
         beforeOpen: (details) async {
           // В SQLite внешние ключи по умолчанию выключены.
           await customStatement('PRAGMA foreign_keys = ON');
+          // С базой может работать и фоновая задача Android: журнал WAL
+          // позволяет читать во время записи, а ожидание вместо ошибки
+          // «база занята» сглаживает одновременные записи.
+          try {
+            await customStatement('PRAGMA busy_timeout = 5000');
+            await customStatement('PRAGMA journal_mode = WAL');
+          } catch (_) {
+            // Не поддерживается (например, база в памяти в тестах) — не важно.
+          }
         },
       );
 

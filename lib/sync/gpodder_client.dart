@@ -214,7 +214,7 @@ class GpodderClient {
     final request = http.Request(method, uri)
       ..headers['authorization'] = _auth
       ..headers['accept'] = 'application/json'
-      ..headers['user-agent'] = 'BasicCaster/0.8 (+https://bcaster.ru)';
+      ..headers['user-agent'] = 'BasicCaster/0.9 (+https://bcaster.ru)';
     if (body != null) {
       request.headers['content-type'] = 'application/json';
       request.body = jsonEncode(body);

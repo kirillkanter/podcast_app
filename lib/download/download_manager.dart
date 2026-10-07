@@ -66,6 +66,7 @@ class DownloadManager {
   /// и запускает очередь.
   Future<void> start() async {
     for (final d in await _db.downloadsWithStatus([DownloadStatus.running])) {
+      if (_active.containsKey(d.episodeId)) continue; // качается прямо сейчас
       await _db.updateDownload(d.episodeId, const DownloadsCompanion(status: Value(DownloadStatus.queued)));
     }
     unawaited(_pump());
@@ -175,6 +176,43 @@ class DownloadManager {
   /// Перепроверить очередь (например, после смены настроек или сети).
   void resume() => unawaited(_pump());
 
+  /// Не начинать новые загрузки (фоновая проверка фидов без зарядки:
+  /// эпизоды только ставятся в очередь).
+  bool hold = false;
+
+  /// Остановлено: загрузки прерваны и возвращены в очередь, новые не идут.
+  bool _suspended = false;
+
+  /// Есть ли что качать (в очереди или идёт).
+  Future<bool> hasPending() async =>
+      _active.isNotEmpty ||
+      (await _db.downloadsWithStatus([DownloadStatus.queued, DownloadStatus.running])).isNotEmpty;
+
+  /// Качать, пока очередь не опустеет (или пока оставшееся ждёт Wi‑Fi,
+  /// места), но не дольше [max]. Для фоновой задачи.
+  Future<void> runUntilIdle({Duration max = const Duration(minutes: 50)}) async {
+    final deadline = DateTime.now().add(max);
+    await start();
+    while (DateTime.now().isBefore(deadline) && !_suspended) {
+      await _pump();
+      if (_active.isEmpty && !_pumping) break;
+      await Future<void>.delayed(const Duration(seconds: 2));
+    }
+  }
+
+  /// Прервать загрузки и вернуть их в очередь — их продолжит приложение.
+  Future<void> suspend() async {
+    _suspended = true;
+    final ids = [..._active.keys];
+    for (final client in _active.values) {
+      client.close();
+    }
+    _active.clear();
+    for (final id in ids) {
+      await _db.updateDownload(id, const DownloadsCompanion(status: Value(DownloadStatus.queued), error: Value(null)));
+    }
+  }
+
   void dispose() {
     for (final client in _active.values) {
       client.close();
@@ -186,6 +224,7 @@ class DownloadManager {
 
   /// Запускает загрузки из очереди, пока есть свободные слоты.
   Future<void> _pump() async {
+    if (hold || _suspended) return;
     if (_pumping) {
       _pumpAgain = true;
       return;
@@ -238,7 +277,7 @@ class DownloadManager {
     try {
       var offset = await part.exists() ? await part.length() : 0;
       final request = http.Request('GET', Uri.parse(episode.enclosureUrl))
-        ..headers['user-agent'] = 'BasicCaster/0.8 (+https://bcaster.ru)';
+        ..headers['user-agent'] = 'BasicCaster/0.9 (+https://bcaster.ru)';
       if (offset > 0) request.headers['range'] = 'bytes=$offset-';
 
       final response = await client.send(request).timeout(const Duration(seconds: 30));
@@ -296,6 +335,7 @@ class DownloadManager {
       await _complete(episodeId, target, received);
     } catch (e) {
       if (_cancelled.remove(episodeId)) return; // отменено пользователем — remove() уже всё убрал
+      if (_suspended) return; // остановлено — suspend() вернул в очередь
       final message = switch (e) {
         _DownloadError(:final message) => message,
         TimeoutException() => 'Сервер перестал отвечать. Загрузка продолжится при следующей попытке.',

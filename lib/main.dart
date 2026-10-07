@@ -3,17 +3,17 @@ import 'dart:io';
 
 import 'package:audio_service/audio_service.dart';
 import 'package:audio_session/audio_session.dart';
-import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import 'app_services.dart';
 import 'catalog/podcast_catalog.dart';
 import 'data/db/database.dart';
 import 'data/podcast_repository.dart';
 import 'download/download_manager.dart';
-import 'feed/feed_fetcher.dart';
+import 'platform/background.dart';
 import 'platform/desktop.dart';
 import 'platform/notifications.dart';
 import 'player/podcast_audio_handler.dart';
@@ -26,25 +26,20 @@ import 'ui/theme.dart';
 
 Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
-  final db = AppDatabase.defaults();
-  final repository = PodcastRepository(db, FeedFetcher());
-  final downloads = DownloadManager(
-    db: db,
-    directory: () async {
-      // На Windows папку для загрузок можно выбрать в настройках.
-      if (Platform.isWindows) {
-        final custom = await db.setting(DownloadSettings.directory);
-        if (custom != null && custom.isNotEmpty) return Directory(custom);
-      }
-      return getApplicationSupportDirectory();
-    },
-    isUnmetered: () async {
-      final types = await Connectivity().checkConnectivity();
-      return types.contains(ConnectivityResult.wifi) || types.contains(ConnectivityResult.ethernet);
-    },
-  );
+  final services = AppServices.open();
+  final db = services.db;
+  final repository = services.repository;
+  final downloads = services.downloads;
+  final sync = services.sync;
+  // Если фоновая задача сейчас качает сама — забрать у неё загрузки.
+  await attachRunningApp(services);
   unawaited(downloads.start());
-  final sync = SyncService(db: db, repository: repository);
+  unawaited(initBackground().catchError((Object e) => debugPrint('Фоновая работа: $e')));
+  if (Platform.isWindows) {
+    // Свёрнутое в трей приложение раз в два часа проверяет фиды
+    // и скачивает новое по правилам автозагрузки.
+    Timer.periodic(const Duration(hours: 2), (_) => unawaited(services.refreshAndQueue()));
+  }
   // Страна каталога — из языка системы: ru_RU → ru.
   final region = Platform.localeName.split(RegExp('[_.-]')).elementAtOrNull(1);
   final systemCountry = region != null && RegExp(r'^[A-Za-z]{2}$').hasMatch(region) ? region : 'us';
@@ -156,6 +151,7 @@ class _PodcastAppState extends State<PodcastApp> {
   StreamSubscription<String?>? _lastEpisode;
   StreamSubscription<String?>? _rotate;
   AppLifecycleListener? _lifecycle;
+  AppLifecycleListener? _downloadsLifecycle;
   Timer? _periodicSync;
   bool _notificationsChecked = false;
   late final Stream<String?> _themeSetting = widget.db.watchSetting(themeSettingKey);
@@ -194,6 +190,14 @@ class _PodcastAppState extends State<PodcastApp> {
         audio.restoreLast();
       }
     });
+    // Приложение уходит в фон, а загрузки ещё идут: фоновая задача
+    // не даст Android их оборвать, даже если приложение закроют.
+    final downloads = widget.downloads;
+    if (Platform.isAndroid && downloads != null) {
+      _downloadsLifecycle = AppLifecycleListener(onPause: () async {
+        if (await downloads.hasPending()) await scheduleDownloads(widget.db, userInitiated: true);
+      });
+    }
     if (sync != null) {
       sync.schedule(const Duration(seconds: 3));
       // Подписка или отписка — синхронизировать через несколько секунд.
@@ -247,6 +251,7 @@ class _PodcastAppState extends State<PodcastApp> {
     _lastEpisode?.cancel();
     _rotate?.cancel();
     _lifecycle?.dispose();
+    _downloadsLifecycle?.dispose();
     _periodicSync?.cancel();
     super.dispose();
   }

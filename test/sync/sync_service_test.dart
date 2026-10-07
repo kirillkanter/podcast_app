@@ -284,6 +284,24 @@ void main() {
     expect(await phone.db.queueIds(), [await phone.episode(3)], reason: 'старая очередь ноутбука не подмешалась');
   });
 
+  test('перед запуском: быстрый прогресс без подписок и очереди', () async {
+    await phone.repo.addAndSubscribe(feedUrl);
+    await phone.signIn();
+    await laptop.signIn();
+    await phone.sync.syncNow();
+    await laptop.sync.syncNow();
+
+    await phone.db.savePosition(await phone.episode(2), const Duration(minutes: 30));
+    await phone.db.addToQueue(await phone.episode(1));
+    await phone.sync.syncNow();
+
+    final before = server.requests.length;
+    await laptop.sync.pullProgress();
+    expect((await laptop.state(2))!.positionMs, 1800000);
+    expect(await laptop.db.queueIds(), isEmpty, reason: 'очередь — при обычной синхронизации');
+    expect(server.requests.skip(before).any((r) => r.url.path.contains('subscriptions')), isFalse);
+  });
+
   test('повторная синхронизация без изменений ничего не отправляет', () async {
     await phone.repo.addAndSubscribe(feedUrl);
     await phone.signIn();

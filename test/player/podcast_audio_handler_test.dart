@@ -215,6 +215,37 @@ void main() {
     expect(handler.position.inMilliseconds, closeTo(600000, 500));
   });
 
+  test('перед запуском берётся прогресс с другого устройства', () async {
+    final checked = <int>[];
+    final withSync = PodcastAudioHandler(
+      db,
+      player: AudioPlayer(handleAudioSessionActivation: false),
+      beforePlay: (id) async {
+        checked.add(id);
+        // Как будто синхронизация принесла позицию с телефона.
+        await db.applyRemoteEpisodeState(id, positionMs: 1200000, played: false, changed: DateTime.now());
+      },
+    );
+    addTearDown(withSync.stop);
+
+    await withSync.playEpisode(episodeId);
+    await settled();
+    expect(checked, [episodeId]);
+    expect(platform.lastLoad?.initialPosition?.inMilliseconds, 1200000);
+
+    // Пауза здесь, а на телефоне послушали дальше: play продолжает оттуда.
+    await withSync.pause();
+    await settled();
+    final pausedAt = (await db.episodeState(episodeId))!.updatedAt;
+    final later = pausedAt.add(const Duration(seconds: 1));
+    checked.clear();
+    await db.applyRemoteEpisodeState(episodeId, positionMs: 1800000, played: false, changed: later);
+    await withSync.play();
+    await settled();
+    expect(checked, [episodeId]);
+    expect(withSync.position.inMilliseconds, closeTo(1800000, 1000));
+  });
+
   test('в уведомлении под названием эпизода — название подкаста', () async {
     await handler.playEpisode(episodeId);
     await settled();

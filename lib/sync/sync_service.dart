@@ -137,11 +137,24 @@ class SyncService {
     return _running ??= _sync().whenComplete(() => _running = null);
   }
 
+  /// Быстро получить прогресс с других устройств — перед запуском
+  /// воспроизведения, чтобы не продолжить со старого места и не затереть
+  /// свежий прогресс. Только позиции, без подписок и очереди; не дольше
+  /// [timeout] (без сети воспроизведение не ждёт).
+  Future<void> pullProgress({Duration timeout = const Duration(seconds: 3)}) async {
+    try {
+      if (!await isConfigured) return;
+      await (_running ??= _sync(progressOnly: true).whenComplete(() => _running = null)).timeout(timeout);
+    } catch (_) {
+      // Нет сети или сервер долго отвечает — играем с того, что знаем.
+    }
+  }
+
   void dispose() => _scheduled?.cancel();
 
   // -------------------------------------------------------------------------
 
-  Future<SyncResult> _sync() async {
+  Future<SyncResult> _sync({bool progressOnly = false}) async {
     final username = await _db.setting(SyncSettings.username);
     final password = await _db.setting(SyncSettings.password);
     if (username == null || username.isEmpty || password == null || password.isEmpty) {
@@ -162,6 +175,9 @@ class SyncService {
         await _db.setSetting(SyncSettings.deviceRegistered, 'true');
       }
 
+      if (progressOnly) {
+        return SyncResult(episodesUpdated: await _syncEpisodes(client, deviceId));
+      }
       final subs = await _syncSubscriptions(client, deviceId);
       final episodes = await _syncEpisodes(client, deviceId);
       final state = await _syncState(client);

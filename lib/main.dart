@@ -66,6 +66,8 @@ Future<void> main(List<String> args) async {
         db,
         localFile: downloads.localFile,
         onPlayed: downloads.onPlayed,
+        // Перед запуском — прогресс с других устройств (не дольше 3 секунд).
+        beforePlay: (_) => sync.pullProgress(),
       ),
       config: const AudioServiceConfig(
         androidNotificationChannelId: 'ru.bcaster.app.playback',

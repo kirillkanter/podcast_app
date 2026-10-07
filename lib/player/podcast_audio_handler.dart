@@ -20,9 +20,11 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
     AudioPlayer? player,
     Future<String?> Function(int episodeId)? localFile,
     Future<void> Function(int episodeId)? onPlayed,
+    Future<void> Function(int episodeId)? beforePlay,
   })  : _player = player ?? AudioPlayer(),
         _localFile = localFile,
-        _onPlayed = onPlayed {
+        _onPlayed = onPlayed,
+        _beforePlay = beforePlay {
     // Нативные плееры сообщают «играет/не играет» отдельным сообщением,
     // которое меняет player.playing, но не порождает playback event.
     // Без подписки на playerStateStream состояние для системы и интерфейса
@@ -78,6 +80,9 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
 
   /// Вызывается, когда эпизод дослушан до конца (удаление загрузки и т. п.).
   final Future<void> Function(int episodeId)? _onPlayed;
+
+  /// Перед запуском: получить прогресс эпизода с других устройств.
+  final Future<void> Function(int episodeId)? _beforePlay;
   final _errors = StreamController<String>.broadcast();
 
   int? _episodeId;
@@ -125,8 +130,12 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
   Future<void> playEpisode(int episodeId, {Duration? at, bool autoplay = true}) async {
     if (_episodeId == episodeId && _player.processingState != ProcessingState.idle) {
       if (!autoplay) return;
-      if (at != null) await seek(at);
-      unawaited(_player.play());
+      if (at != null) {
+        await seek(at);
+        unawaited(_player.play());
+      } else {
+        await play();
+      }
       return;
     }
 
@@ -138,6 +147,8 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
     // и переключение сделал человек (а не восстановление при запуске).
     if (autoplay && _activated && previous != null && previous != episodeId) await _requeue(previous);
     final podcast = await _db.podcastById(episode.podcastId);
+    // Запуск человеком: сначала узнать, где остановились на другом устройстве.
+    if (autoplay && at == null) await _pullProgress(episodeId);
     final state = await _db.episodeState(episodeId);
     final speed = await _db.podcastSpeed(episode.podcastId) ??
         double.tryParse(await _db.setting(PlayerSettings.speed) ?? '') ??
@@ -225,7 +236,35 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
   }
 
   @override
-  Future<void> play() async => unawaited(_player.play());
+  Future<void> play() async {
+    final episodeId = _episodeId;
+    if (episodeId != null && !_player.playing && _player.processingState == ProcessingState.ready) {
+      // Пока здесь стояла пауза, эпизод могли слушать на другом устройстве.
+      await _pullProgress(episodeId);
+      final state = await _db.episodeState(episodeId);
+      if (state != null && !state.played && _episodeId == episodeId && !_player.playing) {
+        final target = Duration(milliseconds: state.positionMs);
+        if ((target - _player.position).abs() >= const Duration(seconds: 3)) {
+          await _player.seek(target);
+          _start = target;
+        }
+      }
+    }
+    unawaited(_player.play());
+  }
+
+  Future<void> _pullProgress(int episodeId) async {
+    final hook = _beforePlay;
+    if (hook == null) return;
+    // Позицию здесь не сохраняем: на паузе она уже записана, а новая
+    // запись сделала бы местный прогресс «свежее» прогресса с другого
+    // устройства, и он бы проиграл.
+    try {
+      await hook(episodeId);
+    } catch (e) {
+      debugPrint('Не удалось получить прогресс: $e');
+    }
+  }
 
   @override
   Future<void> pause() => _player.pause();

@@ -12,6 +12,7 @@ import 'app_scope.dart';
 import 'diagnostics_dialog.dart';
 import 'episode_actions.dart';
 import 'format.dart';
+import 'opml_actions.dart';
 import 'sync_screen.dart';
 import 'icons.dart';
 import 'theme.dart';
@@ -146,6 +147,24 @@ class SettingsScreen extends StatelessWidget {
       ],
     ];
 
+    final subscriptions = [
+      const _SectionTitle('ПОДПИСКИ'),
+      _Card(children: [
+        _Row(
+          label: 'Импорт из OPML',
+          hint: 'Перенести подписки из другого плеера',
+          onTap: () => importOpmlFromFile(context),
+          trailing: BcIcon(BcIcons.chevronRight, size: 20, color: c.muted),
+        ),
+        _Row(
+          label: 'Экспорт в OPML',
+          hint: Platform.isWindows ? 'Сохранить список подписок в файл' : 'Сохранить или отправить список подписок',
+          onTap: () => exportOpml(context),
+          trailing: BcIcon(BcIcons.chevronRight, size: 20, color: c.muted),
+        ),
+      ]),
+    ];
+
     final search = [
       if (scope.catalog != null) ...[
         const _SectionTitle('ПОИСК'),
@@ -222,6 +241,7 @@ class SettingsScreen extends StatelessWidget {
                 ...playback,
                 ...queue,
                 ...gestures,
+                ...subscriptions,
                 ...downloadSection,
                 ...search,
                 ...look,
@@ -246,6 +266,7 @@ class SettingsScreen extends StatelessWidget {
                         ...playback,
                         ...queue,
                         ...gestures,
+                        ...subscriptions,
                       ]),
                     ),
                     const SizedBox(width: 24),

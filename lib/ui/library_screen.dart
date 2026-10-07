@@ -16,6 +16,7 @@ import 'queue_screen.dart';
 import 'shell.dart';
 import 'icons.dart';
 import 'theme.dart';
+import 'opml_actions.dart';
 
 /// Библиотека: лента эпизодов подписок и сетка подписок.
 class LibraryScreen extends StatefulWidget {
@@ -573,6 +574,17 @@ class _EmptyState extends StatelessWidget {
           'Найдите подкаст во вкладке «Поиск» или нажмите «+» вверху и вставьте ссылку на RSS-фид.',
           textAlign: TextAlign.center,
           style: TextStyle(color: c.muted, height: 1.4),
+        ),
+        const SizedBox(height: 16),
+        OutlinedButton(
+          onPressed: () => importOpmlFromFile(context),
+          child: const Text('Импорт из OPML'),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          'Файл со списком подписок из другого плеера',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 12, color: c.muted),
         ),
       ]),
     );

@@ -6,6 +6,7 @@ import 'package:audio_session/audio_session.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import 'catalog/podcast_catalog.dart';
@@ -52,7 +53,11 @@ Future<void> main(List<String> args) async {
   final catalog = PodcastCatalog(
     country: savedCountry != null && savedCountry.isNotEmpty ? savedCountry : systemCountry,
     defaultCountry: systemCountry,
+    // Подборки и чарты — на диске: открываются сразу и без сети.
+    cacheDirectory: () async => Directory(p.join((await getApplicationCacheDirectory()).path, 'catalog')),
   );
+  // Обложки в памяти: больше места — реже перечитывать их с диска.
+  PaintingBinding.instance.imageCache.maximumSizeBytes = 200 << 20;
 
   PodcastAudioHandler? audio;
   try {

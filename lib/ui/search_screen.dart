@@ -192,7 +192,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
   Future<List<CatalogPodcast>> _genreList(CatalogGenre g) {
     final catalog = AppScope.of(context).catalog!;
-    return _genreLists.putIfAbsent(g.id, () => catalog.chart(genreId: g.id).then(catalog.withFeeds));
+    return _genreLists.putIfAbsent(g.id, () => catalog.chartWithFeeds(genreId: g.id));
   }
 
   /// Перейти на страницу: соседнюю — плавно, далёкую — сразу.
@@ -510,6 +510,7 @@ class _ShelfState extends State<_Shelf> {
     final card = widget.big ? (widget.wide ? 180.0 : 150.0) : (widget.wide ? 132.0 : 104.0);
     return FutureBuilder<List<CatalogPodcast>>(
       future: _future,
+      initialData: AppScope.of(context).catalog?.peek(_future),
       builder: (context, s) {
         final items = s.data;
         // Рубрика не загрузилась или пустая — не показываем её вовсе.
@@ -681,8 +682,9 @@ class _CatalogFuture extends StatelessWidget {
         final subscribed = {for (final p in subs.data ?? const <Podcast>[]) feedKey(p.feedUrl)};
         return FutureBuilder<List<CatalogPodcast>>(
           future: future,
+          initialData: AppScope.of(context).catalog?.peek(future),
           builder: (context, result) {
-            if (result.connectionState != ConnectionState.done) {
+            if (!result.hasData && !result.hasError) {
               return const SliverToBoxAdapter(
                 child: Padding(padding: EdgeInsets.all(40), child: Center(child: CircularProgressIndicator())),
               );

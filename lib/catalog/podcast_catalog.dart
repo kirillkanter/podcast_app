@@ -7,10 +7,13 @@ library;
 
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io' show SocketException;
+import 'dart:io' show Directory, SocketException;
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show ValueNotifier;
 import 'package:http/http.dart' as http;
+
+import '../data/disk_cache.dart';
 
 class CatalogPodcast {
   const CatalogPodcast({
@@ -97,12 +100,55 @@ const catalogCountries = {
 };
 
 class PodcastCatalog {
-  PodcastCatalog({http.Client? client, String? country, String? defaultCountry})
-      : _client = client ?? http.Client(),
+  /// [cacheDirectory] — папка для ответов каталога: подборки открываются
+  /// сразу и работают без сети. Без неё ответы помнятся до закрытия.
+  PodcastCatalog({
+    http.Client? client,
+    String? country,
+    String? defaultCountry,
+    Future<Directory?> Function()? cacheDirectory,
+  })  : _client = client ?? http.Client(),
+        _disk = cacheDirectory == null ? null : DiskCache(cacheDirectory, extension: '.json'),
         defaultCountry = (defaultCountry ?? country ?? 'us').toLowerCase(),
         region = ValueNotifier((country ?? 'us').toLowerCase());
 
   final http.Client _client;
+  final DiskCache? _disk;
+  bool _pruned = false;
+
+  /// Сколько считать свежими: чарты Apple обновляются раз в сутки,
+  /// адреса фидов почти не меняются.
+  static const chartsMaxAge = Duration(hours: 6);
+  static const lookupMaxAge = Duration(days: 3);
+  static const searchMaxAge = Duration(hours: 1);
+
+  /// Ответы в памяти: адрес → (когда получен, данные).
+  final _memory = <String, ({DateTime at, Object? data})>{};
+  final _inflight = <String, Future<Object?>>{};
+
+  /// Готовые списки (для подборок): ключ → (когда запрошен, список).
+  final _lists = <String, ({DateTime at, Future<List<CatalogPodcast>> future})>{};
+  static final _values = Expando<List<CatalogPodcast>>();
+
+  /// Результат [future], если он уже готов, — чтобы показать подборку
+  /// в первом же кадре, без мигания заглушки.
+  List<CatalogPodcast>? peek(Future<List<CatalogPodcast>>? future) => future == null ? null : _values[future];
+
+  Future<List<CatalogPodcast>> _remember(
+    String key,
+    Duration maxAge,
+    Future<List<CatalogPodcast>> Function() load,
+  ) {
+    final known = _lists[key];
+    if (known != null && DateTime.now().difference(known.at) < maxAge) return known.future;
+    final future = load();
+    _lists[key] = (at: DateTime.now(), future: future);
+    future.then((v) => _values[future] = v, onError: (Object _) {
+      // Ошибку не запоминаем: в следующий раз — новая попытка.
+      if (_lists[key]?.future == future) _lists.remove(key);
+    });
+    return future;
+  }
 
   /// Регион системы — используется, когда в настройках выбрано «как в системе».
   final String defaultCountry;
@@ -118,7 +164,6 @@ class PodcastCatalog {
   void setCountry(String? code) {
     final next = (code == null || code.isEmpty ? defaultCountry : code).toLowerCase();
     if (next == region.value) return;
-    _charts.clear();
     region.value = next;
   }
 
@@ -128,20 +173,26 @@ class PodcastCatalog {
   Future<List<CatalogPodcast>> search(String term, {int limit = 50}) async {
     final query = term.trim();
     if (query.isEmpty) return const [];
-    final data = await _getJson(Uri.https('itunes.apple.com', '/search', {
-      'media': 'podcast',
-      'entity': 'podcast',
-      'term': query,
-      'country': country,
-      'limit': '$limit',
-    }));
+    final data = await _getJson(
+      Uri.https('itunes.apple.com', '/search', {
+        'media': 'podcast',
+        'entity': 'podcast',
+        'term': query,
+        'country': country,
+        'limit': '$limit',
+      }),
+      maxAge: searchMaxAge,
+    );
     return _parseItunesResults(data);
   }
 
   /// Популярные подкасты в стране [country]. Основной источник — лента
   /// Apple Marketing Tools; она временами отвечает ошибкой 502, тогда
   /// берём общий чарт из старой ленты iTunes.
-  Future<List<CatalogPodcast>> top({int limit = 50}) async {
+  Future<List<CatalogPodcast>> top({int limit = 50}) =>
+      _remember('top:$country:$limit', chartsMaxAge, () => _top(limit));
+
+  Future<List<CatalogPodcast>> _top(int limit) async {
     try {
       final items = await _topMarketing(limit);
       if (items.isNotEmpty) return items;
@@ -152,10 +203,10 @@ class PodcastCatalog {
   }
 
   Future<List<CatalogPodcast>> _topMarketing(int limit) async {
-    final chart = await _getJson(Uri.https(
-      'rss.marketingtools.apple.com',
-      '/api/v2/$country/podcasts/top/$limit/podcasts.json',
-    ));
+    final chart = await _getJson(
+      Uri.https('rss.marketingtools.apple.com', '/api/v2/$country/podcasts/top/$limit/podcasts.json'),
+      maxAge: chartsMaxAge,
+    );
     final feed = chart is Map<String, Object?> ? chart['feed'] : null;
     final results = feed is Map<String, Object?> ? feed['results'] : null;
     if (results is! List) return const [];
@@ -166,37 +217,37 @@ class PodcastCatalog {
     if (ids.isEmpty) return const [];
 
     // В чарте нет адресов фидов: дозапрашиваем их пачкой.
-    final lookup = await _getJson(Uri.https('itunes.apple.com', '/lookup', {
-      'id': ids.join(','),
-      'entity': 'podcast',
-      'country': country,
-    }));
+    final lookup = await _getJson(
+      Uri.https('itunes.apple.com', '/lookup', {
+        'id': ids.join(','),
+        'entity': 'podcast',
+        'country': country,
+      }),
+      maxAge: lookupMaxAge,
+    );
     final byId = {for (final p in _parseItunesResults(lookup)) p.id: p};
     // Порядок — как в чарте.
     return [for (final id in ids) ?byId[id]];
   }
 
-  final _charts = <int?, Future<List<CatalogPodcast>>>{};
-
   /// Чарт рубрики [genreId] (`null` — все подкасты) без адресов фидов:
   /// быстро, для обложек в подборках. Адреса — через [withFeeds].
-  /// Результат запоминается на время работы приложения.
-  Future<List<CatalogPodcast>> chart({int? genreId, int limit = 50}) {
-    final future = _charts.putIfAbsent(genreId, () => _chart(genreId, limit));
-    // Ошибку не запоминаем: в следующий раз — новая попытка.
-    future.catchError((Object _) {
-      _charts.remove(genreId);
-      return const <CatalogPodcast>[];
-    });
-    return future;
-  }
+  Future<List<CatalogPodcast>> chart({int? genreId, int limit = 50}) =>
+      _remember('chart:$country:$genreId:$limit', chartsMaxAge, () => _chart(genreId, limit));
+
+  /// Чарт рубрики сразу с адресами фидов — для полного списка.
+  Future<List<CatalogPodcast>> chartWithFeeds({int? genreId, int limit = 50}) => _remember(
+        'chartFeeds:$country:$genreId:$limit',
+        chartsMaxAge,
+        () async => withFeeds(await chart(genreId: genreId, limit: limit)),
+      );
 
   Future<List<CatalogPodcast>> _chart(int? genreId, int limit) async {
     // Старая лента iTunes: единственная, где есть чарты по рубрикам.
     final path = genreId == null
         ? '/$country/rss/toppodcasts/limit=$limit/json'
         : '/$country/rss/toppodcasts/limit=$limit/genre=$genreId/json';
-    return parseChart(await _getJson(Uri.https('itunes.apple.com', path)));
+    return parseChart(await _getJson(Uri.https('itunes.apple.com', path), maxAge: chartsMaxAge));
   }
 
   /// Разбор старой ленты чартов iTunes: feed.entry — список (или один объект).
@@ -235,11 +286,14 @@ class PodcastCatalog {
     final byId = <String, CatalogPodcast>{};
     for (var i = 0; i < missing.length; i += 150) {
       final ids = missing.sublist(i, i + 150 > missing.length ? missing.length : i + 150);
-      final lookup = await _getJson(Uri.https('itunes.apple.com', '/lookup', {
-        'id': ids.join(','),
-        'entity': 'podcast',
-        'country': country,
-      }));
+      final lookup = await _getJson(
+        Uri.https('itunes.apple.com', '/lookup', {
+          'id': ids.join(','),
+          'entity': 'podcast',
+          'country': country,
+        }),
+        maxAge: lookupMaxAge,
+      );
       for (final p in _parseItunesResults(lookup)) {
         byId[p.id] = p;
       }
@@ -263,9 +317,59 @@ class PodcastCatalog {
 
   void close() => _client.close();
 
-  /// GET с JSON в ответе. Ошибки сервера (5xx) и обрывы повторяем
-  /// дважды с паузой: каталог Apple иногда кратковременно отвечает 502.
-  Future<Object?> _getJson(Uri uri) async {
+  /// GET с JSON в ответе. Свежий ответ берётся из памяти или с диска;
+  /// если сеть подвела — сохранённый ответ любой давности.
+  Future<Object?> _getJson(Uri uri, {Duration maxAge = Duration.zero}) {
+    final key = uri.toString();
+    final mem = _memory[key];
+    if (mem != null && DateTime.now().difference(mem.at) < maxAge) return Future.value(mem.data);
+    return _inflight.putIfAbsent(key, () => _load(key, uri, maxAge).whenComplete(() => _inflight.remove(key)));
+  }
+
+  Future<Object?> _load(String key, Uri uri, Duration maxAge) async {
+    final disk = _disk;
+    if (disk != null && !_pruned) {
+      _pruned = true;
+      unawaited(disk.prune(20 * 1024 * 1024));
+    }
+    final saved = await disk?.read(key);
+    Object? savedData;
+    if (saved != null) {
+      try {
+        savedData = jsonDecode(utf8.decode(saved.bytes));
+        if (DateTime.now().difference(saved.saved) < maxAge) {
+          _keep(key, saved.saved, savedData);
+          return savedData;
+        }
+      } on FormatException {
+        savedData = null;
+      }
+    }
+    try {
+      final (data, bytes) = await _fetchJson(uri);
+      _keep(key, DateTime.now(), data);
+      if (maxAge > Duration.zero) unawaited(disk?.write(key, bytes));
+      return data;
+    } on CatalogException {
+      if (saved != null && savedData != null) return savedData;
+      final mem = _memory[key];
+      if (mem != null) return mem.data;
+      rethrow;
+    }
+  }
+
+  void _keep(String key, DateTime at, Object? data) {
+    _memory.remove(key);
+    _memory[key] = (at: at, data: data);
+    // Не копим память бесконечно: самые старые ответы забываются.
+    while (_memory.length > 300) {
+      _memory.remove(_memory.keys.first);
+    }
+  }
+
+  /// Запрос с повторами: ошибки сервера (5xx) и обрывы повторяем дважды
+  /// с паузой — каталог Apple иногда кратковременно отвечает 502.
+  Future<(Object?, Uint8List)> _fetchJson(Uri uri) async {
     for (var attempt = 0;; attempt++) {
       try {
         return await _getJsonOnce(uri);
@@ -279,7 +383,7 @@ class PodcastCatalog {
   /// Пауза между повторами (в тестах — ноль).
   Duration retryDelay = const Duration(milliseconds: 700);
 
-  Future<Object?> _getJsonOnce(Uri uri) async {
+  Future<(Object?, Uint8List)> _getJsonOnce(Uri uri) async {
     final http.Response response;
     try {
       response = await _client
@@ -299,7 +403,7 @@ class PodcastCatalog {
       throw CatalogException('Каталог вернул ошибку (код ${response.statusCode}).');
     }
     try {
-      return jsonDecode(utf8.decode(response.bodyBytes));
+      return (jsonDecode(utf8.decode(response.bodyBytes)), response.bodyBytes);
     } on FormatException {
       throw const CatalogException('Каталог вернул некорректный ответ.');
     }

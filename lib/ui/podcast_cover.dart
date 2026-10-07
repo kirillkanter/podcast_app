@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'cover_image.dart';
+
 /// Ширина декодирования: вдвое больше пикселей на экране, округлённая
 /// до 256/512/1024 — одна картинка в кэше на несколько размеров.
 int decodeWidth(double pixels) {
@@ -34,18 +36,22 @@ class PodcastCover extends StatelessWidget {
       borderRadius: BorderRadius.circular(size > 80 ? 12 : 8),
       child: imageUrl == null
           ? placeholder
-          : Image.network(
-              imageUrl,
+          : Image(
+              image: ResizeImage.resizeIfNeeded(
+                // Декодируем не в исходном 3000×3000, но с запасом: уменьшение
+                // ровно до размера на экране делает декодер грубо, края идут
+                // лесенкой. Запас вдвое дальше сглаживает видеокарта.
+                decodeWidth(size * MediaQuery.devicePixelRatioOf(context)),
+                null,
+                CachedCoverImage(imageUrl),
+              ),
               width: size,
               height: size,
               fit: BoxFit.cover,
-              // Декодируем не в исходном 3000×3000, но с запасом: уменьшение
-              // ровно до размера на экране делает декодер грубо, края идут
-              // лесенкой. Запас вдвое дальше сглаживает видеокарта.
-              cacheWidth: decodeWidth(size * MediaQuery.devicePixelRatioOf(context)),
               filterQuality: FilterQuality.medium,
               errorBuilder: (_, _, _) => placeholder,
-              loadingBuilder: (_, child, progress) => progress == null ? child : placeholder,
+              // Пока картинка читается с диска или качается — заглушка.
+              frameBuilder: (_, child, frame, sync) => sync || frame != null ? child : placeholder,
             ),
     );
   }

@@ -46,7 +46,7 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 50));
 
       // «Перезапуск»: новый каталог, сеть не нужна.
-      final second = make(() => http.Response('сбой', 500));
+      final second = make(() => http.Response('error', 500));
       expect((await second.chart(genreId: 1533)).single.title, 'Свежий');
       expect(requests, 1, reason: 'свежий ответ — с диска');
     });

@@ -143,7 +143,9 @@ class PodcastCatalog {
     if (known != null && DateTime.now().difference(known.at) < maxAge) return known.future;
     final future = load();
     _lists[key] = (at: DateTime.now(), future: future);
-    future.then((v) => _values[future] = v, onError: (Object _) {
+    future.then<void>((v) {
+      _values[future] = v;
+    }, onError: (Object _) {
       // Ошибку не запоминаем: в следующий раз — новая попытка.
       if (_lists[key]?.future == future) _lists.remove(key);
     });

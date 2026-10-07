@@ -278,10 +278,6 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
     final next = await _nextFromQueue(episodeId);
     if (next == null) {
       await stop();
-      // Дослушан, дальше ничего: возвращать его в мини-плеер не нужно.
-      try {
-        await _db.setSetting(PlayerSettings.last, '');
-      } catch (_) {}
     } else {
       // Плеер отпускает файл, но сервис и уведомление остаются:
       // следующий эпизод запустится сразу.
@@ -293,7 +289,14 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
     } catch (e) {
       debugPrint('Ошибка после окончания эпизода: $e');
     }
-    if (next != null) await playEpisode(next);
+    if (next != null) {
+      await playEpisode(next);
+    } else {
+      // Дослушан, дальше ничего: возвращать его в мини-плеер не нужно.
+      try {
+        await _db.setSetting(PlayerSettings.last, '');
+      } catch (_) {}
+    }
   }
 
   /// Переключились с недослушанного эпизода — он встаёт первым в очередь,

@@ -213,6 +213,7 @@ class SettingsScreen extends StatelessWidget {
           final title = Text('Настройки', style: screenTitleStyle(context));
           if (!twoColumns) {
             return ListView(
+              key: const Key('settings-list'),
               padding: EdgeInsets.fromLTRB(side, 16, side, bottom),
               children: [
                 title,

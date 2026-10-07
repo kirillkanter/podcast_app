@@ -295,21 +295,29 @@ void main() {
     await tester.pumpWidget(PodcastApp(db: db, repository: repo, downloads: downloads, refreshOnStart: false));
     await settle(tester, 'запуск');
 
+    expect(find.byKey(const Key('tab-downloads')), findsOneWidget);
     await tester.tap(find.byKey(const Key('tab-downloads')));
     await settle(tester, 'загрузки');
     expect(find.text('Загружено'), findsOneWidget);
     expect(find.textContaining('Загруженных эпизодов нет'), findsOneWidget);
 
     // Кнопка настроек на экране загрузок ведёт в «Настройки».
+    expect(find.byTooltip('Настройки загрузок'), findsOneWidget);
     await tester.tap(find.byTooltip('Настройки загрузок'));
     await settle(tester, 'переход в настройки');
     expect(find.text('ВОСПРОИЗВЕДЕНИЕ'), findsOneWidget);
     expect(find.text('Скорость по умолчанию'), findsOneWidget);
 
-    await tester.scrollUntilVisible(find.text('Лимит места'), 200);
+    await tester.dragUntilVisible(
+      find.text('Лимит места'),
+      find.byKey(const Key('settings-list')),
+      const Offset(0, -200),
+    );
+    await settle(tester, 'прокрутка настроек');
     await tester.tap(find.text('Лимит места'));
     await settle(tester, 'меню лимита');
-    await tester.tap(find.text('2 ГБ').last);
+    expect(find.text('2 ГБ'), findsOneWidget);
+    await tester.tap(find.text('2 ГБ'));
     await settle(tester, 'выбор лимита');
     expect(await tester.runAsync(() => db.setting(DownloadSettings.limitMb)), '2048');
 

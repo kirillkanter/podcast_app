@@ -60,9 +60,9 @@ jobs:
             cat test.log
             # Только упавшие тесты: строки с [E], блоки исключений и ожиданий,
             # без строк прогресса прошедших тестов (иначе аннотация обрезается).
-            grep -E -A14 '\[E\]|EXCEPTION CAUGHT|Expected:|Error:|Exception:' test.log \
+            grep -E -A14 '\[E\]|EXCEPTION CAUGHT|Expected:|Error:|Exception:|relevant error-causing widget|^#[0-9]+ .*(file://|package:podcast_app)' test.log \
               | grep -v -E '^[0-9]{2}:[0-9]{2} \+[0-9]+( -[0-9]+)?: [^[]*$' \
-              | grep -v -E '^#[0-9]+ |^\s+package:|dart:async|stack_trace' \
+              | grep -v -E '^#[0-9]+ .*(package:flutter|package:matcher|package:stack_trace|dart:)|^\s+package:flutter|dart:async|stack_trace' \
               | head -200 > fail.txt || true
             msg=$(sed -e 's/%/%25/g' -e 's/\r//g' fail.txt | awk '{printf "%s%%0A", $0}')
             echo "::error title=Упавшие тесты::${msg}"

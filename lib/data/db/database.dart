@@ -95,6 +95,7 @@ typedef DirtyEpisodeState = ({
   int positionMs,
   bool played,
   int? durationMs,
+  DateTime updatedAt,
 });
 
 /// Эпизод для общей ленты библиотеки.
@@ -306,6 +307,21 @@ class AppDatabase extends _$AppDatabase {
           .write(PodcastsCompanion(feedUrl: Value(newUrl)));
       return true;
     });
+  }
+
+  /// Подкаст, фид которого пока не загрузился (подписка с другого
+  /// устройства): название — адрес сайта, ошибка видна в библиотеке.
+  /// Обновление фидов заполнит его, как только фид станет доступен.
+  Future<int> addPodcastPlaceholder(String feedUrl, {String? error}) async {
+    final existing = await findPodcastByUrl(feedUrl);
+    if (existing != null) return existing.id;
+    final host = Uri.tryParse(feedUrl)?.host;
+    return into(podcasts).insert(PodcastsCompanion.insert(
+      feedUrl: feedUrl,
+      title: host == null || host.isEmpty ? feedUrl : host,
+      lastError: Value(error),
+      lastCheckedAt: Value(DateTime.now()),
+    ));
   }
 
   Future<Podcast?> findPodcastByUrl(String feedUrl) =>
@@ -842,6 +858,11 @@ class AppDatabase extends _$AppDatabase {
     ).watchSingle().map((r) => r.read<int>('n'));
   }
 
+  /// Неотправленные изменения очереди — выбросить (первая синхронизация
+  /// с уже существующей общей очередью: она важнее местной).
+  Future<void> dropUnsyncedQueue() => (update(queueEntries)..where((q) => q.dirty.equals(true)))
+      .write(const QueueEntriesCompanion(removed: Value(true), dirty: Value(false)));
+
   Future<void> markStateSynced(String kind, Iterable<int> episodeIds, DateTime before) {
     if (kind == 'queue') {
       return (update(queueEntries)
@@ -914,6 +935,9 @@ class AppDatabase extends _$AppDatabase {
     );
   }
 
+  Stream<EpisodeState?> watchEpisodeState(int episodeId) =>
+      (select(episodeStates)..where((s) => s.episodeId.equals(episodeId))).watchSingleOrNull();
+
   Future<EpisodeState?> episodeState(int episodeId) =>
       (select(episodeStates)..where((s) => s.episodeId.equals(episodeId))).getSingleOrNull();
 
@@ -975,6 +999,7 @@ class AppDatabase extends _$AppDatabase {
         positionMs: s.positionMs,
         played: s.played,
         durationMs: e.durationMs,
+        updatedAt: s.updatedAt,
       );
     }).get();
   }
@@ -999,19 +1024,29 @@ class AppDatabase extends _$AppDatabase {
     return rows.first.readTable(episodes);
   }
 
-  /// Состояние эпизода с сервера. Локальные неотправленные изменения
-  /// важнее: если состояние dirty, ничего не меняем и возвращаем `false`.
-  Future<bool> applyRemoteEpisodeState(int episodeId, {required int positionMs, required bool played}) {
+  /// Состояние эпизода с сервера. Побеждает более позднее изменение
+  /// ([changed] — когда его сделали на другом устройстве): если здесь
+  /// состояние менялось позже или тогда же, ничего не меняем и возвращаем
+  /// `false`. Без [changed] (старые данные) локальное неотправленное
+  /// изменение важнее.
+  Future<bool> applyRemoteEpisodeState(
+    int episodeId, {
+    required int positionMs,
+    required bool played,
+    DateTime? changed,
+  }) {
     return transaction(() async {
       final current = await episodeState(episodeId);
-      if (current != null && current.dirty) return false;
+      if (current != null) {
+        if (changed == null ? current.dirty : !current.updatedAt.isBefore(changed)) return false;
+      }
       final now = DateTime.now();
       await into(episodeStates).insertOnConflictUpdate(EpisodeStatesCompanion(
         episodeId: Value(episodeId),
         positionMs: Value(played ? 0 : positionMs),
         played: Value(played),
         playedAt: Value(played ? (current?.playedAt ?? now) : null),
-        updatedAt: Value(now),
+        updatedAt: Value(changed ?? now),
         dirty: const Value(false),
       ));
       // Дослушан на другом устройстве: здесь — так же, как при локальном

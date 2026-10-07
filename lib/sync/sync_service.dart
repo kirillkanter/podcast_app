@@ -227,7 +227,14 @@ class SyncService {
         await _db.applyRemoteSubscription(id, true);
         added++;
       } on PodcastException catch (e) {
+        // Фид сейчас не загрузился (сайт недоступен, сбой сети). Подписку
+        // всё равно сохраняем: подкаст появится в библиотеке с ошибкой,
+        // а обновление фидов будет пробовать снова. Иначе подписка
+        // терялась: сервер второй раз её не пришлёт.
         errors.add('$url: ${e.message}');
+        final id = await _db.addPodcastPlaceholder(url, error: e.message);
+        await _db.applyRemoteSubscription(id, true);
+        added++;
       }
     }
     for (final url in changes.remove) {
@@ -256,6 +263,8 @@ class SyncService {
     final latest = <String, EpisodeAction>{};
     for (final a in result.actions) {
       if (a.action != 'play' && a.action != 'new') continue;
+      // Свои же действия, вернувшиеся с сервера, — не новость.
+      if (a.device == deviceId) continue;
       final previous = latest[a.episode];
       if (previous == null || _isLater(a, previous)) latest[a.episode] = a;
     }
@@ -265,15 +274,16 @@ class SyncService {
       final episode = await _db.findEpisodeByEnclosure(a.episode, feedUrl: a.podcast);
       if (episode == null) continue; // эпизода нет в локальном фиде
       final applied = a.action == 'new'
-          ? await _db.applyRemoteEpisodeState(episode.id, positionMs: 0, played: false)
+          ? await _db.applyRemoteEpisodeState(episode.id, positionMs: 0, played: false, changed: a.effectiveTime)
           : await _db.applyRemoteEpisodeState(
               episode.id,
               positionMs: (a.position ?? 0) * 1000,
               played: _isPlayed(a),
+              changed: a.effectiveTime,
             );
       if (applied) updated++;
     }
-    await _applyRemoteLast(result.actions);
+    await _applyRemoteLast(result.actions, deviceId);
     await _db.setSetting(SyncSettings.episodesSince, '${result.timestamp}');
     return updated;
   }
@@ -281,19 +291,22 @@ class SyncService {
   /// Последний эпизод с другого устройства: если там слушали позже, чем
   /// здесь запускали свой, он становится «последним» и здесь — плеер
   /// покажет его в мини-плеере на паузе с того же места.
-  Future<void> _applyRemoteLast(List<EpisodeAction> actions) async {
+  Future<void> _applyRemoteLast(List<EpisodeAction> actions, String deviceId) async {
     EpisodeAction? newest;
     for (final a in actions) {
-      if (a.action != 'play' || a.timestamp == null || _isPlayed(a)) continue;
-      if (newest == null || a.timestamp!.isAfter(newest.timestamp!)) newest = a;
+      if (a.action != 'play' || a.effectiveTime == null || _isPlayed(a) || a.device == deviceId) continue;
+      if (newest == null || a.effectiveTime!.isAfter(newest.effectiveTime!)) newest = a;
     }
     if (newest == null) return;
+    final at = newest.effectiveTime!;
     final localAt = DateTime.tryParse(await _db.setting(PlayerSettings.lastAt) ?? '');
-    if (localAt != null && !newest.timestamp!.isAfter(localAt)) return;
+    if (localAt != null && !at.isAfter(localAt)) return;
     final episode = await _db.findEpisodeByEnclosure(newest.episode, feedUrl: newest.podcast);
     if (episode == null) return;
-    await _db.setSetting(PlayerSettings.lastAt, newest.timestamp!.toUtc().toIso8601String());
-    await _db.setSetting(PlayerSettings.last, '${episode.id}');
+    await _db.setSetting(PlayerSettings.lastAt, at.toUtc().toIso8601String());
+    if (await _db.setting(PlayerSettings.last) != '${episode.id}') {
+      await _db.setSetting(PlayerSettings.last, '${episode.id}');
+    }
   }
 
   /// Очередь и архив. Правило конфликтов — более позднее изменение
@@ -301,8 +314,16 @@ class SyncService {
   /// изменение новее серверного не перезаписывается.
   Future<int> _syncState(GpodderClient client) async {
     final startedAt = DateTime.now();
-    final dirty = await _db.dirtyStateItems();
     try {
+      final since = int.tryParse(await _db.setting(SyncSettings.stateSince) ?? '') ?? 0;
+      if (since == 0) {
+        // Первая синхронизация очереди на этом устройстве. Если другие
+        // устройства уже ведут общую очередь, местная (возможно, давно
+        // устаревшая) в неё не подмешивается: очередь берётся с сервера.
+        final server = await client.stateChanges(0);
+        if (server.items.any((i) => i['kind'] == 'queue')) await _db.dropUnsyncedQueue();
+      }
+      final dirty = await _db.dirtyStateItems();
       if (dirty.isNotEmpty) {
         await client.uploadState([
           for (final item in dirty)
@@ -324,7 +345,6 @@ class SyncService {
         }
       }
 
-      final since = int.tryParse(await _db.setting(SyncSettings.stateSince) ?? '') ?? 0;
       final changes = await client.stateChanges(since);
       var updated = 0;
       for (final item in changes.items) {
@@ -380,10 +400,17 @@ class SyncService {
         position: total,
         total: total,
         device: deviceId,
+        changed: s.updatedAt,
       );
     }
     if (s.positionMs <= 0) {
-      return EpisodeAction(podcast: s.feedUrl, episode: s.enclosureUrl, action: 'new', device: deviceId);
+      return EpisodeAction(
+        podcast: s.feedUrl,
+        episode: s.enclosureUrl,
+        action: 'new',
+        device: deviceId,
+        changed: s.updatedAt,
+      );
     }
     final position = (s.positionMs / 1000).round();
     return EpisodeAction(
@@ -394,6 +421,7 @@ class SyncService {
       position: position,
       total: totalSec != null && totalSec >= position ? totalSec : position,
       device: deviceId,
+      changed: s.updatedAt,
     );
   }
 
@@ -405,8 +433,8 @@ class SyncService {
   }
 
   static bool _isLater(EpisodeAction a, EpisodeAction b) {
-    final ta = a.timestamp;
-    final tb = b.timestamp;
+    final ta = a.effectiveTime;
+    final tb = b.effectiveTime;
     if (ta == null) return false;
     if (tb == null) return true;
     // При равном времени — более позднее в ответе сервера.

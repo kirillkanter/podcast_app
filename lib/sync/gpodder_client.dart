@@ -48,6 +48,7 @@ class EpisodeAction {
     this.started,
     this.total,
     this.timestamp,
+    this.changed,
     this.device,
   });
 
@@ -63,9 +64,18 @@ class EpisodeAction {
   final int? started;
   final int? total;
 
-  /// Время действия по серверу (при получении).
+  /// Время действия по серверу (при получении): когда его отправили.
   final DateTime? timestamp;
+
+  /// Когда изменение сделано на устройстве. Сервер хранит его в данных
+  /// действия; по нему решаются конфликты — иначе устаревшая позиция,
+  /// отправленная позже, перезаписала бы свежую.
+  final DateTime? changed;
   final String? device;
+
+  /// Время для сравнения действий: на устройстве, а если его нет
+  /// (другие приложения) — на сервере.
+  DateTime? get effectiveTime => changed ?? timestamp;
 
   Map<String, Object?> toJson() => {
         'podcast': podcast,
@@ -75,6 +85,7 @@ class EpisodeAction {
         'started': ?started,
         'total': ?total,
         'device': ?device,
+        if (changed != null) 'bcaster_changed': changed!.millisecondsSinceEpoch,
       };
 
   static EpisodeAction? fromJson(Object? json) {
@@ -85,6 +96,7 @@ class EpisodeAction {
     if (podcast is! String || episode is! String || action is! String) return null;
     int? asInt(Object? v) => v is int ? v : (v is num ? v.round() : (v is String ? int.tryParse(v) : null));
     final ts = json['timestamp'];
+    final changedMs = asInt(json['bcaster_changed']);
     return EpisodeAction(
       podcast: podcast,
       episode: episode,
@@ -93,6 +105,7 @@ class EpisodeAction {
       started: asInt(json['started']),
       total: asInt(json['total']),
       timestamp: ts is String ? DateTime.tryParse(ts.endsWith('Z') || ts.contains('+') ? ts : '${ts}Z') : null,
+      changed: changedMs == null ? null : DateTime.fromMillisecondsSinceEpoch(changedMs, isUtc: true),
       device: json['device'] is String ? json['device']! as String : null,
     );
   }

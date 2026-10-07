@@ -228,6 +228,62 @@ void main() {
     expect((await phone.state(3))!.positionMs, 1200000);
   });
 
+  test('устаревшая позиция, отправленная позже, не затирает свежую', () async {
+    await phone.repo.addAndSubscribe(feedUrl);
+    await phone.signIn();
+    await laptop.signIn();
+    await phone.sync.syncNow();
+    await laptop.sync.syncNow();
+
+    // Ноутбук когда-то послушал минуту и не успел отправить.
+    await laptop.db.savePosition(await laptop.episode(3), const Duration(minutes: 1));
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+    // Позже телефон дослушал до двух часов и отправил.
+    await phone.db.savePosition(await phone.episode(3), const Duration(hours: 2));
+    await phone.sync.syncNow();
+
+    // Ноутбук включили: его старая минута уходит на сервер, но не побеждает.
+    await laptop.sync.syncNow();
+    expect((await laptop.state(3))!.positionMs, 7200000);
+    await phone.sync.syncNow();
+    expect((await phone.state(3))!.positionMs, 7200000);
+  });
+
+  test('фид с другого устройства не загрузился — подписка не теряется', () async {
+    const broken = 'https://broken.example.com/rss';
+    final id = await phone.db.addPodcastPlaceholder(broken);
+    await phone.db.setSubscribed(id, true);
+    await phone.repo.addAndSubscribe(feedUrl);
+    await phone.signIn();
+    await phone.sync.syncNow();
+
+    await laptop.signIn();
+    final result = await laptop.sync.syncNow();
+    expect(result.feedErrors, hasLength(1));
+    final placeholder = await laptop.db.findPodcastByUrl(broken);
+    expect(placeholder, isNotNull);
+    expect(placeholder!.title, 'broken.example.com');
+    expect(placeholder.lastError, isNotNull);
+    expect(await laptop.db.watchIsSubscribed(placeholder.id).first, isTrue);
+  });
+
+  test('первая синхронизация очереди: общая очередь важнее местной', () async {
+    await phone.repo.addAndSubscribe(feedUrl);
+    await phone.db.addToQueue(await phone.episode(3));
+    await phone.signIn();
+    await phone.sync.syncNow();
+
+    // На ноутбуке со вчера лежит своя, ни разу не синхронизированная очередь.
+    await laptop.repo.addAndSubscribe(feedUrl);
+    await laptop.db.addToQueue(await laptop.episode(1));
+    await laptop.signIn();
+    await laptop.sync.syncNow();
+    expect(await laptop.db.queueIds(), [await laptop.episode(3)]);
+
+    await phone.sync.syncNow();
+    expect(await phone.db.queueIds(), [await phone.episode(3)], reason: 'старая очередь ноутбука не подмешалась');
+  });
+
   test('повторная синхронизация без изменений ничего не отправляет', () async {
     await phone.repo.addAndSubscribe(feedUrl);
     await phone.signIn();

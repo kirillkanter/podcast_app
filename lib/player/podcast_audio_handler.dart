@@ -39,6 +39,8 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
     _player.playingStream.listen((playing) {
       _saveTimer?.cancel();
       if (playing) {
+        _touched = true;
+        if (!_activated) unawaited(_activate());
         _saveTimer = Timer.periodic(positionSaveInterval, (_) => _savePosition());
       } else {
         _savePosition();
@@ -81,6 +83,20 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
   int? _episodeId;
   int? _podcastId;
   Timer? _saveTimer;
+
+  /// Эпизод запускали (а не только подготовили на паузе при восстановлении):
+  /// только тогда он уходит из очереди и становится «последним».
+  bool _activated = false;
+
+  /// Позицию меняли слушанием или перемоткой. Пока нет — не записываем её:
+  /// иначе восстановленный эпизод перезаписал бы свежий прогресс с другого
+  /// устройства старым (или нулём, если плеер ещё не встал на место).
+  bool _touched = false;
+
+  /// С какого места эпизод загружен и перематывали ли его вручную.
+  Duration _start = Duration.zero;
+  bool _seeked = false;
+  StreamSubscription<EpisodeState?>? _remoteState;
   Timer? _sleepTimer;
 
   /// Текущий таймер сна или `null`.
@@ -118,13 +134,9 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
     final episode = await _db.episodeById(episodeId);
     if (episode == null) return;
     final previous = _episodeId;
-    if (previous != null && previous != episodeId) await _requeue(previous);
-    // Запущенный эпизод — уже не «далее»: он уходит из очереди.
-    try {
-      await _db.removeFromQueue(episodeId);
-    } catch (e) {
-      debugPrint('Не удалось убрать эпизод из очереди: $e');
-    }
+    // Прерванный эпизод — в очередь, только если его действительно слушали
+    // и переключение сделал человек (а не восстановление при запуске).
+    if (autoplay && _activated && previous != null && previous != episodeId) await _requeue(previous);
     final podcast = await _db.podcastById(episode.podcastId);
     final state = await _db.episodeState(episodeId);
     final speed = await _db.podcastSpeed(episode.podcastId) ??
@@ -133,15 +145,10 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
 
     _episodeId = episodeId;
     _podcastId = episode.podcastId;
-    if (autoplay) {
-      // Запомнить: после перезапуска приложения эпизод вернётся в мини-плеер.
-      try {
-        await _db.setSetting(PlayerSettings.last, '$episodeId');
-        await _db.setSetting(PlayerSettings.lastAt, DateTime.now().toUtc().toIso8601String());
-      } catch (e) {
-        debugPrint('Не удалось запомнить эпизод: $e');
-      }
-    }
+    _activated = false;
+    _touched = false;
+    _seeked = false;
+    _watchRemoteState(episodeId);
 
     final art = episode.imageUrl ?? podcast?.imageUrl;
     final item = MediaItem(
@@ -162,6 +169,8 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
       played: state?.played ?? false,
       durationMs: episode.durationMs,
     );
+    _start = start;
+    if (at != null) _seeked = true;
 
     try {
       // Загруженный файл играет без интернета; иначе — поток по сети.
@@ -217,7 +226,41 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
   @override
   Future<void> seek(Duration position) async {
     await _player.seek(position);
+    _touched = true;
+    _seeked = true;
     await _savePosition();
+  }
+
+  /// Эпизод начали слушать: он уходит из очереди и запоминается
+  /// как последний (после перезапуска вернётся в мини-плеер, другие
+  /// устройства подхватят его).
+  Future<void> _activate() async {
+    final episodeId = _episodeId;
+    if (episodeId == null) return;
+    _activated = true;
+    try {
+      await _db.removeFromQueue(episodeId);
+      await _db.setSetting(PlayerSettings.last, '$episodeId');
+      await _db.setSetting(PlayerSettings.lastAt, DateTime.now().toUtc().toIso8601String());
+    } catch (e) {
+      debugPrint('Не удалось отметить запуск эпизода: $e');
+    }
+  }
+
+  /// Прогресс эпизода пришёл с другого устройства, а здесь он стоит на
+  /// паузе — встаём на новое место, чтобы не продолжить со старого.
+  void _watchRemoteState(int episodeId) {
+    unawaited(_remoteState?.cancel());
+    _remoteState = _db.watchEpisodeState(episodeId).listen((state) {
+      if (state == null || state.dirty || state.played) return;
+      if (_episodeId != episodeId || _player.playing) return;
+      if (_player.processingState != ProcessingState.ready) return;
+      final target = Duration(milliseconds: state.positionMs);
+      if ((target - _player.position).abs() < const Duration(seconds: 3)) return;
+      _start = target;
+      _touched = false;
+      unawaited(_player.seek(target));
+    });
   }
 
   @override
@@ -246,6 +289,8 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
   @override
   Future<void> stop() async {
     await _savePosition();
+    unawaited(_remoteState?.cancel());
+    _remoteState = null;
     _episodeId = null;
     _podcastId = null;
     _cancelSleepTimer();
@@ -341,10 +386,15 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
   Future<void> _savePosition() async {
     final episodeId = _episodeId;
     if (episodeId == null) return;
+    if (!_touched) return;
     final state = _player.processingState;
     if (state == ProcessingState.idle || state == ProcessingState.loading) return;
+    // Плеер не встал на сохранённое место (так бывает на Windows сразу после
+    // загрузки), а человек не перематывал: ноль вместо прогресса не пишем.
+    final position = _player.position;
+    if (!_seeked && _start > const Duration(seconds: 10) && position < const Duration(seconds: 3)) return;
     try {
-      await _db.savePosition(episodeId, _player.position);
+      await _db.savePosition(episodeId, position);
     } catch (e) {
       debugPrint('Не удалось сохранить позицию: $e');
     }

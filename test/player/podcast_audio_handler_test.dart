@@ -183,6 +183,38 @@ void main() {
     expect(await db.setting(PlayerSettings.last), '');
   });
 
+  test('восстановленный эпизод не трогает очередь и прогресс, пока его не запустили', () async {
+    final other = await db.saveParsedFeed('https://example.com/other', parseFeed(_feed.replaceAll('1.mp3', '2.mp3')));
+    final secondId = (await db.watchEpisodes(other.podcastId).first).single.id;
+    await db.applyRemoteEpisodeState(episodeId, positionMs: 7200000, played: false, changed: DateTime.now());
+    await db.addToQueue(episodeId);
+    await db.setSetting(PlayerSettings.last, '$episodeId');
+
+    await handler.restoreLast();
+    await settled();
+    expect(handler.currentEpisodeId, episodeId);
+    expect(await db.queueIds(), [episodeId], reason: 'не запускали — остаётся в очереди');
+
+    // Сразу переключились на другой: восстановленный не «прерван».
+    await handler.playEpisode(secondId);
+    await settled();
+    final state = (await db.episodeState(episodeId))!;
+    expect(state.positionMs, 7200000);
+    expect(state.dirty, isFalse, reason: 'позицию не перезаписали');
+    expect(await db.queueIds(), [episodeId]);
+    expect(await db.setting(PlayerSettings.last), '$secondId');
+  });
+
+  test('прогресс с другого устройства переносится в плеер на паузе', () async {
+    await db.setSetting(PlayerSettings.last, '$episodeId');
+    await handler.restoreLast();
+    await settled();
+    await db.applyRemoteEpisodeState(episodeId, positionMs: 600000, played: false, changed: DateTime.now());
+    await settled();
+    await pumpEventQueue();
+    expect(handler.position.inMilliseconds, closeTo(600000, 500));
+  });
+
   test('в уведомлении под названием эпизода — название подкаста', () async {
     await handler.playEpisode(episodeId);
     await settled();

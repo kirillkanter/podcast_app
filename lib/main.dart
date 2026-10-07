@@ -70,10 +70,14 @@ Future<void> main(List<String> args) async {
       config: const AudioServiceConfig(
         androidNotificationChannelId: 'ru.bcaster.app.playback',
         androidNotificationChannelName: 'Воспроизведение',
-        androidNotificationOngoing: true,
         // Белый силуэт логотипа: цветная иконка в строке состояния стала бы белым кругом.
         androidNotificationIcon: 'drawable/ic_stat_bcaster',
-        androidStopForegroundOnPause: true,
+        // Сервис остаётся «на переднем плане» и на паузе. Иначе каждая
+        // короткая пауза (звук уведомления, кнопка наушников) снимала его
+        // с переднего плана, а вернуть его из фона Android 12+ не даёт
+        // (startForegroundService not allowed): звук шёл без сервиса,
+        // и система через несколько минут замораживала приложение.
+        androidStopForegroundOnPause: false,
         rewindInterval: Duration(seconds: 10),
         fastForwardInterval: Duration(seconds: 30),
       ),

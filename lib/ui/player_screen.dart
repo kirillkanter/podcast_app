@@ -574,6 +574,18 @@ class _PhoneLayout extends StatefulWidget {
 
 class _PhoneLayoutState extends State<_PhoneLayout> {
   final _scroll = ScrollController();
+  final _coverKey = GlobalKey();
+
+  /// Высота перемотки и кнопок.
+  static const _controlsHeight = 144.0;
+
+  /// Высота обложки с названием — после первой раскладки берётся настоящая.
+  double _coverHeight = 330;
+
+  void _measureCover() {
+    final h = _coverKey.currentContext?.size?.height;
+    if (h != null && (h - _coverHeight).abs() > 0.5 && mounted) setState(() => _coverHeight = h);
+  }
 
   @override
   void dispose() {
@@ -600,6 +612,7 @@ class _PhoneLayoutState extends State<_PhoneLayout> {
 
   @override
   Widget build(BuildContext context) {
+    WidgetsBinding.instance.addPostFrameCallback((_) => _measureCover());
     final c = BcColors.of(context);
     final frost = widget.frost;
     final now = widget.now;
@@ -635,51 +648,101 @@ class _PhoneLayoutState extends State<_PhoneLayout> {
           Expanded(
             child: NotificationListener<ScrollNotification>(
               onNotification: _onScroll,
-              // NestedScrollView: описание листается в своей области под
-              // кнопками и не заезжает под них — подложка не нужна.
-              child: NestedScrollView(
-                controller: _scroll,
-                physics: const ClampingScrollPhysics(),
-                headerSliverBuilder: (context, _) => [
-                  // Обложка и название уезжают вверх при прокрутке.
-                  SliverToBoxAdapter(
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                      Center(child: _Cover(url: item.artUri?.toString(), size: cover, radius: 22)),
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(32, 20, 32, 0),
-                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                          Text(item.title,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                  fontFamily: displayFont, fontWeight: FontWeight.w600, fontSize: 20, height: 1.25)),
-                          const SizedBox(height: 4),
-                          _PodcastLink(podcast: p, fallback: item.album),
+              child: LayoutBuilder(builder: (context, area) {
+                // Кнопки лежат поверх списка. Под ними список скрыт маской:
+                // описание исчезает у нижнего края кнопок, а не просвечивает
+                // сквозь них.
+                final list = CustomScrollView(
+                  controller: _scroll,
+                  physics: const ClampingScrollPhysics(),
+                  slivers: [
+                    // Обложка и название уезжают вверх при прокрутке.
+                    SliverToBoxAdapter(
+                      child: KeyedSubtree(
+                        key: _coverKey,
+                        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                          Center(child: _Cover(url: item.artUri?.toString(), size: cover, radius: 22)),
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(32, 20, 32, 0),
+                            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                              Text(item.title,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                      fontFamily: displayFont, fontWeight: FontWeight.w600, fontSize: 20, height: 1.25)),
+                              const SizedBox(height: 4),
+                              _PodcastLink(podcast: p, fallback: item.album),
+                            ]),
+                          ),
                         ]),
                       ),
-                    ]),
-                  ),
-                  // Перемотка и кнопки остаются наверху.
-                  SliverPersistentHeader(
-                    pinned: true,
-                    delegate: _ControlsHeader(
-                      child: Column(mainAxisSize: MainAxisSize.min, children: [
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(32, 0, 32, 0),
-                          child: _SeekBar(audio: audio, duration: item.duration, frost: frost),
-                        ),
-                        const SizedBox(height: 4),
-                        _Controls(audio: audio, now: now),
-                      ]),
                     ),
-                  ),
-                ],
-                body: ListView(
-                  physics: const ClampingScrollPhysics(),
-                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
-                  children: [_AboutCard(frost: frost, episode: e, chapters: chapters)],
-                ),
-              ),
+                    // Место под кнопки: сами кнопки — поверх, см. ниже.
+                    const SliverToBoxAdapter(child: SizedBox(height: _controlsHeight)),
+                    SliverPadding(
+                      padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+                      sliver: SliverToBoxAdapter(
+                        child: _AboutCard(frost: frost, episode: e, chapters: chapters),
+                      ),
+                    ),
+                  ],
+                );
+                return AnimatedBuilder(
+                  animation: _scroll,
+                  child: list,
+                  builder: (context, list) {
+                    final offset = _scroll.hasClients ? _scroll.offset : 0.0;
+                    final top = math.max(0.0, _coverHeight - offset);
+                    final h = math.max(1.0, area.maxHeight);
+                    double at(double y) => (y / h).clamp(0.0, 1.0);
+                    return Stack(children: [
+                      Positioned.fill(
+                        child: ShaderMask(
+                          blendMode: BlendMode.dstIn,
+                          shaderCallback: (rect) => LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: const [
+                              Colors.black,
+                              Colors.black,
+                              Colors.transparent,
+                              Colors.transparent,
+                              Colors.black,
+                              Colors.black,
+                            ],
+                            stops: [
+                              0,
+                              at(top),
+                              at(top),
+                              at(top + _controlsHeight - 4),
+                              at(top + _controlsHeight + 20),
+                              1,
+                            ],
+                          ).createShader(rect),
+                          child: list,
+                        ),
+                      ),
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        top: top,
+                        height: _controlsHeight,
+                        child: Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Column(mainAxisSize: MainAxisSize.min, children: [
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 32),
+                              child: _SeekBar(audio: audio, duration: item.duration, frost: frost),
+                            ),
+                            const SizedBox(height: 4),
+                            _Controls(audio: audio, now: now),
+                          ]),
+                        ),
+                      ),
+                    ]);
+                  },
+                );
+              }),
             ),
           ),
           Padding(
@@ -727,32 +790,6 @@ class _PhoneLayoutState extends State<_PhoneLayout> {
       );
     });
   }
-}
-
-/// Закреплённые наверху перемотка и кнопки.
-class _ControlsHeader extends SliverPersistentHeaderDelegate {
-  _ControlsHeader({required this.child});
-
-  final Widget child;
-
-  static const _height = 156.0;
-
-  @override
-  double get minExtent => _height;
-
-  @override
-  double get maxExtent => _height;
-
-  @override
-  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 12),
-      child: Align(alignment: Alignment.topCenter, child: child),
-    );
-  }
-
-  @override
-  bool shouldRebuild(_ControlsHeader old) => true;
 }
 
 class _BottomAction extends StatelessWidget {

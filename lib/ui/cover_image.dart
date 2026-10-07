@@ -22,7 +22,9 @@ class CoverCache {
     this.maxAge = const Duration(days: 14),
     this.maxBytes = 300 * 1024 * 1024,
   })  : _client = client ?? http.Client(),
-        _disk = DiskCache(directory ?? _defaultDirectory);
+        _disk = DiskCache(directory ?? _defaultDirectory),
+        // В тестах интерфейса обложки не нужны: без сети и без таймеров.
+        _offline = directory == null && Platform.environment.containsKey('FLUTTER_TEST');
 
   static CoverCache instance = CoverCache();
 
@@ -31,18 +33,18 @@ class CoverCache {
   final Duration maxAge;
   final int maxBytes;
   final _inflight = <String, Future<Uint8List>>{};
+  final bool _offline;
   bool _pruned = false;
 
   static Future<Directory?> _defaultDirectory() async {
-    // В тестах платформы нет — обложки там не нужны.
-    if (Platform.environment.containsKey('FLUTTER_TEST')) return null;
     return Directory(p.join((await getApplicationCacheDirectory()).path, 'covers'));
   }
 
   /// Байты картинки: из кэша или из сети. Одновременные запросы
   /// одного адреса (обложка в двух размерах) качают файл один раз.
-  Future<Uint8List> bytes(String url) =>
-      _inflight.putIfAbsent(url, () => _bytes(url).whenComplete(() => _inflight.remove(url)));
+  Future<Uint8List> bytes(String url) => _offline
+      ? Future.error(const HttpException('Обложки в тестах не загружаются'))
+      : _inflight.putIfAbsent(url, () => _bytes(url).whenComplete(() => _inflight.remove(url)));
 
   Future<Uint8List> _bytes(String url) async {
     if (!_pruned) {

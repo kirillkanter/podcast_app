@@ -47,6 +47,25 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
     _player.processingStateStream.listen((state) {
       if (state == ProcessingState.completed) _onCompleted();
     });
+    unawaited(_loadSkipSteps());
+  }
+
+  /// Шаг перемотки (назад, вперёд) в секундах — из настроек.
+  final skipSteps = ValueNotifier<(int, int)>((rewindStep.inSeconds, fastForwardStep.inSeconds));
+
+  Future<void> _loadSkipSteps() async {
+    try {
+      final back = int.tryParse(await _db.setting(PlayerSettings.rewind) ?? '');
+      final fwd = int.tryParse(await _db.setting(PlayerSettings.forward) ?? '');
+      skipSteps.value = (back ?? skipSteps.value.$1, fwd ?? skipSteps.value.$2);
+    } catch (_) {}
+  }
+
+  /// Сменить шаг перемотки (настройки).
+  Future<void> setSkipSteps(int back, int forward) async {
+    skipSteps.value = (back, forward);
+    await _db.setSetting(PlayerSettings.rewind, '$back');
+    await _db.setSetting(PlayerSettings.forward, '$forward');
   }
 
   final AppDatabase _db;
@@ -108,7 +127,9 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
     }
     final podcast = await _db.podcastById(episode.podcastId);
     final state = await _db.episodeState(episodeId);
-    final speed = await _db.podcastSpeed(episode.podcastId) ?? 1.0;
+    final speed = await _db.podcastSpeed(episode.podcastId) ??
+        double.tryParse(await _db.setting(PlayerSettings.speed) ?? '') ??
+        1.0;
 
     _episodeId = episodeId;
     _podcastId = episode.podcastId;
@@ -200,11 +221,12 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
   }
 
   @override
-  Future<void> rewind() => seek(seekRelative(_player.position, -rewindStep, _player.duration));
+  Future<void> rewind() =>
+      seek(seekRelative(_player.position, Duration(seconds: -skipSteps.value.$1), _player.duration));
 
   @override
   Future<void> fastForward() =>
-      seek(seekRelative(_player.position, fastForwardStep, _player.duration));
+      seek(seekRelative(_player.position, Duration(seconds: skipSteps.value.$2), _player.duration));
 
   // Кнопки «следующий/предыдущий» на клавиатуре и наушниках перематывают:
   // в подкастах перемотка нужнее, чем переход по очереди.

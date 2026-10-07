@@ -1,9 +1,12 @@
 import 'dart:io' show Platform;
 
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 
 import '../catalog/podcast_catalog.dart';
 import '../data/db/database.dart';
+import '../download/download_manager.dart';
+import '../platform/desktop.dart';
 import '../sync/sync_service.dart';
 import 'app_scope.dart';
 import 'diagnostics_dialog.dart';
@@ -16,8 +19,7 @@ import 'theme.dart';
 /// Версия для экрана настроек; совпадает с pubspec.yaml.
 const appVersion = '0.8.0';
 
-/// Настройки. Полный набор разделов появится позже; сейчас — синхронизация,
-/// тема и служебное.
+/// Настройки. На широком экране — в две колонки.
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
@@ -25,95 +27,248 @@ class SettingsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = BcColors.of(context);
     final scope = AppScope.of(context);
+    final audio = scope.audio;
+    final downloads = scope.downloads;
+
+    final playback = [
+      const _SectionTitle('ВОСПРОИЗВЕДЕНИЕ'),
+      _Card(children: [
+        _ChoiceRow(
+          label: 'Скорость по умолчанию',
+          hint: 'Для подкастов, где скорость не выбрана отдельно',
+          settingKey: PlayerSettings.speed,
+          fallback: '1.0',
+          options: {for (final v in _speeds) v: '${v.replaceAll('.', ',')}×'},
+        ),
+        _ChoiceRow(
+          label: 'Перемотка назад',
+          settingKey: PlayerSettings.rewind,
+          fallback: '${audio?.skipSteps.value.$1 ?? 10}',
+          options: {for (final v in const [5, 10, 15, 30, 60]) '$v': '$v с'},
+          onSelect: audio == null ? null : (v) => audio.setSkipSteps(int.parse(v), audio.skipSteps.value.$2),
+        ),
+        _ChoiceRow(
+          label: 'Перемотка вперёд',
+          settingKey: PlayerSettings.forward,
+          fallback: '${audio?.skipSteps.value.$2 ?? 30}',
+          options: {for (final v in const [10, 15, 30, 45, 60, 90]) '$v': '$v с'},
+          onSelect: audio == null ? null : (v) => audio.setSkipSteps(audio.skipSteps.value.$1, int.parse(v)),
+        ),
+      ]),
+    ];
+
+    final queue = [
+      const _SectionTitle('ОЧЕРЕДЬ И АРХИВ'),
+      _Card(children: [
+        _SwitchRow(
+          label: 'Играть следующий из очереди',
+          hint: 'Когда эпизод закончится',
+          settingKey: QueueSettings.continuePlayback,
+        ),
+        _SwitchRow(
+          label: 'Прерванный эпизод — первым в очередь',
+          hint: 'Если переключиться на другой эпизод, не дослушав',
+          settingKey: QueueSettings.requeueInterrupted,
+        ),
+        _SwitchRow(
+          label: 'Прослушанные — в архив',
+          hint: 'Эпизод скрывается из списков, когда дослушан до конца',
+          settingKey: QueueSettings.autoArchive,
+        ),
+      ]),
+    ];
+
+    final gestures = [
+      const _SectionTitle('ЖЕСТЫ В СПИСКЕ ЭПИЗОДОВ'),
+      _Card(children: [
+        _SwipeRow(
+          label: 'Свайп влево',
+          settingKey: QueueSettings.swipeLeft,
+          fallback: SwipeSettingsScope.defaultLeft,
+        ),
+        _SwipeRow(
+          label: 'Свайп вправо',
+          settingKey: QueueSettings.swipeRight,
+          fallback: SwipeSettingsScope.defaultRight,
+        ),
+      ]),
+    ];
+
+    final downloadSection = [
+      if (downloads != null) ...[
+        const _SectionTitle('ЗАГРУЗКИ'),
+        _Card(children: [
+          _ChoiceRow(
+            label: 'Автозагрузка новых эпизодов',
+            hint: 'Сколько последних эпизодов каждого подкаста держать на устройстве',
+            settingKey: DownloadSettings.autoCount,
+            fallback: '0',
+            options: const {
+              '0': 'Выключена',
+              '1': 'Последний',
+              '3': '3 последних',
+              '5': '5 последних',
+              '10': '10 последних',
+            },
+            onChanged: (_) async {
+              await downloads.autoDownloadAll();
+              downloads.resume();
+            },
+          ),
+          _SwitchRow(
+            label: 'Только по Wi‑Fi',
+            hint: 'Автозагрузка ждёт Wi‑Fi; вручную можно загрузить в любой сети',
+            settingKey: DownloadSettings.wifiOnly,
+            onChanged: (_) => downloads.resume(),
+          ),
+          _SwitchRow(
+            label: 'Удалять прослушанные',
+            hint: 'Файл удаляется, когда эпизод дослушан или отмечен прослушанным',
+            settingKey: DownloadSettings.deletePlayed,
+          ),
+          _ChoiceRow(
+            label: 'Лимит места',
+            hint: 'Автозагрузка останавливается, когда загрузки занимают больше',
+            settingKey: DownloadSettings.limitMb,
+            fallback: '0',
+            options: const {
+              '0': 'Без лимита',
+              '1024': '1 ГБ',
+              '2048': '2 ГБ',
+              '5120': '5 ГБ',
+              '10240': '10 ГБ',
+              '20480': '20 ГБ',
+            },
+            onChanged: (_) async => downloads.resume(),
+          ),
+          if (Platform.isWindows) const _FolderRow(),
+        ]),
+      ],
+    ];
+
+    final search = [
+      if (scope.catalog != null) ...[
+        const _SectionTitle('ПОИСК'),
+        _Card(children: [_CountryRow(catalog: scope.catalog!)]),
+      ],
+    ];
+
+    final look = [
+      const _SectionTitle('ОФОРМЛЕНИЕ'),
+      _Card(children: [
+        _Row(
+          label: 'Тема',
+          trailing: StreamBuilder<String?>(
+            stream: scope.db.watchSetting(themeSettingKey),
+            builder: (context, s) => _ThemePicker(
+              value: themeModeFrom(s.data),
+              onChanged: (mode) => scope.db.setSetting(themeSettingKey, mode.name),
+            ),
+          ),
+        ),
+        if (Platform.isAndroid)
+          const _SwitchRow(
+            label: 'Поворачивать экран',
+            hint: 'Альбомная ориентация, когда телефон повёрнут набок',
+            settingKey: rotateSettingKey,
+          ),
+      ]),
+    ];
+
+    final app = [
+      const _SectionTitle('ПРИЛОЖЕНИЕ'),
+      _Card(children: [
+        if (Platform.isWindows) ...[
+          const _AutostartRow(),
+          const _SwitchRow(
+            label: 'Сворачивать в трей при закрытии',
+            hint: 'Крестик прячет окно, воспроизведение продолжается. Выход — из меню значка в трее',
+            settingKey: DesktopSettings.tray,
+          ),
+        ],
+        _Row(
+          label: 'Диагностика',
+          hint: 'Состояние плеера и уведомлений',
+          onTap: () => showDiagnosticsDialog(context),
+          trailing: BcIcon(BcIcons.chevronRight, size: 20, color: c.muted),
+        ),
+        _Row(label: 'Версия', trailing: Text(appVersion, style: TextStyle(color: c.muted))),
+      ]),
+    ];
+
+    final footer = Padding(
+      padding: const EdgeInsets.only(top: 24),
+      child: Text('Basic Caster · bcaster.ru',
+          textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: c.muted)),
+    );
+
     return Scaffold(
       backgroundColor: c.bg,
       body: SafeArea(
         bottom: false,
-        child: ListView(
-          padding: EdgeInsets.fromLTRB(20, 16, 20, MediaQuery.paddingOf(context).bottom + 16),
-          children: [
-            Text('Настройки', style: screenTitleStyle(context)),
-            const SizedBox(height: 16),
-            if (scope.sync != null) const _SyncCard(),
-            const _SectionTitle('ОЧЕРЕДЬ И АРХИВ'),
-            _Card(children: [
-              _SwitchRow(
-                label: 'Играть следующий из очереди',
-                hint: 'Когда эпизод закончится',
-                settingKey: QueueSettings.continuePlayback,
+        child: LayoutBuilder(builder: (context, constraints) {
+          final twoColumns = constraints.maxWidth >= 860;
+          final side = twoColumns ? 32.0 : 20.0;
+          final bottom = MediaQuery.paddingOf(context).bottom + 16;
+          final title = Text('Настройки', style: screenTitleStyle(context));
+          if (!twoColumns) {
+            return ListView(
+              padding: EdgeInsets.fromLTRB(side, 16, side, bottom),
+              children: [
+                title,
+                const SizedBox(height: 16),
+                if (scope.sync != null) const _SyncCard(),
+                ...playback,
+                ...queue,
+                ...gestures,
+                ...downloadSection,
+                ...search,
+                ...look,
+                ...app,
+                footer,
+              ],
+            );
+          }
+          return SingleChildScrollView(
+            padding: EdgeInsets.fromLTRB(side, 24, side, bottom),
+            child: Align(
+              alignment: Alignment.topLeft,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 1100),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                  title,
+                  const SizedBox(height: 16),
+                  Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Expanded(
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                        if (scope.sync != null) const _SyncCard(),
+                        ...playback,
+                        ...queue,
+                        ...gestures,
+                      ]),
+                    ),
+                    const SizedBox(width: 24),
+                    Expanded(
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                        ...downloadSection,
+                        ...search,
+                        ...look,
+                        ...app,
+                      ]),
+                    ),
+                  ]),
+                  footer,
+                ]),
               ),
-              _SwitchRow(
-                label: 'Прерванный эпизод — первым в очередь',
-                hint: 'Если переключиться на другой эпизод, не дослушав',
-                settingKey: QueueSettings.requeueInterrupted,
-              ),
-              _SwitchRow(
-                label: 'Прослушанные — в архив',
-                hint: 'Эпизод скрывается из списков, когда дослушан до конца',
-                settingKey: QueueSettings.autoArchive,
-              ),
-            ]),
-            const _SectionTitle('ЖЕСТЫ В СПИСКЕ ЭПИЗОДОВ'),
-            _Card(children: [
-              _SwipeRow(
-                label: 'Свайп влево',
-                settingKey: QueueSettings.swipeLeft,
-                fallback: SwipeSettingsScope.defaultLeft,
-              ),
-              _SwipeRow(
-                label: 'Свайп вправо',
-                settingKey: QueueSettings.swipeRight,
-                fallback: SwipeSettingsScope.defaultRight,
-              ),
-            ]),
-            if (scope.catalog != null) ...[
-              const _SectionTitle('ПОИСК'),
-              _Card(children: [_CountryRow(catalog: scope.catalog!)]),
-            ],
-            const _SectionTitle('ОФОРМЛЕНИЕ'),
-            _Card(children: [
-              _Row(
-                label: 'Тема',
-                trailing: StreamBuilder<String?>(
-                  stream: scope.db.watchSetting(themeSettingKey),
-                  builder: (context, s) => _ThemePicker(
-                    value: themeModeFrom(s.data),
-                    onChanged: (mode) => scope.db.setSetting(themeSettingKey, mode.name),
-                  ),
-                ),
-              ),
-            ]),
-            if (Platform.isAndroid) ...[
-              const SizedBox(height: 12),
-              _Card(children: [
-                const _SwitchRow(
-                  label: 'Поворачивать экран',
-                  hint: 'Альбомная ориентация, когда телефон повёрнут набок',
-                  settingKey: rotateSettingKey,
-                ),
-              ]),
-            ],
-            const _SectionTitle('ПРИЛОЖЕНИЕ'),
-            _Card(children: [
-              _Row(
-                label: 'Диагностика',
-                hint: 'Состояние плеера и уведомлений',
-                onTap: () => showDiagnosticsDialog(context),
-                trailing: BcIcon(BcIcons.chevronRight, size: 20, color: c.muted),
-              ),
-              _Row(label: 'Версия', trailing: Text(appVersion, style: TextStyle(color: c.muted))),
-            ]),
-            Padding(
-              padding: const EdgeInsets.only(top: 24),
-              child: Text('Basic Caster · bcaster.ru',
-                  textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: c.muted)),
             ),
-          ],
-        ),
+          );
+        }),
       ),
     );
   }
 }
+
+const _speeds = ['0.8', '0.9', '1.0', '1.1', '1.2', '1.25', '1.3', '1.5', '1.75', '2.0'];
 
 class _SyncCard extends StatelessWidget {
   const _SyncCard();
@@ -238,11 +393,17 @@ class _Row extends StatelessWidget {
 
 /// Переключатель настройки «да/нет»; по умолчанию включено.
 class _SwitchRow extends StatelessWidget {
-  const _SwitchRow({required this.label, required this.settingKey, this.hint});
+  const _SwitchRow({required this.label, required this.settingKey, this.hint, this.onChanged});
 
   final String label;
   final String? hint;
   final String settingKey;
+  final void Function(bool)? onChanged;
+
+  Future<void> _set(AppDatabase db, bool value) async {
+    await db.setSetting(settingKey, '$value');
+    onChanged?.call(value);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -254,12 +415,166 @@ class _SwitchRow extends StatelessWidget {
         return _Row(
           label: label,
           hint: hint,
-          onTap: () => db.setSetting(settingKey, '${!on}'),
-          trailing: Switch(value: on, onChanged: (v) => db.setSetting(settingKey, '$v')),
+          onTap: () => _set(db, !on),
+          trailing: Switch(value: on, onChanged: (v) => _set(db, v)),
         );
       },
     );
   }
+}
+
+/// Выбор одного значения из списка.
+class _ChoiceRow extends StatelessWidget {
+  const _ChoiceRow({
+    required this.label,
+    required this.settingKey,
+    required this.options,
+    required this.fallback,
+    this.hint,
+    this.onSelect,
+    this.onChanged,
+  });
+
+  final String label;
+  final String? hint;
+  final String settingKey;
+  final Map<String, String> options;
+  final String fallback;
+
+  /// Своё сохранение вместо записи в настройку.
+  final Future<void> Function(String value)? onSelect;
+
+  /// Вызывается после записи.
+  final Future<void> Function(String value)? onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = BcColors.of(context);
+    final db = AppScope.of(context).db;
+    return StreamBuilder<String?>(
+      stream: db.watchSetting(settingKey),
+      builder: (context, s) {
+        final raw = s.data ?? fallback;
+        // «1» и «1.0» — одно и то же значение.
+        final value = options.containsKey(raw)
+            ? raw
+            : options.keys.firstWhere(
+                (k) => double.tryParse(k) != null && double.tryParse(k) == double.tryParse(raw),
+                orElse: () => fallback,
+              );
+        return PopupMenuButton<String>(
+          tooltip: label,
+          initialValue: value,
+          onSelected: (v) async {
+            if (onSelect != null) {
+              await onSelect!(v);
+            } else {
+              await db.setSetting(settingKey, v);
+            }
+            await onChanged?.call(v);
+          },
+          itemBuilder: (_) => [
+            for (final e in options.entries) PopupMenuItem(value: e.key, child: Text(e.value)),
+          ],
+          child: _Row(
+            label: label,
+            hint: hint,
+            trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+              Text(options[value] ?? value, style: TextStyle(color: c.muted)),
+              const SizedBox(width: 4),
+              BcIcon(BcIcons.chevronDown, size: 16, color: c.muted),
+            ]),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Папка для загрузок (Windows).
+class _FolderRow extends StatelessWidget {
+  const _FolderRow();
+
+  Future<void> _pick(BuildContext context, String? current) async {
+    final db = AppScope.of(context).db;
+    final messenger = ScaffoldMessenger.of(context);
+    final dir = await getDirectoryPath(
+      initialDirectory: current == null || current.isEmpty ? null : current,
+      confirmButtonText: 'Выбрать',
+    );
+    if (dir == null || dir == current) return;
+    await db.setSetting(DownloadSettings.directory, dir);
+    messenger.showSnackBar(const SnackBar(
+      content: Text('Новые загрузки будут сохраняться в выбранную папку. Уже загруженные файлы остаются на месте.'),
+    ));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = BcColors.of(context);
+    final db = AppScope.of(context).db;
+    return StreamBuilder<String?>(
+      stream: db.watchSetting(DownloadSettings.directory),
+      builder: (context, s) {
+        final custom = s.data;
+        final hasCustom = custom != null && custom.isNotEmpty;
+        return _Row(
+          label: 'Папка для загрузок',
+          hint: hasCustom ? custom : 'Папка приложения',
+          onTap: () => _pick(context, custom),
+          trailing: hasCustom
+              ? RoundIconButton(
+                  icon: BcIcons.close,
+                  tooltip: 'Вернуть папку приложения',
+                  size: 36,
+                  iconSize: 16,
+                  color: c.muted,
+                  onPressed: () => db.setSetting(DownloadSettings.directory, ''),
+                )
+              : BcIcon(BcIcons.chevronRight, size: 20, color: c.muted),
+        );
+      },
+    );
+  }
+}
+
+/// Запуск вместе с Windows: состояние хранится в реестре, не в настройках.
+class _AutostartRow extends StatefulWidget {
+  const _AutostartRow();
+
+  @override
+  State<_AutostartRow> createState() => _AutostartRowState();
+}
+
+class _AutostartRowState extends State<_AutostartRow> {
+  bool? _on;
+
+  @override
+  void initState() {
+    super.initState();
+    Autostart.isEnabled().then((v) {
+      if (mounted) setState(() => _on = v);
+    });
+  }
+
+  Future<void> _set(bool value) async {
+    setState(() => _on = value);
+    final ok = await Autostart.setEnabled(value);
+    if (!mounted) return;
+    if (!ok) {
+      setState(() => _on = !value);
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Не удалось изменить автозапуск')));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => _Row(
+        label: 'Запускать вместе с Windows',
+        hint: 'Приложение стартует свёрнутым в трей',
+        onTap: _on == null ? null : () => _set(!_on!),
+        trailing: Switch(value: _on ?? false, onChanged: _on == null ? null : _set),
+      );
 }
 
 /// Выбор действия для свайпа.

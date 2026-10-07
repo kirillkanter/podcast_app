@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:drift/drift.dart' show DatabaseConnection;
 import 'package:drift/native.dart';
@@ -10,6 +11,7 @@ import 'package:http/testing.dart';
 import 'package:podcast_app/catalog/podcast_catalog.dart';
 import 'package:podcast_app/data/db/database.dart';
 import 'package:podcast_app/data/podcast_repository.dart';
+import 'package:podcast_app/download/download_manager.dart';
 import 'package:podcast_app/feed/feed_fetcher.dart';
 import 'package:podcast_app/main.dart';
 
@@ -281,6 +283,50 @@ void main() {
     await settle(tester, 'свайп в очереди');
     expect(find.text('Очередь пуста'), findsOneWidget);
 
+    await disposeApp(tester);
+  });
+
+  testWidgets('загрузки и настройки на телефоне', (tester) async {
+    final downloads = DownloadManager(
+      db: db,
+      directory: () async => Directory.systemTemp,
+      isUnmetered: () async => true,
+    );
+    await tester.pumpWidget(PodcastApp(db: db, repository: repo, downloads: downloads, refreshOnStart: false));
+    await settle(tester, 'запуск');
+
+    await tester.tap(find.byKey(const Key('tab-downloads')));
+    await settle(tester, 'загрузки');
+    expect(find.text('Загружено'), findsOneWidget);
+    expect(find.textContaining('Загруженных эпизодов нет'), findsOneWidget);
+
+    // Кнопка настроек на экране загрузок ведёт в «Настройки».
+    await tester.tap(find.byTooltip('Настройки загрузок'));
+    await settle(tester, 'переход в настройки');
+    expect(find.text('ВОСПРОИЗВЕДЕНИЕ'), findsOneWidget);
+    expect(find.text('Скорость по умолчанию'), findsOneWidget);
+
+    await tester.scrollUntilVisible(find.text('Лимит места'), 200);
+    await tester.tap(find.text('Лимит места'));
+    await settle(tester, 'меню лимита');
+    await tester.tap(find.text('2 ГБ').last);
+    await settle(tester, 'выбор лимита');
+    expect(await tester.runAsync(() => db.setting(DownloadSettings.limitMb)), '2048');
+
+    await disposeApp(tester);
+  });
+
+  testWidgets('настройки на компьютере — в две колонки', (tester) async {
+    tester.view.physicalSize = const Size(1400, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(PodcastApp(db: db, repository: repo, refreshOnStart: false));
+    await settle(tester, 'запуск');
+    await tester.tap(find.byKey(const Key('tab-settings')));
+    await settle(tester, 'настройки');
+    final playback = tester.getTopLeft(find.text('ВОСПРОИЗВЕДЕНИЕ'));
+    final look = tester.getTopLeft(find.text('ОФОРМЛЕНИЕ'));
+    expect(look.dx, greaterThan(playback.dx + 300), reason: 'оформление в правой колонке');
     await disposeApp(tester);
   });
 }

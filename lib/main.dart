@@ -13,6 +13,7 @@ import 'data/db/database.dart';
 import 'data/podcast_repository.dart';
 import 'download/download_manager.dart';
 import 'feed/feed_fetcher.dart';
+import 'platform/desktop.dart';
 import 'platform/notifications.dart';
 import 'player/podcast_audio_handler.dart';
 import 'sync/sync_service.dart';
@@ -22,13 +23,20 @@ import 'ui/diagnostics_dialog.dart';
 import 'ui/shell.dart';
 import 'ui/theme.dart';
 
-Future<void> main() async {
+Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
   final db = AppDatabase.defaults();
   final repository = PodcastRepository(db, FeedFetcher());
   final downloads = DownloadManager(
     db: db,
-    directory: getApplicationSupportDirectory,
+    directory: () async {
+      // На Windows папку для загрузок можно выбрать в настройках.
+      if (Platform.isWindows) {
+        final custom = await db.setting(DownloadSettings.directory);
+        if (custom != null && custom.isNotEmpty) return Directory(custom);
+      }
+      return getApplicationSupportDirectory();
+    },
     isUnmetered: () async {
       final types = await Connectivity().checkConnectivity();
       return types.contains(ConnectivityResult.wifi) || types.contains(ConnectivityResult.ethernet);
@@ -81,6 +89,14 @@ Future<void> main() async {
       await session.configure(const AudioSessionConfiguration.speech());
     } catch (e) {
       debugPrint('Не удалось настроить аудиосессию: $e');
+    }
+  }
+
+  if (Platform.isWindows) {
+    try {
+      await DesktopWindow(db, audio).init(startHidden: args.contains(trayLaunchArgument));
+    } catch (e) {
+      debugPrint('Не удалось настроить окно: $e');
     }
   }
 
@@ -245,6 +261,9 @@ class _PodcastAppState extends State<PodcastApp> {
           darkTheme: _dark,
           themeMode: themeModeFrom(theme.data),
           home: AppShell(refreshOnStart: widget.refreshOnStart),
+          builder: Platform.isWindows
+              ? (context, child) => PlayerHotkeys(audio: widget.audio, child: child!)
+              : null,
         ),
       ),
     );

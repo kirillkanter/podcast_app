@@ -345,11 +345,11 @@ class _Controls extends StatelessWidget {
     Widget skip(bool forward, String tooltip, VoidCallback onPressed) => IconButton(
           tooltip: tooltip,
           constraints: BoxConstraints.tightFor(width: compact ? 48 : 56, height: compact ? 48 : 56),
-          icon: SkipIcon(forward: forward, seconds: forward ? 30 : 10, color: c.text, size: compact ? 28 : 34),
+          icon: SkipStepIcon(audio: audio, forward: forward, color: c.text, size: compact ? 28 : 34),
           onPressed: onPressed,
         );
     return Row(mainAxisSize: MainAxisSize.min, children: [
-      skip(false, 'Назад на 10 секунд', audio.rewind),
+      skip(false, 'Перемотать назад', audio.rewind),
       SizedBox(width: compact ? 18 : 28),
       SizedBox.square(
         dimension: compact ? 60 : 80,
@@ -373,7 +373,7 @@ class _Controls extends StatelessWidget {
         ),
       ),
       SizedBox(width: compact ? 18 : 28),
-      skip(true, 'Вперёд на 30 секунд', audio.fastForward),
+      skip(true, 'Перемотать вперёд', audio.fastForward),
     ]);
   }
 }

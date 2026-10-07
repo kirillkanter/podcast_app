@@ -31,6 +31,9 @@ abstract final class DownloadSettings {
 
   /// Предел места для автозагрузки в мегабайтах; 0 — без предела.
   static const limitMb = 'downloads.limitMb';
+
+  /// Папка для загрузок (Windows); пусто — папка приложения.
+  static const directory = 'downloads.dir';
 }
 
 class DownloadManager {

@@ -42,6 +42,13 @@ abstract final class PlayerSettings {
   /// Когда эпизод запустили (UTC, ISO 8601) — чтобы понять, какое
   /// устройство слушало позже.
   static const lastAt = 'player.lastAt';
+
+  /// Скорость по умолчанию — для подкастов без своей скорости.
+  static const speed = 'player.speed';
+
+  /// Шаг перемотки назад и вперёд, секунды.
+  static const rewind = 'player.rewind';
+  static const forward = 'player.forward';
 }
 
 /// Ключи настроек очереди, архива и жестов.

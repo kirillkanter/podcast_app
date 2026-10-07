@@ -63,6 +63,12 @@ class AppShell extends StatefulWidget {
 
   /// Открыть очередь: на компьютере — раздел меню, на телефоне — экран
   /// поверх текущего раздела.
+  /// Переключиться на вкладку «Настройки».
+  static void openSettings(BuildContext context) {
+    final shell = context.findAncestorStateOfType<_AppShellState>() ?? _AppShellState._current;
+    shell?._select(ShellTab.settings);
+  }
+
   static void openQueue(BuildContext context) {
     final shell = context.findAncestorStateOfType<_AppShellState>() ?? _AppShellState._current;
     if (shell != null && MediaQuery.sizeOf(context).width >= wideLayoutWidth) {

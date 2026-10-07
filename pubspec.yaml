@@ -33,6 +33,10 @@ dependencies:
   path_provider: ^2.1.0
   # 7.x требует Dart 3.13; диапазон позволяет pub выбрать версию под ваш Flutter.
   xml: ">=6.6.1 <8.0.0"
+  # Windows: выбор папки для загрузок, окно и значок в трее.
+  file_selector: ^1.0.3
+  window_manager: ^0.5.0
+  tray_manager: ^0.5.0
 
 dev_dependencies:
   flutter_test:
@@ -50,6 +54,7 @@ flutter:
   uses-material-design: true
   assets:
     - assets/images/logo.png
+    - assets/images/tray.ico
   fonts:
     - family: Unbounded
       fonts:

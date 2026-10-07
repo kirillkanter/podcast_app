@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../player/podcast_audio_handler.dart';
 import 'app_scope.dart';
+import 'icons.dart';
 
 /// Что сейчас играет.
 class NowPlaying {
@@ -80,4 +81,21 @@ class EpisodePlayButton extends StatelessWidget {
       );
     });
   }
+}
+
+/// Значок перемотки с числом секунд из настроек.
+class SkipStepIcon extends StatelessWidget {
+  const SkipStepIcon({super.key, required this.audio, required this.forward, this.size = 34, this.color});
+
+  final PodcastAudioHandler audio;
+  final bool forward;
+  final double size;
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) => ValueListenableBuilder<(int, int)>(
+        valueListenable: audio.skipSteps,
+        builder: (context, steps, _) =>
+            SkipIcon(forward: forward, seconds: forward ? steps.$2 : steps.$1, size: size, color: color),
+      );
 }

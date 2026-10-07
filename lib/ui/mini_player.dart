@@ -40,8 +40,8 @@ class MiniPlayer extends StatelessWidget {
                     const SizedBox(width: 12),
                     Expanded(child: _Titles(item: item)),
                     RoundIconButton(
-                      icon: const SkipIcon(forward: false, seconds: 10, size: 26),
-                      tooltip: 'Назад на 10 секунд',
+                      icon: SkipStepIcon(audio: audio, forward: false, size: 26),
+                      tooltip: 'Перемотать назад',
                       onPressed: audio.rewind,
                     ),
                     _PlayPause(now: now, audio: audio, size: 44),
@@ -105,13 +105,13 @@ class DesktopPlayerBar extends StatelessWidget {
                   child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
                     Row(mainAxisAlignment: MainAxisAlignment.center, children: [
                       RoundIconButton(
-                          icon: const SkipIcon(forward: false, seconds: 10, size: 26), tooltip: 'Назад на 10 секунд', size: 38, onPressed: audio.rewind),
+                          icon: SkipStepIcon(audio: audio, forward: false, size: 26), tooltip: 'Перемотать назад', size: 38, onPressed: audio.rewind),
                       const SizedBox(width: 10),
                       _PlayPause(now: now, audio: audio, size: 40),
                       const SizedBox(width: 10),
                       RoundIconButton(
-                          icon: const SkipIcon(forward: true, seconds: 30, size: 26),
-                          tooltip: 'Вперёд на 30 секунд',
+                          icon: SkipStepIcon(audio: audio, forward: true, size: 26),
+                          tooltip: 'Перемотать вперёд',
                           size: 38,
                           onPressed: audio.fastForward),
                     ]),

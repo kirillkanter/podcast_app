@@ -446,6 +446,7 @@ class _SearchScreenState extends State<SearchScreen> {
           key: ValueKey('top-${catalog.country}'),
           title: 'Популярное',
           future: _top!,
+          reload: () => _top = catalog.top(),
           big: true,
           wide: wide,
           side: side,
@@ -480,10 +481,14 @@ class _Shelf extends StatefulWidget {
     required this.wide,
     required this.side,
     required this.onAll,
+    this.reload,
   });
 
   final String title;
   final Future<List<CatalogPodcast>> future;
+
+  /// Загрузить заново (кнопка «Повторить» при ошибке).
+  final Future<List<CatalogPodcast>> Function()? reload;
 
   /// Крупные карточки с местом в чарте («Популярное»).
   final bool big;
@@ -496,7 +501,7 @@ class _Shelf extends StatefulWidget {
 }
 
 class _ShelfState extends State<_Shelf> {
-  late final Future<List<CatalogPodcast>> _future = widget.future;
+  late Future<List<CatalogPodcast>> _future = widget.future;
   // Без сохранения позиции: иначе ряд брал чужую сохранённую прокрутку
   // (общий ключ страницы) и открывался сдвинутым вбок.
   final _scroll = ScrollController(keepScrollOffset: false);
@@ -547,10 +552,18 @@ class _ShelfState extends State<_Shelf> {
               child: s.hasError
                   ? Padding(
                       padding: EdgeInsets.symmetric(horizontal: widget.side),
-                      child: Text(
-                        s.error is CatalogException ? (s.error! as CatalogException).message : 'Не удалось загрузить',
-                        style: TextStyle(color: c.muted),
-                      ),
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text(
+                          s.error is CatalogException ? (s.error! as CatalogException).message : 'Не удалось загрузить',
+                          style: TextStyle(color: c.muted),
+                        ),
+                        if (widget.reload != null)
+                          TextButton(
+                            style: TextButton.styleFrom(foregroundColor: c.ink, padding: EdgeInsets.zero),
+                            onPressed: () => setState(() => _future = widget.reload!()),
+                            child: const Text('Повторить'),
+                          ),
+                      ]),
                     )
                   : ScrollArrows(
                       controller: _scroll,

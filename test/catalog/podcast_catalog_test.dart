@@ -184,4 +184,40 @@ void main() {
     expect(items.single.id, '7');
     expect(PodcastCatalog.parseChart({'feed': {}}), isEmpty);
   });
+
+  test('популярное: 502 повторяется, потом берётся запасной чарт iTunes', () async {
+    var marketing = 0;
+    final catalog = PodcastCatalog(
+      country: 'ru',
+      client: MockClient((request) async {
+        if (request.url.host == 'rss.marketingtools.apple.com') {
+          marketing++;
+          return http.Response('Bad Gateway', 502);
+        }
+        if (request.url.path == '/lookup') {
+          return http.Response.bytes(utf8.encode(itunesJson([science])), 200);
+        }
+        return http.Response.bytes(
+          utf8.encode(jsonEncode({
+            'feed': {
+              'entry': [
+                {
+                  'im:name': {'label': 'Наука за 5 минут'},
+                  'id': {
+                    'attributes': {'im:id': '101'},
+                  },
+                },
+              ],
+            },
+          })),
+          200,
+        );
+      }),
+    )..retryDelay = Duration.zero;
+
+    final top = await catalog.top();
+    expect(marketing, 3, reason: 'первая попытка и два повтора');
+    expect(top.single.title, 'Наука за 5 минут');
+    expect(top.single.feedUrl, 'https://example.com/science.xml');
+  });
 }

@@ -520,7 +520,8 @@ class _HeaderState extends State<_Header> {
       return Padding(
         padding: const EdgeInsets.fromLTRB(32, 0, 28, 8),
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+          // Обложка привязана к верху: развёрнутое описание не сдвигает её.
+          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
             ClipRRect(borderRadius: BorderRadius.circular(22), child: PodcastCover(url: p.imageUrl, size: 168)),
             const SizedBox(width: 24),
             Expanded(

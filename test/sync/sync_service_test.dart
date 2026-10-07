@@ -238,15 +238,15 @@ void main() {
     // Ноутбук когда-то послушал минуту и не успел отправить.
     await laptop.db.savePosition(await laptop.episode(3), const Duration(minutes: 1));
     await Future<void>.delayed(const Duration(milliseconds: 5));
-    // Позже телефон дослушал до двух часов и отправил.
-    await phone.db.savePosition(await phone.episode(3), const Duration(hours: 2));
+    // Позже телефон дослушал до 40 минут и отправил.
+    await phone.db.savePosition(await phone.episode(3), const Duration(minutes: 40));
     await phone.sync.syncNow();
 
     // Ноутбук включили: его старая минута уходит на сервер, но не побеждает.
     await laptop.sync.syncNow();
-    expect((await laptop.state(3))!.positionMs, 7200000);
+    expect((await laptop.state(3))!.positionMs, 2400000);
     await phone.sync.syncNow();
-    expect((await phone.state(3))!.positionMs, 7200000);
+    expect((await phone.state(3))!.positionMs, 2400000);
   });
 
   test('фид с другого устройства не загрузился — подписка не теряется', () async {

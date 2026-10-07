@@ -194,7 +194,14 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
     }
 
     await _player.setSpeed(speed);
-    if (autoplay) unawaited(_player.play());
+    if (autoplay) {
+      // Запуск человеком: отмечаем сразу. Если до этого играл другой
+      // эпизод, плеер так и остаётся «играющим» — события о начале
+      // воспроизведения не будет.
+      _touched = true;
+      await _activate();
+      unawaited(_player.play());
+    }
   }
 
   /// Вернуть в плеер (на паузе, с сохранённого места) эпизод, который играл

@@ -157,11 +157,6 @@ class _AppShellState extends State<AppShell> {
         // Жест «назад» сначала закрывает то, что открыто поверх разделов:
         // карточку эпизода, диалог, большой плеер. Иначе жест уходил
         // в раздел под ними, а окно оставалось висеть.
-        final root = Navigator.of(context, rootNavigator: true);
-        if (root.canPop()) {
-          root.maybePop();
-          return;
-        }
         _navigators[_tab]!.currentState?.maybePop();
       },
       child: SwipeSettingsProvider(

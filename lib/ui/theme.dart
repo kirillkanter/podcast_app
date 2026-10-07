@@ -203,6 +203,14 @@ ThemeData buildTheme(Brightness brightness) {
     textTheme: text.apply(bodyColor: c.text, displayColor: c.text),
     extensions: [c],
     dividerTheme: DividerThemeData(color: c.divider, space: 1, thickness: 1),
+    // Без «предиктивного» перехода страниц на Android: он сам ловил жест
+    // «назад» и закрывал страницу раздела, даже когда поверх была открыта
+    // карточка эпизода или диалог. Теперь жест идёт обычным путём
+    // и закрывает верхнее окно.
+    pageTransitionsTheme: const PageTransitionsTheme(builders: {
+      TargetPlatform.android: ZoomPageTransitionsBuilder(),
+      TargetPlatform.windows: ZoomPageTransitionsBuilder(),
+    }),
     appBarTheme: AppBarTheme(
       backgroundColor: c.bg,
       foregroundColor: c.text,

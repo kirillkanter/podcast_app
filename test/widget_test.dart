@@ -96,8 +96,11 @@ void main() {
     await settle(tester, 'открытие эпизода');
     expect(find.text('О чём выпуск'), findsOneWidget);
 
-    await tester.tapAt(const Offset(10, 10));
-    await settle(tester, 'закрытие эпизода');
+    // Системный «назад» закрывает карточку, а не страницу под ней.
+    await tester.binding.handlePopRoute();
+    await settle(tester, 'назад при открытой карточке');
+    expect(find.text('О чём выпуск'), findsNothing);
+    expect(find.text('Вы подписаны'), findsOneWidget, reason: 'страница подкаста осталась');
     await tester.pageBack();
     await settle(tester, 'возврат назад');
     expect(find.text('Тестовый подкаст'), findsOneWidget);

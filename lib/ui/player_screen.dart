@@ -530,7 +530,9 @@ class _AboutCard extends StatelessWidget {
             ).createShader(rect),
             blendMode: BlendMode.dstIn,
             child: SingleChildScrollView(
-              padding: const EdgeInsets.only(right: 8, bottom: 24),
+              // Запас снизу больше полосы затемнения: последняя строка
+              // прокручивается выше неё и читается целиком.
+              padding: const EdgeInsets.only(right: 8, bottom: 64),
               child: parts.isEmpty || e == null
                   ? Text('Описания нет.', style: TextStyle(fontSize: 14, color: c.muted))
                   : DescriptionText(episodeId: e.id, parts: parts),

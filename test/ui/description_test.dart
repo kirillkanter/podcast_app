@@ -18,6 +18,7 @@ void main() {
       const Duration(hours: 1, minutes: 2, seconds: 3),
     ]);
     expect(plainText(parts), contains('Не время: 12:75 и 2026:10'));
+    expect(parseDescription('Ссылка: https:// и всё').whereType<DescLink>(), isEmpty);
   });
 
   test('ссылка-таймкод становится таймкодом', () {

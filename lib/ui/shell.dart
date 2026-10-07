@@ -153,7 +153,17 @@ class _AppShellState extends State<AppShell> {
       _tab = ShellTab.library;
     }
     return NavigatorPopHandler(
-      onPopWithResult: (_) => _navigators[_tab]!.currentState?.maybePop(),
+      onPopWithResult: (_) {
+        // Жест «назад» сначала закрывает то, что открыто поверх разделов:
+        // карточку эпизода, диалог, большой плеер. Иначе жест уходил
+        // в раздел под ними, а окно оставалось висеть.
+        final root = Navigator.of(context, rootNavigator: true);
+        if (root.canPop()) {
+          root.maybePop();
+          return;
+        }
+        _navigators[_tab]!.currentState?.maybePop();
+      },
       child: SwipeSettingsProvider(
         child: NowPlayingBuilder(builder: (context, now, audio) {
           final playerVisible = audio != null && now.item != null && now.active;

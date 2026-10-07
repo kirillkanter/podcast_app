@@ -58,7 +58,8 @@ final _anchor = RegExp(
   dotAll: true,
 );
 final _timecode = RegExp(r'(?<![\d:])(?:(\d{1,2}):)?(\d{1,2}):(\d{2})(?![\d:])');
-final _url = RegExp(r'''https?://[^\s<>"'«»]+''');
+// После «//» нужен хотя бы один знак адреса: голое «https://» — не ссылка.
+final _url = RegExp(r'''https?://[^\s<>"'«»/][^\s<>"'«»]*''');
 
 /// «12:40» → 12 мин 40 с; «1:02:03» → 1 ч 2 мин 3 с. Неправильное — null.
 Duration? parseTimecode(String text) {

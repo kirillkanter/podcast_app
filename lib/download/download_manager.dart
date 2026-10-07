@@ -315,6 +315,7 @@ class DownloadManager {
           // Отмена: закрытие клиента прерывает соединение, а эта проверка
           // срабатывает, даже если клиент закрытие не поддерживает.
           if (_cancelled.contains(episodeId)) throw const _DownloadError('Отменено');
+          if (_suspended) throw const _DownloadError('Остановлено');
           sink.add(chunk);
           received += chunk.length;
           final now = DateTime.now();

@@ -98,7 +98,7 @@ class SearchScreen extends StatefulWidget {
 class _SearchScreenState extends State<SearchScreen> {
   final _controller = TextEditingController();
   final _pages = PageController();
-  final _chips = ScrollController();
+  final _chips = ScrollController(keepScrollOffset: false);
   final _chipKeys = [for (final _ in catalogGenres) GlobalKey()];
   Timer? _debounce;
   String _query = '';
@@ -476,7 +476,9 @@ class _Shelf extends StatefulWidget {
 
 class _ShelfState extends State<_Shelf> {
   late final Future<List<CatalogPodcast>> _future = widget.future;
-  final _scroll = ScrollController();
+  // Без сохранения позиции: иначе ряд брал чужую сохранённую прокрутку
+  // (общий ключ страницы) и открывался сдвинутым вбок.
+  final _scroll = ScrollController(keepScrollOffset: false);
 
   @override
   void dispose() {

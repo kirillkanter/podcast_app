@@ -907,7 +907,7 @@ class _WideLayoutState extends State<_WideLayout> with SingleTickerProviderState
             final leftWidth = (box.maxWidth * 0.36).clamp(340.0, 440.0);
             // Обложка — сколько позволяет высота окна: плеер под ней
             // должен помещаться целиком.
-            final cover = math.min(leftWidth, box.maxHeight - 380);
+            final cover = math.min(leftWidth, box.maxHeight - 460);
             final speed = _SpeedMenu(
               audio: audio,
               builder: (speed) => Container(
@@ -954,7 +954,7 @@ class _WideLayoutState extends State<_WideLayout> with SingleTickerProviderState
                     ),
                   ),
                 Text(item.title,
-                    maxLines: 3,
+                    maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(fontFamily: displayFont, fontWeight: FontWeight.w600, fontSize: 24, height: 1.2)),
                 const SizedBox(height: 6),

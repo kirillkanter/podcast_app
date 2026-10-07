@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:drift/drift.dart' show DatabaseConnection;
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -332,9 +333,13 @@ void main() {
     final original = FlutterError.onError;
     final overflows = <String>[];
     FlutterError.onError = (details) {
-      final text = details.toString();
-      final creator = RegExp(r'creator: [^\n]*').firstMatch(text)?.group(0);
-      overflows.add('${details.exceptionAsString()} | ${creator?.substring(0, creator.length.clamp(0, 900))}');
+      final flex = details.informationCollector?.call()
+          .whereType<DiagnosticsProperty<Object?>>()
+          .map((p) => p.value)
+          .whereType<RenderObject>()
+          .firstOrNull;
+      final creator = flex?.debugCreator.toString() ?? '';
+      overflows.add('${details.exceptionAsString()} | ${creator.substring(0, creator.length.clamp(0, 1200))}');
     };
     await tester.pumpWidget(PodcastApp(db: db, repository: repo, refreshOnStart: false));
     await settle(tester, 'запуск');

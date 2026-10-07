@@ -591,7 +591,7 @@ class _PhoneLayoutState extends State<_PhoneLayout> {
     } else if (n is ScrollUpdateNotification && player._drag > 0 && (n.scrollDelta ?? 0) > 0) {
       // Потянули обратно вверх: сначала возвращаем плеер, потом листаем.
       player._pull(-(n.scrollDelta ?? 0));
-      _scroll.jumpTo(0);
+      if (_scroll.hasClients) _scroll.jumpTo(0);
     } else if (n is ScrollEndNotification && player._drag > 0) {
       player._release(n.dragDetails?.primaryVelocity ?? 0);
     }
@@ -635,10 +635,12 @@ class _PhoneLayoutState extends State<_PhoneLayout> {
           Expanded(
             child: NotificationListener<ScrollNotification>(
               onNotification: _onScroll,
-              child: CustomScrollView(
+              // NestedScrollView: описание листается в своей области под
+              // кнопками и не заезжает под них — подложка не нужна.
+              child: NestedScrollView(
                 controller: _scroll,
                 physics: const ClampingScrollPhysics(),
-                slivers: [
+                headerSliverBuilder: (context, _) => [
                   // Обложка и название уезжают вверх при прокрутке.
                   SliverToBoxAdapter(
                     child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -661,7 +663,6 @@ class _PhoneLayoutState extends State<_PhoneLayout> {
                   SliverPersistentHeader(
                     pinned: true,
                     delegate: _ControlsHeader(
-                      frost: frost,
                       child: Column(mainAxisSize: MainAxisSize.min, children: [
                         Padding(
                           padding: const EdgeInsets.fromLTRB(32, 0, 32, 0),
@@ -672,13 +673,12 @@ class _PhoneLayoutState extends State<_PhoneLayout> {
                       ]),
                     ),
                   ),
-                  SliverPadding(
-                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
-                    sliver: SliverToBoxAdapter(
-                      child: _AboutCard(frost: frost, episode: e, chapters: chapters),
-                    ),
-                  ),
                 ],
+                body: ListView(
+                  physics: const ClampingScrollPhysics(),
+                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+                  children: [_AboutCard(frost: frost, episode: e, chapters: chapters)],
+                ),
               ),
             ),
           ),
@@ -729,12 +729,10 @@ class _PhoneLayoutState extends State<_PhoneLayout> {
   }
 }
 
-/// Закреплённые наверху перемотка и кнопки. Когда под ними прокручивается
-/// описание, у них появляется матовая подложка.
+/// Закреплённые наверху перемотка и кнопки.
 class _ControlsHeader extends SliverPersistentHeaderDelegate {
-  _ControlsHeader({required this.frost, required this.child});
+  _ControlsHeader({required this.child});
 
-  final _Frost frost;
   final Widget child;
 
   static const _height = 156.0;
@@ -747,19 +745,9 @@ class _ControlsHeader extends SliverPersistentHeaderDelegate {
 
   @override
   Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
-    final covered = overlapsContent || shrinkOffset > 0;
-    return ClipRect(
-      child: Stack(fit: StackFit.expand, children: [
-        if (covered)
-          BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
-            child: ColoredBox(color: frost.frost),
-          ),
-        Padding(
-          padding: const EdgeInsets.only(top: 12),
-          child: Align(alignment: Alignment.topCenter, child: child),
-        ),
-      ]),
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Align(alignment: Alignment.topCenter, child: child),
     );
   }
 

@@ -10,6 +10,7 @@ import 'package:path/path.dart' as p;
 import 'package:podcast_app/data/db/database.dart';
 import 'package:podcast_app/download/download_manager.dart';
 import 'package:podcast_app/feed/rss_parser.dart';
+import 'package:podcast_app/platform/download_notification.dart';
 
 /// Фид из [count] эпизодов: эпизод 1 самый новый.
 String feed(int count) => '''
@@ -304,5 +305,27 @@ void main() {
     gate.complete();
     await Future<void>.delayed(const Duration(milliseconds: 50));
     expect(await hasStatus(1, DownloadStatus.queued), isTrue, reason: 'не ошибка, а снова в очереди');
+  });
+
+  test('уведомление о загрузках: название, объём и очередь', () async {
+    Future<void> put(int n, DownloadStatus status, {int received = 0, int? total}) => db.saveDownload(DownloadsCompanion(
+          episodeId: Value(ids[n]!),
+          status: Value(status),
+          receivedBytes: Value(received),
+          totalBytes: Value(total),
+        ));
+    expect(downloadNotice(await db.watchDownloadList().first), isNull);
+
+    await put(1, DownloadStatus.running, received: 5 * 1024 * 1024, total: 20 * 1024 * 1024);
+    await put(2, DownloadStatus.queued);
+    final one = downloadNotice(await db.watchDownloadList().first)!;
+    expect(one.title, 'Эпизод 1');
+    expect(one.text, contains('ещё 1 в очереди'));
+    expect(one.progress, 25);
+
+    await put(2, DownloadStatus.running, received: 100);
+    final two = downloadNotice(await db.watchDownloadList().first)!;
+    expect(two.title, 'Загружается 2 эпизода');
+    expect(two.progress, -1, reason: 'размер второго неизвестен');
   });
 }

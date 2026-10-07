@@ -99,7 +99,8 @@ Future<void> _work(AppServices s, String task, {required bool background}) async
       // задача — со своими условиями (Wi‑Fi, зарядка) и уведомлением.
       if (background) s.downloads.hold = true;
       await s.refreshAndQueue();
-      if (await s.downloads.hasPending()) await scheduleDownloads(s.db);
+      // В работающем приложении загрузки идут сами (с его уведомлением).
+      if (background && await s.downloads.hasPending()) await scheduleDownloads(s.db);
     case downloadsTask:
       await s.downloads.runUntilIdle();
   }

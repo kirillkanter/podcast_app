@@ -15,6 +15,7 @@ import 'data/podcast_repository.dart';
 import 'download/download_manager.dart';
 import 'platform/background.dart';
 import 'platform/desktop.dart';
+import 'platform/download_notification.dart';
 import 'platform/notifications.dart';
 import 'player/podcast_audio_handler.dart';
 import 'sync/sync_service.dart';
@@ -151,7 +152,7 @@ class _PodcastAppState extends State<PodcastApp> {
   StreamSubscription<String?>? _lastEpisode;
   StreamSubscription<String?>? _rotate;
   AppLifecycleListener? _lifecycle;
-  AppLifecycleListener? _downloadsLifecycle;
+  DownloadNotifier? _downloadNotifier;
   Timer? _periodicSync;
   bool _notificationsChecked = false;
   late final Stream<String?> _themeSetting = widget.db.watchSetting(themeSettingKey);
@@ -190,14 +191,9 @@ class _PodcastAppState extends State<PodcastApp> {
         audio.restoreLast();
       }
     });
-    // Приложение уходит в фон, а загрузки ещё идут: фоновая задача
-    // не даст Android их оборвать, даже если приложение закроют.
-    final downloads = widget.downloads;
-    if (Platform.isAndroid && downloads != null) {
-      _downloadsLifecycle = AppLifecycleListener(onPause: () async {
-        if (await downloads.hasPending()) await scheduleDownloads(widget.db, userInitiated: true);
-      });
-    }
+    // Пока идут загрузки — уведомление с прогрессом; оно же не даёт
+    // Android остановить их, если приложение закроют.
+    if (widget.downloads != null) _downloadNotifier = DownloadNotifier(widget.db)..start();
     if (sync != null) {
       sync.schedule(const Duration(seconds: 3));
       // Подписка или отписка — синхронизировать через несколько секунд.
@@ -251,7 +247,7 @@ class _PodcastAppState extends State<PodcastApp> {
     _lastEpisode?.cancel();
     _rotate?.cancel();
     _lifecycle?.dispose();
-    _downloadsLifecycle?.dispose();
+    _downloadNotifier?.dispose();
     _periodicSync?.cancel();
     super.dispose();
   }

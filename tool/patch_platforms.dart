@@ -20,6 +20,8 @@ const _permissions = [
   'android.permission.FOREGROUND_SERVICE',
   'android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK',
   'android.permission.POST_NOTIFICATIONS',
+  // Загрузки эпизодов с уведомлением — сервис типа dataSync.
+  'android.permission.FOREGROUND_SERVICE_DATA_SYNC',
   // Запрос «не ограничивать батарею» для фоновых загрузок.
   'android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS',
 ];
@@ -172,6 +174,14 @@ void _patchAndroid() {
   if (!xml.contains('com.ryanheise.audioservice.AudioService"')) {
     xml = xml.replaceFirst('</application>', '$_audioServiceComponents    </application>');
   }
+  if (!xml.contains('.DownloadService"')) {
+    xml = xml.replaceFirst(
+      '</application>',
+      '        <service android:name=".DownloadService"\n'
+          '            android:foregroundServiceType="dataSync"\n'
+          '            android:exported="false" />\n    </application>',
+    );
+  }
 
   manifest.writeAsStringSync(xml);
   stdout.writeln('AndroidManifest.xml обновлён.');
@@ -191,6 +201,8 @@ void _patchAndroid() {
   final target = File(generated.single.path.replaceFirst(RegExp(r'\.java$'), '.kt'));
   if (generated.single.path != target.path) generated.single.deleteSync();
   File('tool/android/MainActivity.kt').copySync(target.path);
+  // Сервис уведомления о загрузках — в том же пакете.
+  File('tool/android/DownloadService.kt').copySync('${File(target.path).parent.path}/DownloadService.kt');
   stdout.writeln('MainActivity заменена: ${target.path}');
 
   _patchGradle();

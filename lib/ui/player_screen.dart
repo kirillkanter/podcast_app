@@ -66,9 +66,14 @@ class _PlayerScreenState extends State<PlayerScreen> with SingleTickerProviderSt
     super.dispose();
   }
 
-  void _onDragEnd(DragEndDetails d) {
+  void _onDragEnd(DragEndDetails d) => _release(d.primaryVelocity ?? 0);
+
+  /// Потянуть плеер вниз на [dy] (из жеста или прокрутки содержимого).
+  void _pull(double dy) => setState(() => _drag = math.max(0, _drag + dy));
+
+  /// Отпустили: далеко или быстро — закрыть, иначе вернуть на место.
+  void _release(double velocity) {
     final height = MediaQuery.sizeOf(context).height;
-    final velocity = d.primaryVelocity ?? 0;
     if (_drag > height * 0.18 || velocity > 700) {
       Navigator.of(context).pop();
     } else {
@@ -96,7 +101,7 @@ class _PlayerScreenState extends State<PlayerScreen> with SingleTickerProviderSt
           ),
           GestureDetector(
             behavior: HitTestBehavior.translucent,
-            onVerticalDragUpdate: (d) => setState(() => _drag = math.max(0, _drag + d.delta.dy)),
+            onVerticalDragUpdate: (d) => _pull(d.delta.dy),
             onVerticalDragEnd: _onDragEnd,
             child: SafeArea(
               child: NowPlayingBuilder(builder: (context, now, audio) {
@@ -480,65 +485,41 @@ void _showChapters(BuildContext context, int episodeId, List<Chapter> chapters) 
   );
 }
 
-/// Блок «Об эпизоде»: прокручиваемый текст с таймкодами.
+/// Блок «Об эпизоде» целиком: текст с таймкодами и главы.
+/// Прокручивается вместе со всем плеером.
 class _AboutCard extends StatelessWidget {
-  const _AboutCard({required this.frost, required this.episode, required this.expanded, required this.onToggle});
+  const _AboutCard({required this.frost, required this.episode, this.chapters = const []});
 
   final _Frost frost;
   final Episode? episode;
-
-  /// Блок развёрнут: на телефоне он занимает место обложки, на компьютере
-  /// вытягивается вниз. Разворачивается на месте, без перехода на другой экран.
-  final bool expanded;
-  final VoidCallback onToggle;
+  final List<Chapter> chapters;
 
   @override
   Widget build(BuildContext context) {
     final c = BcColors.of(context);
     final e = episode;
     final parts = e == null ? const <DescPart>[] : parseDescription(e.description ?? e.summary);
+    final label = TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: c.muted);
     return Container(
       decoration: BoxDecoration(
         color: frost.tint,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: frost.tint),
       ),
-      padding: const EdgeInsets.fromLTRB(16, 8, 8, 0),
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Row(children: [
-          Expanded(
-            child: Text('Об эпизоде', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: c.muted)),
-          ),
-          if (e != null && parts.isNotEmpty)
-            TextButton(
-              style: TextButton.styleFrom(
-                foregroundColor: c.ink,
-                minimumSize: const Size(0, 36),
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-              ),
-              onPressed: onToggle,
-              child: Text(expanded ? 'Свернуть' : 'Развернуть'),
-            ),
-        ]),
-        Flexible(
-          child: ShaderMask(
-            shaderCallback: (rect) => const LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [Colors.black, Colors.black, Colors.transparent],
-              stops: [0, 0.82, 1],
-            ).createShader(rect),
-            blendMode: BlendMode.dstIn,
-            child: SingleChildScrollView(
-              // Запас снизу больше полосы затемнения: последняя строка
-              // прокручивается выше неё и читается целиком.
-              padding: const EdgeInsets.only(right: 8, bottom: 64),
-              child: parts.isEmpty || e == null
-                  ? Text('Описания нет.', style: TextStyle(fontSize: 14, color: c.muted))
-                  : DescriptionText(episodeId: e.id, parts: parts),
-            ),
-          ),
-        ),
+        Text('Об эпизоде', style: label),
+        const SizedBox(height: 8),
+        if (parts.isEmpty || e == null)
+          Text('Описания нет.', style: TextStyle(fontSize: 14, color: c.muted))
+        else
+          DescriptionText(episodeId: e.id, parts: parts),
+        if (chapters.isNotEmpty && e != null) ...[
+          const SizedBox(height: 18),
+          Text('Главы', style: label),
+          const SizedBox(height: 4),
+          ChaptersList(episodeId: e.id, chapters: chapters, dividers: true),
+        ],
       ]),
     );
   }
@@ -591,21 +572,31 @@ class _PhoneLayout extends StatefulWidget {
   State<_PhoneLayout> createState() => _PhoneLayoutState();
 }
 
-class _PhoneLayoutState extends State<_PhoneLayout> with SingleTickerProviderStateMixin {
-  /// 0 — обложка на месте, 1 — описание развёрнуто вместо неё.
-  late final AnimationController _expand = AnimationController(vsync: this, duration: const Duration(milliseconds: 380));
-  late final Animation<double> _shown = CurvedAnimation(
-    parent: ReverseAnimation(_expand),
-    curve: Curves.easeInOutCubic,
-  );
+class _PhoneLayoutState extends State<_PhoneLayout> {
+  final _scroll = ScrollController();
 
   @override
   void dispose() {
-    _expand.dispose();
+    _scroll.dispose();
     super.dispose();
   }
 
-  void _toggle() => _expand.isForwardOrCompleted ? _expand.reverse() : _expand.forward();
+  /// Жест вниз в самом верху списка тянет плеер вниз — так он закрывается
+  /// смахиванием, хотя всё содержимое прокручивается.
+  bool _onScroll(ScrollNotification n) {
+    final player = context.findAncestorStateOfType<_PlayerScreenState>();
+    if (player == null) return false;
+    if (n is OverscrollNotification && n.overscroll < 0 && n.dragDetails != null) {
+      player._pull(-n.overscroll);
+    } else if (n is ScrollUpdateNotification && player._drag > 0 && (n.scrollDelta ?? 0) > 0) {
+      // Потянули обратно вверх: сначала возвращаем плеер, потом листаем.
+      player._pull(-(n.scrollDelta ?? 0));
+      _scroll.jumpTo(0);
+    } else if (n is ScrollEndNotification && player._drag > 0) {
+      player._release(n.dragDetails?.primaryVelocity ?? 0);
+    }
+    return false;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -618,73 +609,81 @@ class _PhoneLayoutState extends State<_PhoneLayout> with SingleTickerProviderSta
     final e = widget.episode;
     return LayoutBuilder(builder: (context, box) {
       final cover = math.min(232.0, math.min(box.maxWidth - 64, box.maxHeight * 0.3));
-      return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        _Header(
-          frost: frost,
-          title: 'Сейчас играет',
-          wide: false,
-          trailing: PopupMenuButton<String>(
-            tooltip: 'Ещё',
-            icon: Icon(Icons.more_horiz_rounded, color: c.text),
-            onSelected: (v) {
-              if (v == 'podcast' && p != null) _openPodcast(context, p.id);
-              if (v == 'stop') {
-                Navigator.of(context).pop();
-                audio.stop();
-              }
-            },
-            itemBuilder: (_) => [
-              if (p != null) const PopupMenuItem(value: 'podcast', child: Text('Страница подкаста')),
-              const PopupMenuItem(value: 'stop', child: Text('Остановить и закрыть плеер')),
-            ],
+      return _ChaptersBuilder(
+        episode: e,
+        builder: (context, chapters) => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          _Header(
+            frost: frost,
+            title: 'Сейчас играет',
+            wide: false,
+            trailing: PopupMenuButton<String>(
+              tooltip: 'Ещё',
+              icon: Icon(Icons.more_horiz_rounded, color: c.text),
+              onSelected: (v) {
+                if (v == 'podcast' && p != null) _openPodcast(context, p.id);
+                if (v == 'stop') {
+                  Navigator.of(context).pop();
+                  audio.stop();
+                }
+              },
+              itemBuilder: (_) => [
+                if (p != null) const PopupMenuItem(value: 'podcast', child: Text('Страница подкаста')),
+                const PopupMenuItem(value: 'stop', child: Text('Остановить и закрыть плеер')),
+              ],
+            ),
           ),
-        ),
-        // Обложка уезжает вверх и сворачивается, когда описание развёрнуто.
-        SizeTransition(
-          sizeFactor: _shown,
-          axisAlignment: 1,
-          child: FadeTransition(
-            opacity: _shown,
-            child: Center(child: _Cover(url: item.artUri?.toString(), size: cover, radius: 22)),
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(32, 20, 32, 0),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(item.title,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontFamily: displayFont, fontWeight: FontWeight.w600, fontSize: 20, height: 1.25)),
-            const SizedBox(height: 4),
-            _PodcastLink(podcast: p, fallback: item.album),
-          ]),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(32, 14, 32, 0),
-          child: _SeekBar(audio: audio, duration: item.duration, frost: frost),
-        ),
-        Padding(
-          padding: const EdgeInsets.only(top: 10),
-          child: Center(child: _Controls(audio: audio, now: now)),
-        ),
-        Expanded(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 10),
-            child: AnimatedBuilder(
-              animation: _expand,
-              builder: (context, _) => _AboutCard(
-                frost: frost,
-                episode: e,
-                expanded: _expand.isForwardOrCompleted,
-                onToggle: _toggle,
+          Expanded(
+            child: NotificationListener<ScrollNotification>(
+              onNotification: _onScroll,
+              child: CustomScrollView(
+                controller: _scroll,
+                physics: const ClampingScrollPhysics(),
+                slivers: [
+                  // Обложка и название уезжают вверх при прокрутке.
+                  SliverToBoxAdapter(
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                      Center(child: _Cover(url: item.artUri?.toString(), size: cover, radius: 22)),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(32, 20, 32, 0),
+                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Text(item.title,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                  fontFamily: displayFont, fontWeight: FontWeight.w600, fontSize: 20, height: 1.25)),
+                          const SizedBox(height: 4),
+                          _PodcastLink(podcast: p, fallback: item.album),
+                        ]),
+                      ),
+                    ]),
+                  ),
+                  // Перемотка и кнопки остаются наверху.
+                  SliverPersistentHeader(
+                    pinned: true,
+                    delegate: _ControlsHeader(
+                      frost: frost,
+                      child: Column(mainAxisSize: MainAxisSize.min, children: [
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(32, 0, 32, 0),
+                          child: _SeekBar(audio: audio, duration: item.duration, frost: frost),
+                        ),
+                        const SizedBox(height: 4),
+                        _Controls(audio: audio, now: now),
+                      ]),
+                    ),
+                  ),
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+                    sliver: SliverToBoxAdapter(
+                      child: _AboutCard(frost: frost, episode: e, chapters: chapters),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
-        ),
-        _ChaptersBuilder(
-          episode: e,
-          builder: (context, chapters) => Padding(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
             child: Row(children: [
               Expanded(
                 child: _SpeedMenu(
@@ -724,10 +723,48 @@ class _PhoneLayoutState extends State<_PhoneLayout> with SingleTickerProviderSta
               ),
             ]),
           ),
-        ),
-      ]);
+        ]),
+      );
     });
   }
+}
+
+/// Закреплённые наверху перемотка и кнопки. Когда под ними прокручивается
+/// описание, у них появляется матовая подложка.
+class _ControlsHeader extends SliverPersistentHeaderDelegate {
+  _ControlsHeader({required this.frost, required this.child});
+
+  final _Frost frost;
+  final Widget child;
+
+  static const _height = 156.0;
+
+  @override
+  double get minExtent => _height;
+
+  @override
+  double get maxExtent => _height;
+
+  @override
+  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
+    final covered = overlapsContent || shrinkOffset > 0;
+    return ClipRect(
+      child: Stack(fit: StackFit.expand, children: [
+        if (covered)
+          BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+            child: ColoredBox(color: frost.frost),
+          ),
+        Padding(
+          padding: const EdgeInsets.only(top: 12),
+          child: Align(alignment: Alignment.topCenter, child: child),
+        ),
+      ]),
+    );
+  }
+
+  @override
+  bool shouldRebuild(_ControlsHeader old) => true;
 }
 
 class _BottomAction extends StatelessWidget {
@@ -789,8 +826,6 @@ class _WideLayout extends StatefulWidget {
 }
 
 class _WideLayoutState extends State<_WideLayout> {
-  bool _expanded = false;
-
   @override
   Widget build(BuildContext context) {
     final c = BcColors.of(context);
@@ -884,18 +919,8 @@ class _WideLayoutState extends State<_WideLayout> {
                 _ChaptersBuilder(
                   episode: e,
                   builder: (context, chapters) {
-                    // «Развернуть» вытягивает блок вниз на месте.
-                    final about = AnimatedContainer(
-                      duration: const Duration(milliseconds: 360),
-                      curve: Curves.easeInOutCubic,
-                      height: _expanded ? 680 : 300,
-                      child: _AboutCard(
-                        frost: frost,
-                        episode: e,
-                        expanded: _expanded,
-                        onToggle: () => setState(() => _expanded = !_expanded),
-                      ),
-                    );
+                    // Описание целиком: прокручивается вместе со страницей.
+                    final about = _AboutCard(frost: frost, episode: e);
                     if (chapters.isEmpty || e == null) return about;
                     final chapterCard = Container(
                       decoration: BoxDecoration(color: frost.tint, borderRadius: BorderRadius.circular(16)),

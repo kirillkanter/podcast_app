@@ -246,6 +246,37 @@ void main() {
     expect(withSync.position.inMilliseconds, closeTo(1800000, 1000));
   });
 
+  test('кнопка сразу показывает «играет», пока проверяется прогресс; пауза отменяет запуск', () async {
+    var gate = Completer<void>();
+    final withSync = PodcastAudioHandler(
+      db,
+      player: AudioPlayer(handleAudioSessionActivation: false),
+      beforePlay: (_) => gate.future,
+    );
+    addTearDown(withSync.stop);
+
+    final started = withSync.playEpisode(episodeId);
+    await pumpEventQueue();
+    expect(withSync.playbackState.value.playing, isTrue, reason: 'интерфейс отзывается сразу');
+    gate.complete();
+    await started;
+    await settled();
+    expect(withSync.playbackState.value.playing, isTrue);
+
+    await withSync.pause();
+    await settled();
+    gate = Completer<void>();
+    final resumed = withSync.play();
+    await pumpEventQueue();
+    expect(withSync.playbackState.value.playing, isTrue);
+    await withSync.pause();
+    expect(withSync.playbackState.value.playing, isFalse);
+    gate.complete();
+    await resumed;
+    await settled();
+    expect(withSync.playbackState.value.playing, isFalse, reason: 'пауза во время проверки отменяет запуск');
+  });
+
   test('в уведомлении под названием эпизода — название подкаста', () async {
     await handler.playEpisode(episodeId);
     await settled();

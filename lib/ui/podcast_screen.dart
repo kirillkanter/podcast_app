@@ -18,6 +18,7 @@ import 'podcast_cover.dart';
 import 'shell.dart';
 import 'icons.dart';
 import 'theme.dart';
+import 'menu.dart';
 
 /// Порядок эпизодов на странице подкаста.
 enum EpisodeOrder {
@@ -134,17 +135,18 @@ class _PodcastScreenState extends State<PodcastScreen> {
               padding: EdgeInsets.all(14),
               child: SizedBox.square(dimension: 20, child: CircularProgressIndicator(strokeWidth: 2)),
             ),
-          PopupMenuButton<String>(
+          BcMenu<String>(
             tooltip: 'Ещё',
-            icon: const Icon(Icons.more_horiz_rounded),
+            borderRadius: BorderRadius.circular(22),
             onSelected: (v) {
               if (v == 'refresh') _refresh();
               if (v == 'auto') _chooseAutoDownload(context);
             },
-            itemBuilder: (_) => [
-              const PopupMenuItem(value: 'refresh', child: Text('Обновить')),
-              if (hasDownloads) const PopupMenuItem(value: 'auto', child: Text('Автозагрузка…')),
+            options: [
+              const MenuOption('refresh', 'Обновить'),
+              if (hasDownloads) const MenuOption('auto', 'Автозагрузка…'),
             ],
+            child: const Padding(padding: EdgeInsets.all(10), child: Icon(Icons.more_horiz_rounded)),
           ),
           const SizedBox(width: 4),
         ],
@@ -677,11 +679,12 @@ class _EpisodesHeader extends StatelessWidget {
             ),
           ),
         const SizedBox(width: 8),
-        PopupMenuButton<EpisodeOrder>(
+        BcMenu<EpisodeOrder>(
           tooltip: 'Порядок эпизодов',
-          initialValue: order,
+          borderRadius: BorderRadius.circular(18),
+          selected: order,
           onSelected: onOrder,
-          itemBuilder: (_) => [for (final o in EpisodeOrder.values) PopupMenuItem(value: o, child: Text(o.label))],
+          options: [for (final o in EpisodeOrder.values) MenuOption(o, o.label)],
           child: Container(
             height: 36,
             padding: const EdgeInsets.fromLTRB(12, 0, 8, 0),

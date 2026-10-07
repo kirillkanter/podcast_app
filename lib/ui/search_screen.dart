@@ -103,6 +103,25 @@ class _SearchScreenState extends State<SearchScreen> {
   Timer? _debounce;
   String _query = '';
   Future<List<CatalogPodcast>>? _results;
+
+  /// Найденное за этот поиск: пока дописываешь название, подкаст,
+  /// который уже находился, не пропадает из выдачи.
+  final _found = <String, CatalogPodcast>{};
+
+  Future<List<CatalogPodcast>> _searchFor(PodcastCatalog catalog, String query) {
+    return catalog.searchAsYouType(query, known: _found.values.toList()).then((items) {
+      for (final p in items) {
+        _found[p.id] = p;
+      }
+      return items;
+    });
+  }
+
+  /// Что показать сразу, пока ждём ответа каталога.
+  List<CatalogPodcast>? _instant(String query) {
+    final items = [for (final p in _found.values) if (PodcastCatalog.matchesQuery(p, query)) p];
+    return items.isEmpty ? null : items;
+  }
   Future<List<CatalogPodcast>>? _top;
   final _genreLists = <int, Future<List<CatalogPodcast>>>{};
 
@@ -147,7 +166,8 @@ class _SearchScreenState extends State<SearchScreen> {
     setState(() {
       _top = catalog.top();
       _genreLists.clear();
-      _results = _query.isEmpty ? null : catalog.search(_query);
+      _found.clear();
+      _results = _query.isEmpty ? null : _searchFor(catalog, _query);
     });
   }
 
@@ -173,7 +193,9 @@ class _SearchScreenState extends State<SearchScreen> {
     if (query == _query) return;
     setState(() {
       _query = query;
-      _results = query.isEmpty ? null : AppScope.of(context).catalog?.search(query);
+      if (query.isEmpty) _found.clear();
+      final catalog = AppScope.of(context).catalog;
+      _results = query.isEmpty || catalog == null ? null : _searchFor(catalog, query);
     });
     // Страницы рубрик заново строятся после поиска: вернуть на нужную.
     if (query.isEmpty && _page != 0) {
@@ -424,6 +446,7 @@ class _SearchScreenState extends State<SearchScreen> {
       _CatalogFuture(
         key: ValueKey(_query),
         future: _results!,
+        initial: _instant(_query),
         ranked: false,
         empty: 'Ничего не найдено',
         horizontalPadding: side,
@@ -666,9 +689,13 @@ class _CatalogFuture extends StatelessWidget {
     required this.ranked,
     required this.empty,
     required this.horizontalPadding,
+    this.initial,
   });
 
   final Future<List<CatalogPodcast>> future;
+
+  /// Показать сразу, пока future не готов.
+  final List<CatalogPodcast>? initial;
   final bool ranked;
   final String empty;
   final double horizontalPadding;
@@ -682,7 +709,7 @@ class _CatalogFuture extends StatelessWidget {
         final subscribed = {for (final p in subs.data ?? const <Podcast>[]) feedKey(p.feedUrl)};
         return FutureBuilder<List<CatalogPodcast>>(
           future: future,
-          initialData: AppScope.of(context).catalog?.peek(future),
+          initialData: AppScope.of(context).catalog?.peek(future) ?? initial,
           builder: (context, result) {
             if (!result.hasData && !result.hasError) {
               return const SliverToBoxAdapter(

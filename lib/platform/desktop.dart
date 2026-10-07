@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
+import 'package:windows_taskbar/windows_taskbar.dart' as taskbar;
 
 import '../data/db/database.dart';
 import '../player/podcast_audio_handler.dart';
@@ -30,6 +31,7 @@ class DesktopWindow with WindowListener, TrayListener {
   bool _playing = false;
   StreamSubscription<String?>? _traySetting;
   StreamSubscription<bool>? _playingSub;
+  StreamSubscription<Object?>? _itemSub;
 
   Future<void> init({bool startHidden = false}) async {
     await windowManager.ensureInitialized();
@@ -50,6 +52,10 @@ class DesktopWindow with WindowListener, TrayListener {
     _playingSub = _audio?.playbackState.map((s) => s.playing).distinct().listen((playing) {
       _playing = playing;
       if (_trayEnabled) unawaited(_updateMenu());
+      unawaited(_updateThumbnailButtons());
+    });
+    _itemSub = _audio?.mediaItem.map((i) => i?.id).distinct().listen((_) {
+      unawaited(_updateThumbnailButtons());
     });
     if (startHidden && _trayEnabled) {
       // Окно показывается после первого кадра — прячем его следом.
@@ -79,7 +85,52 @@ class DesktopWindow with WindowListener, TrayListener {
     await windowManager.show();
     if (await windowManager.isMinimized()) await windowManager.restore();
     await windowManager.focus();
+    // После того как окно прятали в трей, кнопка в панели задач создаётся
+    // заново — вместе с ней пропадают кнопки под миниатюрой.
+    unawaited(_updateThumbnailButtons());
   }
+
+  /// Кнопки под миниатюрой окна (наведите курсор на значок в панели
+  /// задач): назад, пауза или воспроизведение, вперёд.
+  Future<void> _updateThumbnailButtons() async {
+    final audio = _audio;
+    try {
+      if (audio == null || audio.currentEpisodeId == null) {
+        await taskbar.WindowsTaskbar.resetThumbnailToolbar();
+        return;
+      }
+      final back = audio.skipSteps.value.$1;
+      final forward = audio.skipSteps.value.$2;
+      await taskbar.WindowsTaskbar.setThumbnailToolbar([
+        taskbar.ThumbnailToolbarButton(
+          taskbar.ThumbnailToolbarAssetIcon('assets/taskbar/rewind.ico'),
+          'Назад на $back с',
+          () => audio.rewind(),
+        ),
+        _playing
+            ? taskbar.ThumbnailToolbarButton(
+                taskbar.ThumbnailToolbarAssetIcon('assets/taskbar/pause.ico'),
+                'Пауза',
+                () => audio.pause(),
+              )
+            : taskbar.ThumbnailToolbarButton(
+                taskbar.ThumbnailToolbarAssetIcon('assets/taskbar/play.ico'),
+                'Слушать',
+                () => audio.play(),
+              ),
+        taskbar.ThumbnailToolbarButton(
+          taskbar.ThumbnailToolbarAssetIcon('assets/taskbar/forward.ico'),
+          'Вперёд на $forward с',
+          () => audio.fastForward(),
+        ),
+      ]);
+    } catch (e) {
+      debugPrint('Не удалось обновить кнопки в панели задач: $e');
+    }
+  }
+
+  @override
+  void onWindowFocus() => unawaited(_updateThumbnailButtons());
 
   Future<void> _exit() async {
     try {
@@ -88,6 +139,7 @@ class DesktopWindow with WindowListener, TrayListener {
     } catch (_) {}
     await _traySetting?.cancel();
     await _playingSub?.cancel();
+    await _itemSub?.cancel();
     if (_trayEnabled) await trayManager.destroy();
     await windowManager.setPreventClose(false);
     await windowManager.destroy();

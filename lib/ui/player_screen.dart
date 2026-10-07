@@ -5,18 +5,21 @@ import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 
 import '../data/db/database.dart';
+import '../download/download_manager.dart';
 import '../player/playback_logic.dart';
 import '../player/podcast_audio_handler.dart';
 import 'app_scope.dart';
 import 'chapters.dart';
 import 'description.dart';
 import 'description_view.dart';
+import 'download_button.dart';
 import 'format.dart';
 import 'icons.dart';
 import 'now_playing.dart';
 import 'podcast_cover.dart';
 import 'shell.dart';
 import 'theme.dart';
+import 'menu.dart';
 
 /// Цвета стекла большого плеера для светлой и тёмной темы.
 class _Frost {
@@ -389,11 +392,12 @@ class _SpeedMenu extends StatelessWidget {
   Widget build(BuildContext context) {
     return StreamBuilder<PlaybackState>(
       stream: audio.playbackState,
-      builder: (context, _) => PopupMenuButton<double>(
+      builder: (context, _) => BcMenu<double>(
         tooltip: 'Скорость',
-        initialValue: audio.speed,
+        borderRadius: BorderRadius.circular(22),
+        selected: audio.speed,
         onSelected: audio.setSpeed,
-        itemBuilder: (_) => [for (final s in playbackSpeeds) PopupMenuItem(value: s, child: Text(formatSpeed(s)))],
+        options: [for (final s in playbackSpeeds) MenuOption(s, formatSpeed(s))],
         child: builder(formatSpeed(audio.speed)),
       ),
     );
@@ -413,19 +417,20 @@ class _SleepMenu extends StatelessWidget {
   Widget build(BuildContext context) {
     return ValueListenableBuilder<SleepTimer?>(
       valueListenable: audio.sleepTimer,
-      builder: (context, timer, _) => PopupMenuButton<_SleepChoice>(
+      builder: (context, timer, _) => BcMenu<_SleepChoice>(
         tooltip: 'Таймер сна',
+        borderRadius: BorderRadius.circular(22),
         onSelected: (choice) => audio.setSleepTimer(switch (choice) {
           _SleepChoice.off => null,
           _SleepChoice.min15 => const Duration(minutes: 15),
           _SleepChoice.min30 => const Duration(minutes: 30),
           _SleepChoice.min60 => const Duration(minutes: 60),
         }),
-        itemBuilder: (_) => [
-          if (timer != null) const PopupMenuItem(value: _SleepChoice.off, child: Text('Выключить таймер')),
-          const PopupMenuItem(value: _SleepChoice.min15, child: Text('Через 15 минут')),
-          const PopupMenuItem(value: _SleepChoice.min30, child: Text('Через 30 минут')),
-          const PopupMenuItem(value: _SleepChoice.min60, child: Text('Через час')),
+        options: [
+          if (timer != null) const MenuOption(_SleepChoice.off, 'Выключить таймер'),
+          const MenuOption(_SleepChoice.min15, 'Через 15 минут'),
+          const MenuOption(_SleepChoice.min30, 'Через 30 минут'),
+          const MenuOption(_SleepChoice.min60, 'Через час'),
         ],
         child: builder(timer, _sleepLabel(timer)),
       ),
@@ -645,9 +650,9 @@ class _PhoneLayoutState extends State<_PhoneLayout> {
             frost: frost,
             title: 'Сейчас играет',
             wide: false,
-            trailing: PopupMenuButton<String>(
+            trailing: BcMenu<String>(
               tooltip: 'Ещё',
-              icon: Icon(Icons.more_horiz_rounded, color: c.text),
+              borderRadius: BorderRadius.circular(22),
               onSelected: (v) {
                 if (v == 'podcast' && p != null) _openPodcast(context, p.id);
                 if (v == 'stop') {
@@ -655,10 +660,14 @@ class _PhoneLayoutState extends State<_PhoneLayout> {
                   audio.close();
                 }
               },
-              itemBuilder: (_) => [
-                if (p != null) const PopupMenuItem(value: 'podcast', child: Text('Страница подкаста')),
-                const PopupMenuItem(value: 'stop', child: Text('Остановить и закрыть плеер')),
+              options: [
+                if (p != null) const MenuOption('podcast', 'Страница подкаста'),
+                const MenuOption('stop', 'Остановить и закрыть плеер'),
               ],
+              child: Padding(
+                padding: const EdgeInsets.all(10),
+                child: Icon(Icons.more_horiz_rounded, color: c.text),
+              ),
             ),
           ),
           Expanded(
@@ -792,14 +801,14 @@ class _PhoneLayoutState extends State<_PhoneLayout> {
                   onTap: chapters.isEmpty || e == null ? null : () => _showChapters(context, e.id, chapters),
                 ),
               ),
-              Expanded(
-                child: _BottomAction(
-                  label: 'Очередь',
-                  top: BcIcon(BcIcons.queue, size: 22, color: c.text),
-                  tooltip: 'Очередь воспроизведения',
-                  onTap: () => _openQueue(context),
+              if (e != null && AppScope.of(context).downloads != null)
+                Expanded(
+                  child: _DownloadState(
+                    episodeId: e.id,
+                    builder: (icon, label, tooltip, onTap) =>
+                        _BottomAction(label: label, top: icon(22), tooltip: tooltip, onTap: onTap),
+                  ),
                 ),
-              ),
             ]),
           ),
         ]),
@@ -960,6 +969,24 @@ class _WideLayoutState extends State<_WideLayout> with SingleTickerProviderState
               ),
             );
 
+            final download = e == null || AppScope.of(context).downloads == null
+                ? null
+                : _DownloadState(
+                    episodeId: e.id,
+                    builder: (icon, label, tooltip, onTap) => Tooltip(
+                      message: tooltip,
+                      child: Material(
+                        color: frost.tint,
+                        borderRadius: BorderRadius.circular(20),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(20),
+                          onTap: onTap,
+                          child: SizedBox.square(dimension: 40, child: Center(child: icon(20))),
+                        ),
+                      ),
+                    ),
+                  );
+
             // Слева — всегда на экране: обложка, название, плеер, главы.
             final left = _ChaptersBuilder(
               episode: e,
@@ -991,6 +1018,7 @@ class _WideLayoutState extends State<_WideLayout> with SingleTickerProviderState
                   speed,
                   const SizedBox(width: 8),
                   timer,
+                  if (download != null) ...[const SizedBox(width: 8), download],
                   const SizedBox(width: 8),
                   _Volume(audio: audio, frost: frost),
                 ]),
@@ -1064,6 +1092,7 @@ class _WideLayoutState extends State<_WideLayout> with SingleTickerProviderState
                           speed,
                           const SizedBox(width: 8),
                           timer,
+                          if (download != null) ...[const SizedBox(width: 8), download],
                         ]),
                       ]),
                     ),
@@ -1139,5 +1168,68 @@ class _Volume extends StatelessWidget {
         ]);
       },
     );
+  }
+}
+
+
+/// Загрузка эпизода в большом плеере: значок, подпись и действие
+/// по состоянию (скачать, отменить, удалить файл, повторить).
+class _DownloadState extends StatelessWidget {
+  const _DownloadState({required this.episodeId, required this.builder});
+
+  final int episodeId;
+  final Widget Function(Widget Function(double size) icon, String label, String tooltip, VoidCallback? onTap) builder;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = BcColors.of(context);
+    final scope = AppScope.of(context);
+    final manager = scope.downloads!;
+    return StreamBuilder<Download?>(
+      stream: scope.db.watchDownload(episodeId),
+      builder: (context, snapshot) {
+        final d = snapshot.data;
+        switch (d?.status) {
+          case DownloadStatus.queued:
+            return builder((size) => BcIcon(BcIcons.clock, size: size, color: c.text), 'В очереди',
+                'Ждёт загрузки. Нажмите, чтобы отменить', () => manager.remove(episodeId));
+          case DownloadStatus.running:
+            final f = downloadFraction(d!);
+            return builder(
+              (size) => SizedBox.square(
+                dimension: size,
+                child: CircularProgressIndicator(value: f, strokeWidth: 2.2, color: c.ink, backgroundColor: c.line),
+              ),
+              f == null ? 'Загрузка' : '${(f * 100).round()}%',
+              'Загружается. Нажмите, чтобы отменить',
+              () => manager.remove(episodeId),
+            );
+          case DownloadStatus.completed:
+            return builder((size) => BcIcon(BcIcons.downloaded, size: size, color: c.ink), 'Скачано',
+                'Файл на устройстве. Нажмите, чтобы удалить', () => _confirmRemove(context, manager));
+          case DownloadStatus.failed:
+            return builder((size) => BcIcon(BcIcons.alert, size: size, color: Theme.of(context).colorScheme.error),
+                'Ошибка', '${d!.error ?? 'Ошибка загрузки'}. Нажмите, чтобы повторить', () => manager.retry(episodeId));
+          default:
+            return builder((size) => BcIcon(BcIcons.download, size: size, color: c.text), 'Скачать',
+                'Скачать эпизод, чтобы слушать без интернета', () => manager.enqueue(episodeId));
+        }
+      },
+    );
+  }
+
+  Future<void> _confirmRemove(BuildContext context, DownloadManager manager) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Удалить загруженный файл?'),
+        content: const Text('Эпизод можно будет слушать по сети или скачать снова.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Отмена')),
+          FilledButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('Удалить')),
+        ],
+      ),
+    );
+    if (ok == true) await manager.remove(episodeId);
   }
 }

@@ -188,6 +188,69 @@ class PodcastCatalog {
     return _parseItunesResults(data);
   }
 
+  /// Поиск по мере набора. iTunes ищет по целым словам, поэтому, пока
+  /// последнее слово не дописано, подкаст то находится, то пропадает.
+  /// Поэтому: ищем и всю строку, и строку без недописанного слова;
+  /// добавляем [known] — найденное раньше в этом поиске; и поднимаем
+  /// наверх то, где каждое слово запроса — начало слова в названии
+  /// или имени автора.
+  Future<List<CatalogPodcast>> searchAsYouType(String term, {Iterable<CatalogPodcast> known = const []}) async {
+    final query = term.trim();
+    if (query.isEmpty) return const [];
+    final words = query.split(RegExp(r'\s+'));
+    final shorter = words.length > 1 ? words.sublist(0, words.length - 1).join(' ') : null;
+    final direct = search(query);
+    final partial = shorter == null
+        ? Future.value(const <CatalogPodcast>[])
+        : search(shorter).catchError((Object _) => const <CatalogPodcast>[]);
+    List<CatalogPodcast> main;
+    try {
+      main = await direct;
+    } on CatalogException {
+      // Полный запрос не удался, но есть что показать — показываем.
+      final rest = [...await partial, ...known];
+      if (rest.where((p) => matchesQuery(p, query)).isEmpty) rethrow;
+      main = const [];
+    }
+    return rankResults(query, main, [...await partial, ...known]);
+  }
+
+  /// Каждое слово запроса — начало какого-то слова в названии или авторе.
+  static bool matchesQuery(CatalogPodcast p, String query) {
+    final words = _words('${p.title} ${p.author ?? ''}');
+    final title = _normalize(p.title);
+    final q = _normalize(query);
+    if (q.isEmpty) return false;
+    if (title.contains(q)) return true;
+    return q.split(' ').every((t) => words.any((w) => w.startsWith(t)));
+  }
+
+  /// Сначала совпадения по началу слов (в порядке выдачи iTunes, затем
+  /// найденные раньше), потом остальная выдача iTunes. Без повторов.
+  static List<CatalogPodcast> rankResults(String query, List<CatalogPodcast> direct, List<CatalogPodcast> extra) {
+    final seen = <String>{};
+    final matching = <CatalogPodcast>[];
+    final rest = <CatalogPodcast>[];
+    for (final p in direct) {
+      if (!seen.add(p.id)) continue;
+      (matchesQuery(p, query) ? matching : rest).add(p);
+    }
+    for (final p in extra) {
+      if (seen.contains(p.id) || !matchesQuery(p, query)) continue;
+      seen.add(p.id);
+      matching.add(p);
+    }
+    return [...matching, ...rest];
+  }
+
+  static String _normalize(String s) => s
+      .toLowerCase()
+      .replaceAll('ё', 'е')
+      .replaceAll(RegExp(r'[^\p{L}\p{N}]+', unicode: true), ' ')
+      .trim();
+
+  static List<String> _words(String s) => _normalize(s).split(' ');
+
   /// Популярные подкасты в стране [country]. Основной источник — лента
   /// Apple Marketing Tools; она временами отвечает ошибкой 502, тогда
   /// берём общий чарт из старой ленты iTunes.

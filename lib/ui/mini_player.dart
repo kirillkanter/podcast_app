@@ -9,6 +9,7 @@ import 'podcast_cover.dart';
 import 'shell.dart';
 import 'icons.dart';
 import 'theme.dart';
+import 'menu.dart';
 
 void _openPlayer(BuildContext context) =>
     Navigator.of(context, rootNavigator: true).push(PlayerScreen.route());
@@ -275,13 +276,12 @@ class _SpeedButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return StreamBuilder<PlaybackState>(
       stream: audio.playbackState,
-      builder: (context, _) => PopupMenuButton<double>(
+      builder: (context, _) => BcMenu<double>(
         tooltip: 'Скорость',
-        initialValue: audio.speed,
+        borderRadius: BorderRadius.circular(18),
+        selected: audio.speed,
         onSelected: audio.setSpeed,
-        itemBuilder: (_) => [
-          for (final s in playbackSpeeds) PopupMenuItem(value: s, child: Text(formatSpeed(s))),
-        ],
+        options: [for (final s in playbackSpeeds) MenuOption(s, formatSpeed(s))],
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           child: Text(formatSpeed(audio.speed),

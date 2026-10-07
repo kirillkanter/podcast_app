@@ -172,6 +172,7 @@ jobs:
           dart run tool/patch_platforms.dart
           grep -q '_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS' windows/CMakeLists.txt
           grep -q 'WM_GETMINMAXINFO' windows/runner/win32_window.cpp
+          grep -q 'BasicCaster.SingleInstance' windows/runner/main.cpp
           cmp tool/windows/app_icon.ico windows/runner/resources/app_icon.ico
       - run: flutter pub get
       - run: bash tool/ci_run.sh 'Ошибка генерации кода' dart run build_runner build --delete-conflicting-outputs

@@ -16,6 +16,7 @@ import 'opml_actions.dart';
 import 'sync_screen.dart';
 import 'icons.dart';
 import 'theme.dart';
+import 'menu.dart';
 
 /// Версия для экрана настроек; совпадает с pubspec.yaml.
 const appVersion = '0.8.0';
@@ -484,9 +485,10 @@ class _ChoiceRow extends StatelessWidget {
                 (k) => double.tryParse(k) != null && double.tryParse(k) == double.tryParse(raw),
                 orElse: () => fallback,
               );
-        return PopupMenuButton<String>(
+        return BcMenu<String>(
           tooltip: label,
-          initialValue: value,
+          alignEnd: true,
+          selected: value,
           onSelected: (v) async {
             if (onSelect != null) {
               await onSelect!(v);
@@ -495,9 +497,7 @@ class _ChoiceRow extends StatelessWidget {
             }
             await onChanged?.call(v);
           },
-          itemBuilder: (_) => [
-            for (final e in options.entries) PopupMenuItem(value: e.key, child: Text(e.value)),
-          ],
+          options: [for (final e in options.entries) MenuOption(e.key, e.value)],
           child: _Row(
             label: label,
             hint: hint,
@@ -615,13 +615,12 @@ class _SwipeRow extends StatelessWidget {
       stream: db.watchSetting(settingKey),
       builder: (context, s) {
         final value = SwipeAction.parse(s.data, fallback);
-        return PopupMenuButton<SwipeAction>(
+        return BcMenu<SwipeAction>(
           tooltip: label,
-          initialValue: value,
+          alignEnd: true,
+          selected: value,
           onSelected: (a) => db.setSetting(settingKey, a.name),
-          itemBuilder: (_) => [
-            for (final a in SwipeAction.values) PopupMenuItem(value: a, child: Text(a.label)),
-          ],
+          options: [for (final a in SwipeAction.values) MenuOption(a, a.label)],
           child: _Row(
             label: label,
             trailing: Row(mainAxisSize: MainAxisSize.min, children: [
@@ -652,16 +651,17 @@ class _CountryRow extends StatelessWidget {
         final saved = s.data ?? '';
         final system = catalogCountries[catalog.defaultCountry] ?? catalog.defaultCountry.toUpperCase();
         final label = saved.isEmpty ? 'Как в системе ($system)' : (catalogCountries[saved] ?? saved.toUpperCase());
-        return PopupMenuButton<String>(
+        return BcMenu<String>(
           tooltip: 'Регион каталога',
-          initialValue: saved,
+          alignEnd: true,
+          selected: saved,
           onSelected: (code) async {
             await db.setSetting(CatalogSettings.country, code);
             catalog.setCountry(code.isEmpty ? null : code);
           },
-          itemBuilder: (_) => [
-            PopupMenuItem(value: '', child: Text('Как в системе ($system)')),
-            for (final e in catalogCountries.entries) PopupMenuItem(value: e.key, child: Text(e.value)),
+          options: [
+            MenuOption('', 'Как в системе ($system)'),
+            for (final e in catalogCountries.entries) MenuOption(e.key, e.value),
           ],
           child: _Row(
             label: 'Регион каталога',

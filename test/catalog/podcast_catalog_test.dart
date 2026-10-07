@@ -220,4 +220,36 @@ void main() {
     expect(top.single.title, 'Наука за 5 минут');
     expect(top.single.feedUrl, 'https://example.com/science.xml');
   });
+
+  test('поиск по мере набора: недописанное слово не теряет найденное', () async {
+    const target = CatalogPodcast(id: '1', title: 'Радио Т', author: 'Umputun');
+    const other = CatalogPodcast(id: '2', title: 'Радио Свобода');
+    expect(PodcastCatalog.matchesQuery(target, 'рад'), isTrue);
+    expect(PodcastCatalog.matchesQuery(target, 'радио т'), isTrue);
+    expect(PodcastCatalog.matchesQuery(target, 'umpu'), isTrue);
+    expect(PodcastCatalog.matchesQuery(other, 'радио т'), isFalse);
+
+    final seen = <String>[];
+    final catalog = PodcastCatalog(
+      client: MockClient((request) async {
+        final term = request.url.queryParameters['term']!;
+        seen.add(term);
+        // iTunes не находит по недописанному слову, но находит по целому.
+        final results = term == 'радио'
+            ? [
+                {'collectionId': 2, 'collectionName': 'Радио Свобода'},
+                {'collectionId': 1, 'collectionName': 'Радио Т', 'artistName': 'Umputun'},
+              ]
+            : <Map<String, Object?>>[];
+        return http.Response.bytes(utf8.encode(itunesJson(results)), 200);
+      }),
+    );
+    final items = await catalog.searchAsYouType('радио т');
+    expect(seen.toSet(), {'радио т', 'радио'});
+    expect(items.map((p) => p.title), ['Радио Т']);
+
+    // Раньше нашли — при дописывании не пропадает, даже если iTunes молчит.
+    final later = await catalog.searchAsYouType('радио т ', known: items);
+    expect(later.map((p) => p.title), ['Радио Т']);
+  });
 }

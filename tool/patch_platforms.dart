@@ -61,6 +61,27 @@ foreach(plugin \${FLUTTER_PLUGIN_LIST})
 endforeach()
 ''';
 
+// Второй запуск (ярлык, меню «Пуск»), когда приложение уже работает —
+// например, свёрнуто в трей: показываем его окно и сразу выходим.
+// Запуск из автозагрузки (--tray) просто выходит.
+const _singleInstancePatch = r'''
+
+  // Basic Caster: только один экземпляр приложения.
+  HANDLE single_instance = ::CreateMutexW(nullptr, TRUE, L"Local\\BasicCaster.SingleInstance");
+  if (single_instance != nullptr && ::GetLastError() == ERROR_ALREADY_EXISTS) {
+    if (command_line == nullptr || ::wcsstr(command_line, L"--tray") == nullptr) {
+      HWND existing = ::FindWindowW(L"FLUTTER_RUNNER_WIN32_WINDOW", L"Basic Caster");
+      if (existing != nullptr) {
+        ::ShowWindow(existing, SW_SHOW);
+        if (::IsIconic(existing)) ::ShowWindow(existing, SW_RESTORE);
+        ::SetForegroundWindow(existing);
+      }
+    }
+    ::CloseHandle(single_instance);
+    return EXIT_SUCCESS;
+  }
+''';
+
 void _patchWindows() {
   final cmake = File('windows/CMakeLists.txt');
   if (!cmake.existsSync()) {
@@ -73,12 +94,16 @@ void _patchWindows() {
   if (!text.contains(_windowsMarker)) text += _windowsPatch;
   cmake.writeAsStringSync(text);
 
-  // Заголовок окна.
+  // Заголовок окна и единственный экземпляр приложения.
   final main = File('windows/runner/main.cpp');
   if (main.existsSync()) {
-    main.writeAsStringSync(
-      main.readAsStringSync().replaceFirst(RegExp(r'window\.Create\(L"[^"]*"'), 'window.Create(L"Basic Caster"'),
-    );
+    var code = main.readAsStringSync().replaceFirst(RegExp(r'window\.Create\(L"[^"]*"'), 'window.Create(L"Basic Caster"');
+    if (!code.contains('BasicCaster.SingleInstance')) {
+      final start = RegExp(r'wWinMain\([^)]*\)\s*\{').firstMatch(code);
+      if (start == null) throw StateError('main.cpp: не найдена функция wWinMain');
+      code = code.replaceRange(start.end, start.end, _singleInstancePatch);
+    }
+    main.writeAsStringSync(code);
   }
 
   // Минимальный размер окна: иначе его можно сжать до одного заголовка.

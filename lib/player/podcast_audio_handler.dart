@@ -147,13 +147,8 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
     // и переключение сделал человек (а не восстановление при запуске).
     if (autoplay && _activated && previous != null && previous != episodeId) await _requeue(previous);
     final podcast = await _db.podcastById(episode.podcastId);
-    // Запуск человеком: сначала узнать, где остановились на другом устройстве.
-    if (autoplay && at == null) await _pullProgress(episodeId);
-    final state = await _db.episodeState(episodeId);
-    final speed = await _db.podcastSpeed(episode.podcastId) ??
-        double.tryParse(await _db.setting(PlayerSettings.speed) ?? '') ??
-        1.0;
 
+    final token = ++_startToken;
     _episodeId = episodeId;
     _podcastId = episode.podcastId;
     _activated = false;
@@ -174,6 +169,20 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
       extras: {'episodeId': episodeId, 'podcastId': episode.podcastId},
     );
     mediaItem.add(item);
+
+    if (autoplay) {
+      // Кнопка сразу показывает «играет»; звук начнётся, когда узнаем,
+      // где остановились на другом устройстве, и загрузим эпизод.
+      _starting = true;
+      if (_player.playing) await _player.pause();
+      _broadcastState();
+      if (at == null) await _pullProgress(episodeId);
+    }
+    if (token != _startToken) return; // успели запустить другой эпизод
+    final state = await _db.episodeState(episodeId);
+    final speed = await _db.podcastSpeed(episode.podcastId) ??
+        double.tryParse(await _db.setting(PlayerSettings.speed) ?? '') ??
+        1.0;
 
     final start = at ?? resumePosition(
       positionMs: state?.positionMs ?? 0,
@@ -197,15 +206,20 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
       // Пользователь успел запустить другой эпизод.
       return;
     } on PlayerException catch (e) {
+      _stopStarting(token);
       _errors.add('Не удалось загрузить аудио: ${e.message ?? 'ошибка ${e.code}'}');
       return;
     } catch (e) {
+      _stopStarting(token);
       _errors.add('Не удалось загрузить аудио: $e');
       return;
     }
 
     await _player.setSpeed(speed);
     if (autoplay) {
+      // Пока загружали, нажали паузу или запустили другой эпизод.
+      if (token != _startToken || !_starting) return;
+      _starting = false;
       // Запуск человеком: отмечаем сразу. Если до этого играл другой
       // эпизод, плеер так и остаётся «играющим» — события о начале
       // воспроизведения не будет.
@@ -238,9 +252,16 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
   @override
   Future<void> play() async {
     final episodeId = _episodeId;
+    if (_starting) return; // уже запускаемся
     if (episodeId != null && !_player.playing && _player.processingState == ProcessingState.ready) {
-      // Пока здесь стояла пауза, эпизод могли слушать на другом устройстве.
+      final token = ++_startToken;
+      // Кнопка сразу показывает «играет», а пока проверяем прогресс:
+      // здесь стояла пауза, эпизод могли слушать на другом устройстве.
+      _starting = true;
+      _broadcastState();
       await _pullProgress(episodeId);
+      if (token != _startToken || !_starting) return; // нажали паузу
+      _starting = false;
       final state = await _db.episodeState(episodeId);
       if (state != null && !state.played && _episodeId == episodeId && !_player.playing) {
         final target = Duration(milliseconds: state.positionMs);
@@ -267,7 +288,24 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
   }
 
   @override
-  Future<void> pause() => _player.pause();
+  Future<void> pause() async {
+    if (_starting) {
+      _starting = false;
+      _startToken++;
+      _broadcastState();
+    }
+    await _player.pause();
+  }
+
+  /// Нажали play, но звук ещё не пошёл (проверка прогресса, загрузка).
+  bool _starting = false;
+  int _startToken = 0;
+
+  void _stopStarting(int token) {
+    if (token != _startToken || !_starting) return;
+    _starting = false;
+    _broadcastState();
+  }
 
   @override
   Future<void> seek(Duration position) async {
@@ -334,6 +372,8 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
 
   @override
   Future<void> stop() async {
+    _starting = false;
+    _startToken++;
     await _savePosition();
     unawaited(_remoteState?.cancel());
     _remoteState = null;
@@ -447,7 +487,7 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
   }
 
   void _broadcastState() {
-    final playing = _player.playing;
+    final playing = _player.playing || _starting;
     playbackState.add(playbackState.value.copyWith(
       controls: [
         MediaControl.rewind,
@@ -460,7 +500,7 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
         MediaAction.seekBackward,
       },
       androidCompactActionIndices: const [0, 1, 2],
-      processingState: switch (_player.processingState) {
+      processingState: _starting ? AudioProcessingState.buffering : switch (_player.processingState) {
         ProcessingState.idle => AudioProcessingState.idle,
         ProcessingState.loading => AudioProcessingState.loading,
         ProcessingState.buffering => AudioProcessingState.buffering,

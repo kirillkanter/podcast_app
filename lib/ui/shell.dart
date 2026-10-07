@@ -150,8 +150,12 @@ class _AppShellState extends State<AppShell> {
             const SizedBox.shrink()
           else
             MediaQuery(
+              // Клавиатуру уже учёл внешний Scaffold (сжал всё под ней).
+              // Без обнуления экраны вкладок сжимались второй раз, и над
+              // клавиатурой оставалась пустая непрозрачная полоса её высоты.
               data: MediaQuery.of(context).copyWith(
                 padding: MediaQuery.paddingOf(context).copyWith(bottom: bottomInset),
+                viewInsets: EdgeInsets.zero,
               ),
               child: HeroControllerScope.none(
                 child: Navigator(
@@ -208,6 +212,8 @@ class _AppShellState extends State<AppShell> {
 
   Widget _phone(bool playerVisible) {
     final c = BcColors.of(context);
+    // Пока открыта клавиатура, мини-плеер не закрывает список над ней.
+    if (MediaQuery.viewInsetsOf(context).bottom > 0) playerVisible = false;
     return Scaffold(
       backgroundColor: c.bg,
       body: Stack(children: [

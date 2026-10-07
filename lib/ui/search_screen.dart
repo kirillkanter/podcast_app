@@ -368,13 +368,6 @@ class _SearchScreenState extends State<SearchScreen> {
             enabled: wide,
             above: true,
             size: 28,
-            child: ShaderMask(
-            // Пилюли растворяются у «Все», а не обрезаются ножом.
-            shaderCallback: (rect) => LinearGradient(
-              colors: const [Colors.transparent, Colors.black],
-              stops: [0, (12 / rect.width).clamp(0.0, 1.0)],
-            ).createShader(rect),
-            blendMode: BlendMode.dstIn,
             child: SingleChildScrollView(
               controller: _chips,
               scrollDirection: Axis.horizontal,
@@ -387,7 +380,6 @@ class _SearchScreenState extends State<SearchScreen> {
                   ),
               ]),
             ),
-          ),
           ),
         ),
       ]),

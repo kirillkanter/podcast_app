@@ -2,7 +2,10 @@
 /// кнопками и свайпами.
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../data/db/database.dart';
 import 'app_scope.dart';
@@ -122,8 +125,10 @@ abstract final class EpisodeActions {
       if (e.queued) await db.addToQueue(e.id);
     });
     // Загрузку прослушанного удаляем, только когда отмена уже невозможна.
-    final reason = await bar?.closed;
-    if (reason != SnackBarClosedReason.action) await scope.downloads?.onPlayed(e.id);
+    // Ждём это в фоне — вызывающий код (свайп) не должен висеть.
+    unawaited(bar?.closed.then((reason) async {
+      if (reason != SnackBarClosedReason.action) await scope.downloads?.onPlayed(e.id);
+    }));
   }
 
   static Future<void> download(BuildContext context, EpisodeRef e) async {
@@ -206,8 +211,13 @@ class SwipeSettingsProvider extends StatelessWidget {
   }
 }
 
-/// Строка эпизода со свайпами влево и вправо. Строка возвращается на место,
-/// а список обновится сам, если эпизод из него ушёл (архив).
+/// Строка эпизода со свайпами влево и вправо.
+///
+/// Строка тянется за пальцем. Пока порог не пройден, подложка серая;
+/// как только пройден — она загорается акцентным цветом, значок
+/// увеличивается и телефон коротко вибрирует. Действие выполняется,
+/// только если отпустить строку за порогом; резкий мах не считается.
+/// После этого строка сразу возвращается на место.
 class SwipeableEpisode extends StatefulWidget {
   const SwipeableEpisode({super.key, required this.episode, required this.child, this.left, this.right});
 
@@ -222,83 +232,111 @@ class SwipeableEpisode extends StatefulWidget {
   State<SwipeableEpisode> createState() => _SwipeableEpisodeState();
 }
 
-class _SwipeableEpisodeState extends State<SwipeableEpisode> {
-  /// Насколько далеко дотянули строку (0…1). Действие срабатывает, только
-  /// если дотянули до порога: быстрый короткий мах не считается.
-  double _progress = 0;
+class _SwipeableEpisodeState extends State<SwipeableEpisode> with SingleTickerProviderStateMixin {
+  /// Порог — доля ширины строки.
+  static const _threshold = 0.35;
 
-  /// Где была строка в момент, когда отпустили палец. Резкий мах дальше
-  /// докатывает строку до конца сам, поэтому смотрим именно сюда.
-  double _released = 0;
+  double _dx = 0;
+  double _from = 0;
+  bool _armed = false;
+  late final AnimationController _back = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 220),
+  )..addListener(() => setState(() => _dx = _from * (1 - Curves.easeOutCubic.transform(_back.value))));
 
-  static const _threshold = 0.45;
+  @override
+  void dispose() {
+    _back.dispose();
+    super.dispose();
+  }
+
+  double get _width => context.size?.width ?? 400;
+
+  void _update(DragUpdateDetails d, SwipeAction left, SwipeAction right) {
+    _back.stop();
+    var dx = _dx + d.delta.dx;
+    // В сторону, где действия нет, строка не тянется.
+    if (left == SwipeAction.none && dx < 0) dx = 0;
+    if (right == SwipeAction.none && dx > 0) dx = 0;
+    final armed = dx.abs() >= _width * _threshold;
+    if (armed != _armed) HapticFeedback.selectionClick();
+    setState(() {
+      _dx = dx.clamp(-_width, _width);
+      _armed = armed;
+    });
+  }
+
+  void _end(SwipeAction left, SwipeAction right) {
+    if (_armed) {
+      final action = _dx < 0 ? left : right;
+      // Не ждём: подтверждение и «Отменить» живут сами по себе,
+      // а строка сразу возвращается на место.
+      unawaited(EpisodeActions.run(context, action, widget.episode));
+    }
+    _armed = false;
+    _from = _dx;
+    _back.forward(from: 0);
+  }
 
   @override
   Widget build(BuildContext context) {
-    final episode = widget.episode;
-    final child = widget.child;
     final scope = SwipeSettingsScope.maybeOf(context);
     final left = widget.left ?? scope?.left ?? SwipeSettingsScope.defaultLeft;
     final right = widget.right ?? scope?.right ?? SwipeSettingsScope.defaultRight;
     final c = BcColors.of(context);
-    final row = Material(color: c.bg, child: child);
+    final row = Material(color: c.bg, child: widget.child);
     if (left == SwipeAction.none && right == SwipeAction.none) return row;
-    final dismissible = Dismissible(
-      key: ValueKey('swipe-${episode.id}'),
-      direction: left == SwipeAction.none
-          ? DismissDirection.startToEnd
-          : right == SwipeAction.none
-              ? DismissDirection.endToStart
-              : DismissDirection.horizontal,
-      dismissThresholds: const {
-        DismissDirection.startToEnd: _threshold,
-        DismissDirection.endToStart: _threshold,
-      },
-      onUpdate: (d) => _progress = d.progress,
-      confirmDismiss: (direction) async {
-        final far = _released >= _threshold;
-        _progress = 0;
-        _released = 0;
-        if (!far) return false;
-        final action = direction == DismissDirection.endToStart ? left : right;
-        await EpisodeActions.run(context, action, episode);
-        return false;
-      },
-      background: _SwipeBackground(look: EpisodeActions.look(right, episode), alignEnd: false),
-      secondaryBackground: _SwipeBackground(look: EpisodeActions.look(left, episode), alignEnd: true),
-      child: row,
-    );
-    // Отпускание пальца приходит сюда раньше, чем Dismissible начнёт
-    // докатывать строку по инерции.
-    return Listener(
-      onPointerDown: (_) => _released = 0,
-      onPointerUp: (_) => _released = _progress,
-      onPointerCancel: (_) => _released = 0,
-      child: dismissible,
+    final action = _dx < 0 ? left : right;
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onHorizontalDragStart: (_) => _back.stop(),
+      onHorizontalDragUpdate: (d) => _update(d, left, right),
+      onHorizontalDragEnd: (_) => _end(left, right),
+      onHorizontalDragCancel: () => _end(SwipeAction.none, SwipeAction.none),
+      child: Stack(children: [
+        if (_dx != 0)
+          Positioned.fill(
+            child: _SwipeBackground(
+              look: EpisodeActions.look(action, widget.episode),
+              alignEnd: _dx < 0,
+              armed: _armed,
+            ),
+          ),
+        Transform.translate(offset: Offset(_dx, 0), child: row),
+      ]),
     );
   }
 }
 
 class _SwipeBackground extends StatelessWidget {
-  const _SwipeBackground({required this.look, required this.alignEnd});
+  const _SwipeBackground({required this.look, required this.alignEnd, required this.armed});
 
   final (String, BcIcons) look;
   final bool alignEnd;
 
+  /// Порог пройден: отпустите — и действие выполнится.
+  final bool armed;
+
   @override
   Widget build(BuildContext context) {
     final c = BcColors.of(context);
-    return ColoredBox(
-      color: c.fill,
+    final fg = armed ? c.onFill : c.muted;
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 150),
+      color: armed ? c.fill : c.raised,
       child: Align(
         alignment: alignEnd ? Alignment.centerRight : Alignment.centerLeft,
         child: SizedBox(
           width: 112,
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            BcIcon(look.$2, color: c.onFill, size: 22),
-            const SizedBox(height: 6),
-            Text(look.$1, style: TextStyle(color: c.onFill, fontSize: 13, fontWeight: FontWeight.w600)),
-          ]),
+          child: AnimatedScale(
+            scale: armed ? 1.12 : 1,
+            duration: const Duration(milliseconds: 150),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              BcIcon(look.$2, color: fg, size: 22),
+              const SizedBox(height: 6),
+              Text(look.$1, style: TextStyle(color: fg, fontSize: 13, fontWeight: FontWeight.w600)),
+            ]),
+          ),
         ),
       ),
     );

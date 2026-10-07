@@ -1,8 +1,8 @@
 {include file="_head.tpl"}
 
 <p class="center">
-	<a href="./subscriptions.php" class="btn sm" aria-label="Go Back">&larr; Back</a>
-	<a href="?id={$id}&amp;actions" class="btn sm">List sync actions</a>
+	<a href="./subscriptions.php" class="btn sm" aria-label="Назад">&larr; Назад</a>
+	<a href="?id={$id}&amp;actions" class="btn sm">История синхронизации</a>
 </p>
 
 {if isset($feed->url, $feed->title, $feed->description)}
@@ -14,18 +14,18 @@
 		<p>{$feed.description|raw|format_description}</p>
 	</article>
 {else}
-	<p class="help">No information is available on this feed.</p>
+	<p class="help">Сведений об этом подкасте нет.</p>
 {/if}
 
 {if count($episodes)}
-<h2>Episodes ({$episodes|count})</h2>
+<h2>Эпизоды ({$episodes|count})</h2>
 <table>
 	<thead>
 		<tr>
 			<td></td>
-			<th scope="col">Title</th>
-			<th scope="col">Date</th>
-			<th scope="col">Progress</th>
+			<th scope="col">Название</th>
+			<th scope="col">Дата</th>
+			<th scope="col">Прогресс</th>
 		</tr>
 	</thead>
 	<tbody>
@@ -33,12 +33,12 @@
 			<?php
 			$title = $episode->title ?: basename(parse_url($episode->media_url, PHP_URL_PATH));
 			$iso_date = $episode->pubdate ? date(DATE_ISO8601, strtotime($episode->pubdate)) : '';
-			$date = $episode->pubdate ? date('d/m/Y', strtotime($episode->pubdate)) : '';
+			$date = $episode->pubdate ? date('d.m.Y', strtotime($episode->pubdate)) : '';
 			$position = min($episode->duration, $episode->position);
 			$left = $episode->duration - $position;
 			?>
 			<tr class="{if $episode.duration && !$left}disabled{/if}" data-media="{$episode.media_url}" data-podcast="{$feed.feed_url}" data-title="{$title}" data-pos="{$episode.position}" data-total="{$episode.duration}">
-				<td><button type="button" class="episode-btn" title="Play in browser">Play</button></td>
+				<td><button type="button" class="episode-btn" title="Слушать в браузере">Слушать</button></td>
 				<th scope="row"><a href="{$episode.media_url}" class="episode-link">{$title}</a></th>
 				<td><time datetime="{$iso_date}">{$date}</time></td>
 				<td>
@@ -66,7 +66,7 @@
 		<div id="pb-status" class="help"></div>
 	</div>
 	<audio id="pb-audio" controls preload="metadata"></audio>
-	<button type="button" id="pb-close" title="Close player">&#10005;</button>
+	<button type="button" id="pb-close" title="Закрыть плеер">&#10005;</button>
 </div>
 <script src="player.js"></script>
 

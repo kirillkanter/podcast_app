@@ -46,22 +46,30 @@ class Utils
 
 	static public function relative_date(int $ts): string
 	{
+		// Basic Caster: по-русски, с правильным склонением.
 		$diff = (new \DateTime)->diff(new \DateTime('@' . $ts));
 
+		$plural = function (int $n, string $one, string $few, string $many): string {
+			$n10 = $n % 10;
+			$n100 = $n % 100;
+			$word = ($n10 === 1 && $n100 !== 11) ? $one : (($n10 >= 2 && $n10 <= 4 && ($n100 < 12 || $n100 > 14)) ? $few : $many);
+			return $n . ' ' . $word;
+		};
+
 		if ($diff->y) {
-			return $diff->y === 1 ? '1 year' : sprintf('%d years', $diff->y);
+			return $plural($diff->y, 'год', 'года', 'лет');
 		}
 		elseif ($diff->m) {
-			return $diff->m === 1 ? '1 month' : sprintf('%d months', $diff->m);
+			return $plural($diff->m, 'месяц', 'месяца', 'месяцев');
 		}
 		elseif ($diff->d) {
-			return $diff->d === 1 ? '1 day' : sprintf('%d days', $diff->d);
+			return $plural($diff->d, 'день', 'дня', 'дней');
 		}
 		elseif ($diff->h) {
-			return $diff->h === 1 ? '1 hour' : sprintf('%d hours', $diff->h);
+			return $plural($diff->h, 'час', 'часа', 'часов');
 		}
 		else {
-			return $diff->i <= 1 ? '1 minute' : sprintf('%d minutes', $diff->i);
+			return $plural(max(1, $diff->i), 'минуту', 'минуты', 'минут');
 		}
 	}
 }

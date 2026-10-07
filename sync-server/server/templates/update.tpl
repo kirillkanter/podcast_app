@@ -1,6 +1,6 @@
 {include file="_head.tpl"}
 
-<p class="center"><a href="./" class="btn sm" aria-label="Go Back">&larr; Back</a></p>
+<p class="center"><a href="./" class="btn sm" aria-label="Назад">&larr; Назад</a></p>
 <iframe src="about:blank" name="f" width="100%" height="400" frameborder="0"></iframe>
 
 <form method="post" action="" target="f">

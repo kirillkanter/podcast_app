@@ -10,7 +10,7 @@ if (!$gpodder->user) {
 }
 
 if (DISABLE_USER_METADATA_UPDATE) {
-	throw new UserException('Metadata fetching is disabled');
+	throw new UserException('Обновление сведений о подкастах на сервере отключено.');
 }
 
 if (!empty($_POST['update'])) {

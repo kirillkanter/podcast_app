@@ -24,7 +24,7 @@ else {
 	$episodes = $gpodder->listEpisodes($id);
 
 	if (!$feed) {
-		throw new UserException('Feed not found or empty');
+		throw new UserException('Подкаст не найден или в нём нет эпизодов.');
 	}
 
 	$tpl->assign(compact('feed', 'episodes'));

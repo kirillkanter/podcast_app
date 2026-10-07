@@ -16,14 +16,14 @@ $success = null;
 if (!empty($_POST['feed_url'])) {
 	$error = $gpodder->addSubscription($_POST['feed_url']);
 	if (!$error) {
-		$success = 'Successfully subscribed to the feed!';
+		$success = 'Подписка оформлена.';
 	}
 }
 
 // Handle unsubscribe
 if (!empty($_POST['unsubscribe']) && is_numeric($_POST['unsubscribe'])) {
 	if ($gpodder->removeSubscription((int)$_POST['unsubscribe'])) {
-		$success = 'Successfully unsubscribed from the feed.';
+		$success = 'Вы отписались от подкаста.';
 	}
 }
 

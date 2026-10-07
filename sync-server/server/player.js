@@ -107,7 +107,7 @@
 		var resume = parseInt(row.dataset.pos, 10) || 0;
 
 		titleEl.textContent = current.title;
-		setStatus('Loading…');
+		setStatus('Загрузка…');
 		bar.hidden = false;
 
 		var onMeta = function () {
@@ -118,7 +118,7 @@
 			startedAt = Math.floor(audio.currentTime || resume || 0);
 			setStatus('');
 			audio.play().catch(function () {
-				setStatus('Could not play — the host may block playback or serve http:// (mixed content).');
+				setStatus('Не удалось воспроизвести: сайт подкаста может запрещать воспроизведение в браузере или отдавать аудио по http://.');
 			});
 		};
 
@@ -136,7 +136,7 @@
 	audio.addEventListener('seeked', function () { report(true); });
 	audio.addEventListener('ended',  function () { report(true); });
 	audio.addEventListener('error',  function () {
-		setStatus('Could not load — the host may block playback or serve http:// (mixed content).');
+		setStatus('Не удалось загрузить: сайт подкаста может запрещать воспроизведение в браузере или отдавать аудио по http://.');
 	});
 
 	closeBtn.addEventListener('click', function () {

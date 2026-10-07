@@ -1,19 +1,19 @@
 {include file="_head.tpl"}
 
 <p class="center">
-	<a href="./subscriptions.php" class="btn sm" aria-label="Go Back">&larr; Back</a>
+	<a href="./subscriptions.php" class="btn sm" aria-label="Назад">&larr; Назад</a>
 </p>
 
-<h2>Actions</h2>
-<p class="help">Note: episodes titles might be missing because of trackers/ads used by some podcast providers.</p>
+<h2>История синхронизации</h2>
+<p class="help">Названия некоторых эпизодов могут не отображаться: часть подкастов отдаёт аудио через рекламные и счётные сервисы.</p>
 <table>
 	<thead>
 		<tr>
-			<th scope="col">Action</th>
-			<th scope="col">Device</th>
-			<th scope="col">Date</th>
-			<th scope="col">Episode</th>
-			<th scope="col">Details</th>
+			<th scope="col">Действие</th>
+			<th scope="col">Устройство</th>
+			<th scope="col">Дата</th>
+			<th scope="col">Эпизод</th>
+			<th scope="col">Подробности</th>
 		</tr>
 	</thead>
 	<tbody>
@@ -22,14 +22,14 @@
 			$url = basename(parse_url($row->url, PHP_URL_PATH));
 			$title = $row->title ?? $url;
 			$iso_date = date(DATE_ISO8601, $row->changed);
-			$date = date('d/m/Y H:i', $row->changed);
+			$date = date('d.m.Y H:i', $row->changed);
 			?>
 			<tr>
-				<th scope="row">{$row.action}</th>
+				<th scope="row">{if $row.action === 'play'}Прослушивание{elseif $row.action === 'new'}Не начат{elseif $row.action === 'download'}Загрузка{elseif $row.action === 'delete'}Удаление{else}{$row.action}{/if}</th>
 				<td>{$row.device_name}</td>
 				<td><time datetime="{$iso_date}">{$date}</time></td>
 				<td><a href="{$row.url}">{$title}</a></td>
-				<td>{if $row.action === 'play'}Position: {$row.position|format_duration}{/if}</td>
+				<td>{if $row.action === 'play'}Позиция: {$row.position|format_duration}{/if}</td>
 			</tr>
 		{/foreach}
 	</tbody>

@@ -88,7 +88,7 @@ class GPodder
 		$user = $db->firstRow('SELECT * FROM users WHERE name = ? AND external_user_id IS NULL;', trim($_POST['login']));
 
 		if (!$user || !password_verify(trim($_POST['password']), $user->password ?? '')) {
-			return 'Invalid username/password';
+			return 'Неверное имя пользователя или пароль.';
 		}
 
 		$this->startSession(true);
@@ -172,22 +172,22 @@ class GPodder
 	public function subscribe(string $name, string $password): ?string
 	{
 		if (trim($name) === '' || !preg_match('/^\w[\w_-]+$/', $name)) {
-			return 'Invalid username. Allowed is: \w[\w\d_-]+';
+			return 'Недопустимое имя пользователя: используйте латинские буквы, цифры, «_» и «-», начиная с буквы.';
 		}
 
 		if ($name === 'current') {
-			return 'This username is locked, please choose another one.';
+			return 'Это имя занято, выберите другое.';
 		}
 
 		$password = trim($password);
 		$db = DB::getInstance();
 
 		if (strlen($password) < 8) {
-			return 'Password is too short';
+			return 'Пароль слишком короткий: нужно не меньше 8 символов.';
 		}
 
 		if ($db->firstColumn('SELECT 1 FROM users WHERE name = ? AND external_user_id IS NULL;', $name)) {
-			return 'Username already exists';
+			return 'Такое имя пользователя уже есть.';
 		}
 
 		$db->simple('INSERT INTO users (name, password) VALUES (?, ?);', trim($name), password_hash($password, PASSWORD_DEFAULT));
@@ -305,13 +305,13 @@ class GPodder
 		$url = filter_var($url, FILTER_VALIDATE_URL);
 
 		if ($url === false) {
-			return 'Invalid URL';
+			return 'Неверный адрес.';
 		}
 
 		$scheme = parse_url($url, PHP_URL_SCHEME);
 
 		if (!in_array($scheme, ['http', 'https'])) {
-			return 'Invalid URL. Must start with http:// or https://';
+			return 'Неверный адрес: он должен начинаться с http:// или https://.';
 		}
 
 		$db = DB::getInstance();
@@ -320,7 +320,7 @@ class GPodder
 		$existing = $db->firstRow('SELECT id, deleted FROM subscriptions WHERE url = ? AND user = ?;', $url, $this->user->id);
 
 		if ($existing && !$existing->deleted) {
-			return 'You are already subscribed to this feed.';
+			return 'Вы уже подписаны на этот подкаст.';
 		}
 
 		$db->upsert('subscriptions', [

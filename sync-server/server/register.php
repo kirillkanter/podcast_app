@@ -5,14 +5,14 @@ namespace OPodSync;
 require_once __DIR__ . '/_inc.php';
 
 if (!$gpodder->canSubscribe()) {
-	throw new UserException('Subscriptions are disabled.');
+	throw new UserException('Регистрация новых аккаунтов закрыта.');
 }
 
 $error = null;
 
 if (!empty($_POST)) {
 	if (!$gpodder->checkCaptcha($_POST['captcha'] ?? '', $_POST['cc'] ?? '')) {
-		$error = 'Invalid captcha';
+		$error = 'Число введено неверно, попробуйте ещё раз.';
 	}
 	else {
 		$error = $gpodder->subscribe($_POST['login'] ?? '', $_POST['password'] ?? '');

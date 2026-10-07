@@ -1,11 +1,24 @@
 # Сервер синхронизации Basic Caster
 
 [oPodSync](https://github.com/kd2org/opodsync) — открытый сервер синхронизации
-подкастов с протоколом gPodder (лицензия AGPL-3.0, см. LICENSE), без изменений
-кода. Своё здесь только `server/data/config.local.php`, `server/data/.htaccess`
-и `server/bcaster.php` — синхронизация очереди и архива (в протоколе gPodder
-их нет). Этот файл не меняет oPodSync: он пользуется его базой и учётными
+подкастов с протоколом gPodder (лицензия AGPL-3.0, см. LICENSE). Логика сервера
+не изменена; переведён на русский интерфейс сайта (см. ниже). Своё здесь
+`server/data/config.local.php`, `server/data/.htaccess` и `server/bcaster.php` —
+синхронизация очереди и архива (в протоколе gPodder их нет). Этот файл не меняет oPodSync: он пользуется его базой и учётными
 записями и хранит данные в своей таблице `bcaster_state`.
+
+## Обновление: русский интерфейс
+
+Страницы сайта (вход, регистрация, подписки, эпизоды), сообщения об ошибках
+и встроенный плеер переведены на русский. Чтобы обновить сервер, загрузить
+поверх старых (данные в `data/` не трогать):
+
+- папку `server/templates/` целиком;
+- `server/register.php`, `server/subscriptions.php`, `server/feed.php`,
+  `server/update.php`, `server/player.js`;
+- `server/lib/OPodSync/GPodder.php` и `server/lib/OPodSync/Utils.php`.
+
+Работу приложения обновление не меняет: протокол синхронизации тот же.
 
 ## Обновление: очередь и архив
 

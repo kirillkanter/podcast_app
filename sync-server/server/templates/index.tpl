@@ -5,9 +5,9 @@
 </p>
 
 <p class="center">
-	<a href="login.php" class="btn">Login</a>
+	<a href="login.php" class="btn">Войти</a>
 	{if $can_subscribe}
-	<a href="register.php" class="btn">Create account</a>
+	<a href="register.php" class="btn">Создать аккаунт</a>
 	{/if}
 </p>
 

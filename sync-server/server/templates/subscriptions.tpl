@@ -2,10 +2,10 @@
 
 <nav class="center">
 	<ul>
-		<li><a href="./" class="btn sm" aria-label="Go Back">&larr; Back</a></li>
-		<li><a href="./subscriptions/{$user.name}.opml" class="btn sm">OPML</a></li>
+		<li><a href="./" class="btn sm" aria-label="Назад">&larr; Назад</a></li>
+		<li><a href="./subscriptions/{$user.name}.opml" class="btn sm">Скачать OPML</a></li>
 		{if $can_update_feeds}
-			<li><a href="./update.php" class="btn sm">Update all feeds metadata</a></li>
+			<li><a href="./update.php" class="btn sm">Обновить сведения о подкастах</a></li>
 		{/if}
 	</ul>
 </nav>
@@ -20,18 +20,18 @@
 
 <form method="post" action="">
 	<fieldset>
-		<legend>Subscribe to a new podcast</legend>
-		<p class="center help">Enter the RSS feed URL of the podcast:</p>
-		<p class="center"><input type="url" name="feed_url" class="url" placeholder="https://example.com/feed.xml" required /> <button type="submit" class="btn sm">Subscribe</button></p>
+		<legend>Подписаться на подкаст</legend>
+		<p class="center help">Вставьте адрес RSS-фида подкаста:</p>
+		<p class="center"><input type="url" name="feed_url" class="url" placeholder="https://example.com/feed.xml" required /> <button type="submit" class="btn sm">Подписаться</button></p>
 	</fieldset>
 </form>
 
 <table>
 	<thead>
 		<tr>
-			<th scope="col">Podcast</th>
-			<th scope="col">Last action</th>
-			<th scope="col">Actions</th>
+			<th scope="col">Подкаст</th>
+			<th scope="col">Последнее действие</th>
+			<th scope="col">Действий</th>
 			<th scope="col"></th>
 		</tr>
 	</thead>
@@ -44,12 +44,12 @@
 		?>
 		<tr>
 			<th scope="row"><a href="./feed.php?id={$row.id}">{$title}</a></th>
-			<td><time datetime="{$iso_date}">{$row.last_change|relative_date}</time></td>
+			<td><time datetime="{$iso_date}">{$row.last_change|relative_date} назад</time></td>
 			<td>{$row.count}</td>
 			<td>
-				<form method="post" action="" class="inline-form" onsubmit="return confirm('Unsubscribe from this podcast?');">
+				<form method="post" action="" class="inline-form" onsubmit="return confirm('Отписаться от этого подкаста?');">
 					<input type="hidden" name="unsubscribe" value="{$row.id}" />
-					<button type="submit" class="btn sm btn-danger" title="Unsubscribe">✕</button>
+					<button type="submit" class="btn sm btn-danger" title="Отписаться">✕</button>
 				</form>
 			</td>
 		</tr>

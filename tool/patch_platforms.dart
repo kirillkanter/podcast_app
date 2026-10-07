@@ -81,6 +81,19 @@ void _patchWindows() {
     );
   }
 
+  // Минимальный размер окна: иначе его можно сжать до одного заголовка.
+  final window = File('windows/runner/win32_window.cpp');
+  if (window.existsSync()) {
+    var code = window.readAsStringSync();
+    if (!code.contains('WM_GETMINMAXINFO')) {
+      final at = code.indexOf(RegExp(r'switch \(message\) \{'));
+      if (at < 0) throw StateError('win32_window.cpp: не найден обработчик сообщений окна');
+      final end = code.indexOf('{', at) + 1;
+      code = code.replaceRange(end, end, _minSizePatch);
+      window.writeAsStringSync(code);
+    }
+  }
+
   // Название в свойствах файла и диспетчере задач.
   final rc = File('windows/runner/Runner.rc');
   if (rc.existsSync()) {
@@ -218,3 +231,15 @@ void _copyTree(Directory from, String to) {
     f.copySync(dest.path);
   }
 }
+
+/// Минимум 400×600 (в точках с учётом масштаба экрана).
+const _minSizePatch = '''
+    case WM_GETMINMAXINFO: {
+      // Basic Caster: минимальный размер окна.
+      auto info = reinterpret_cast<MINMAXINFO*>(lparam);
+      const double scale =
+          FlutterDesktopGetDpiForMonitor(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST)) / 96.0;
+      info->ptMinTrackSize.x = static_cast<LONG>(400 * scale);
+      info->ptMinTrackSize.y = static_cast<LONG>(600 * scale);
+      return 0;
+    }''';

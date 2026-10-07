@@ -47,7 +47,15 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
     _player.processingStateStream.listen((state) {
       if (state == ProcessingState.completed) _onCompleted();
     });
+    // Последний эпизод сменился на другом устройстве (через синхронизацию):
+    // если здесь ничего не играет, показываем его в мини-плеере на паузе.
+    _lastSub = _db.watchSetting(PlayerSettings.last).skip(1).listen((value) {
+      final id = int.tryParse(value ?? '');
+      if (id != null && id != _episodeId && !_player.playing) unawaited(restoreLast());
+    });
   }
+
+  StreamSubscription<String?>? _lastSub;
 
   final AppDatabase _db;
   final AudioPlayer _player;
@@ -84,8 +92,12 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
 
   /// Запускает эпизод с сохранённой позиции или с [at] (таймкод
   /// в описании, глава). Если он уже загружен — продолжает воспроизведение.
-  Future<void> playEpisode(int episodeId, {Duration? at}) async {
+  ///
+  /// [autoplay] = false — только подготовить на паузе (восстановление
+  /// последнего эпизода при запуске приложения).
+  Future<void> playEpisode(int episodeId, {Duration? at, bool autoplay = true}) async {
     if (_episodeId == episodeId && _player.processingState != ProcessingState.idle) {
+      if (!autoplay) return;
       if (at != null) await seek(at);
       unawaited(_player.play());
       return;
@@ -108,13 +120,24 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
 
     _episodeId = episodeId;
     _podcastId = episode.podcastId;
+    if (autoplay) {
+      // Запомнить: после перезапуска приложения эпизод вернётся в мини-плеер.
+      try {
+        await _db.setSetting(PlayerSettings.last, '$episodeId');
+        await _db.setSetting(PlayerSettings.lastAt, DateTime.now().toUtc().toIso8601String());
+      } catch (e) {
+        debugPrint('Не удалось запомнить эпизод: $e');
+      }
+    }
 
     final art = episode.imageUrl ?? podcast?.imageUrl;
     final item = MediaItem(
       id: episode.enclosureUrl,
       title: episode.title,
       album: podcast?.title,
-      artist: podcast?.author ?? podcast?.title,
+      // Под названием эпизода в уведомлении и на экране блокировки —
+      // название подкаста, а не автор.
+      artist: podcast?.title,
       artUri: art == null ? null : Uri.tryParse(art),
       duration: episode.durationMs == null ? null : Duration(milliseconds: episode.durationMs!),
       extras: {'episodeId': episodeId, 'podcastId': episode.podcastId},
@@ -149,7 +172,27 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
     }
 
     await _player.setSpeed(speed);
-    unawaited(_player.play());
+    if (autoplay) unawaited(_player.play());
+  }
+
+  /// Вернуть в плеер (на паузе, с сохранённого места) эпизод, который играл
+  /// последним — на этом устройстве или на другом.
+  Future<void> restoreLast() async {
+    if (_player.playing) return;
+    final id = int.tryParse(await _db.setting(PlayerSettings.last) ?? '');
+    if (id == null || id == _episodeId) return;
+    final state = await _db.episodeState(id);
+    if (state?.played ?? false) return;
+    if (await _db.episodeById(id) == null) return;
+    if (_player.playing) return;
+    await playEpisode(id, autoplay: false);
+  }
+
+  /// Остановить и закрыть плеер насовсем: при следующем запуске
+  /// эпизод в мини-плеер не вернётся.
+  Future<void> close() async {
+    await stop();
+    await _db.setSetting(PlayerSettings.last, '');
   }
 
   @override
@@ -235,6 +278,10 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
     final next = await _nextFromQueue(episodeId);
     if (next == null) {
       await stop();
+      // Дослушан, дальше ничего: возвращать его в мини-плеер не нужно.
+      try {
+        await _db.setSetting(PlayerSettings.last, '');
+      } catch (_) {}
     } else {
       // Плеер отпускает файл, но сервис и уведомление остаются:
       // следующий эпизод запустится сразу.

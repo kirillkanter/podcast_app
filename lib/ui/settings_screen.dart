@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../catalog/podcast_catalog.dart';
 import '../data/db/database.dart';
 import '../sync/sync_service.dart';
 import 'app_scope.dart';
@@ -63,6 +64,10 @@ class SettingsScreen extends StatelessWidget {
                 fallback: SwipeSettingsScope.defaultRight,
               ),
             ]),
+            if (scope.catalog != null) ...[
+              const _SectionTitle('ПОИСК'),
+              _Card(children: [_CountryRow(catalog: scope.catalog!)]),
+            ],
             const _SectionTitle('ОФОРМЛЕНИЕ'),
             _Card(children: [
               _Row(
@@ -272,6 +277,48 @@ class _SwipeRow extends StatelessWidget {
             label: label,
             trailing: Row(mainAxisSize: MainAxisSize.min, children: [
               Text(value.label, style: TextStyle(color: c.muted)),
+              const SizedBox(width: 4),
+              BcIcon(BcIcons.chevronDown, size: 16, color: c.muted),
+            ]),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Регион каталога для экрана «Поиск».
+class _CountryRow extends StatelessWidget {
+  const _CountryRow({required this.catalog});
+
+  final PodcastCatalog catalog;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = BcColors.of(context);
+    final db = AppScope.of(context).db;
+    return StreamBuilder<String?>(
+      stream: db.watchSetting(CatalogSettings.country),
+      builder: (context, s) {
+        final saved = s.data ?? '';
+        final system = catalogCountries[catalog.defaultCountry] ?? catalog.defaultCountry.toUpperCase();
+        final label = saved.isEmpty ? 'Как в системе ($system)' : (catalogCountries[saved] ?? saved.toUpperCase());
+        return PopupMenuButton<String>(
+          tooltip: 'Регион каталога',
+          initialValue: saved,
+          onSelected: (code) async {
+            await db.setSetting(CatalogSettings.country, code);
+            catalog.setCountry(code.isEmpty ? null : code);
+          },
+          itemBuilder: (_) => [
+            PopupMenuItem(value: '', child: Text('Как в системе ($system)')),
+            for (final e in catalogCountries.entries) PopupMenuItem(value: e.key, child: Text(e.value)),
+          ],
+          child: _Row(
+            label: 'Регион каталога',
+            hint: 'Популярное и подборки на экране «Поиск»',
+            trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+              Flexible(child: Text(label, style: TextStyle(color: c.muted))),
               const SizedBox(width: 4),
               BcIcon(BcIcons.chevronDown, size: 16, color: c.muted),
             ]),

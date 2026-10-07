@@ -126,15 +126,35 @@ class _SearchScreenState extends State<SearchScreen> {
     });
   }
 
+  PodcastCatalog? _catalog;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _top ??= AppScope.of(context).catalog?.top();
+    final catalog = AppScope.of(context).catalog;
+    if (catalog != _catalog) {
+      _catalog?.region.removeListener(_regionChanged);
+      _catalog = catalog;
+      catalog?.region.addListener(_regionChanged);
+    }
+    _top ??= catalog?.top();
+  }
+
+  /// Сменили регион в настройках — подборки и поиск заново.
+  void _regionChanged() {
+    final catalog = _catalog;
+    if (catalog == null || !mounted) return;
+    setState(() {
+      _top = catalog.top();
+      _genreLists.clear();
+      _results = _query.isEmpty ? null : catalog.search(_query);
+    });
   }
 
   @override
   void dispose() {
     AppShell.setBackHandler(ShellTab.search, null);
+    _catalog?.region.removeListener(_regionChanged);
     _debounce?.cancel();
     _controller.dispose();
     _pages.dispose();
@@ -305,6 +325,7 @@ class _SearchScreenState extends State<SearchScreen> {
                     key: PageStorageKey('search-${g.id}'),
                     slivers: [
                       _CatalogFuture(
+                        key: ValueKey('${catalog.country}-${g.id}'),
                         future: _genreList(g),
                         ranked: true,
                         empty: 'В этой рубрике пока ничего нет',
@@ -422,7 +443,7 @@ class _SearchScreenState extends State<SearchScreen> {
     return [
       SliverToBoxAdapter(
         child: _Shelf(
-          key: const ValueKey('top'),
+          key: ValueKey('top-${catalog.country}'),
           title: 'Популярное',
           future: _top!,
           big: true,
@@ -436,7 +457,7 @@ class _SearchScreenState extends State<SearchScreen> {
       for (var i = 0; i < catalogGenres.length; i++)
         SliverToBoxAdapter(
           child: _Shelf(
-            key: ValueKey(catalogGenres[i].id),
+            key: ValueKey('${catalog.country}-${catalogGenres[i].id}'),
             title: catalogGenres[i].name,
             future: catalog.chart(genreId: catalogGenres[i].id),
             big: false,

@@ -227,6 +227,10 @@ class _SwipeableEpisodeState extends State<SwipeableEpisode> {
   /// если дотянули до порога: быстрый короткий мах не считается.
   double _progress = 0;
 
+  /// Где была строка в момент, когда отпустили палец. Резкий мах дальше
+  /// докатывает строку до конца сам, поэтому смотрим именно сюда.
+  double _released = 0;
+
   static const _threshold = 0.45;
 
   @override
@@ -239,7 +243,7 @@ class _SwipeableEpisodeState extends State<SwipeableEpisode> {
     final c = BcColors.of(context);
     final row = Material(color: c.bg, child: child);
     if (left == SwipeAction.none && right == SwipeAction.none) return row;
-    return Dismissible(
+    final dismissible = Dismissible(
       key: ValueKey('swipe-${episode.id}'),
       direction: left == SwipeAction.none
           ? DismissDirection.startToEnd
@@ -252,8 +256,9 @@ class _SwipeableEpisodeState extends State<SwipeableEpisode> {
       },
       onUpdate: (d) => _progress = d.progress,
       confirmDismiss: (direction) async {
-        final far = _progress >= _threshold;
+        final far = _released >= _threshold;
         _progress = 0;
+        _released = 0;
         if (!far) return false;
         final action = direction == DismissDirection.endToStart ? left : right;
         await EpisodeActions.run(context, action, episode);
@@ -262,6 +267,14 @@ class _SwipeableEpisodeState extends State<SwipeableEpisode> {
       background: _SwipeBackground(look: EpisodeActions.look(right, episode), alignEnd: false),
       secondaryBackground: _SwipeBackground(look: EpisodeActions.look(left, episode), alignEnd: true),
       child: row,
+    );
+    // Отпускание пальца приходит сюда раньше, чем Dismissible начнёт
+    // докатывать строку по инерции.
+    return Listener(
+      onPointerDown: (_) => _released = 0,
+      onPointerUp: (_) => _released = _progress,
+      onPointerCancel: (_) => _released = 0,
+      child: dismissible,
     );
   }
 }

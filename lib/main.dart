@@ -37,8 +37,12 @@ Future<void> main() async {
   final sync = SyncService(db: db, repository: repository);
   // Страна каталога — из языка системы: ru_RU → ru.
   final region = Platform.localeName.split(RegExp('[_.-]')).elementAtOrNull(1);
+  final systemCountry = region != null && RegExp(r'^[A-Za-z]{2}$').hasMatch(region) ? region : 'us';
+  // Регион можно выбрать в настройках; иначе — как в системе.
+  final savedCountry = await db.setting(CatalogSettings.country);
   final catalog = PodcastCatalog(
-    country: region != null && RegExp(r'^[A-Za-z]{2}$').hasMatch(region) ? region : 'us',
+    country: savedCountry != null && savedCountry.isNotEmpty ? savedCountry : systemCountry,
+    defaultCountry: systemCountry,
   );
 
   PodcastAudioHandler? audio;
@@ -87,6 +91,8 @@ Future<void> main() async {
     catalog: catalog,
     sync: sync,
   ));
+  // Эпизод, который играл перед закрытием, — снова в мини-плеере.
+  unawaited(audio?.restoreLast());
 }
 
 class PodcastApp extends StatefulWidget {

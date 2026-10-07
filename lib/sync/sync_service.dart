@@ -273,8 +273,27 @@ class SyncService {
             );
       if (applied) updated++;
     }
+    await _applyRemoteLast(result.actions);
     await _db.setSetting(SyncSettings.episodesSince, '${result.timestamp}');
     return updated;
+  }
+
+  /// Последний эпизод с другого устройства: если там слушали позже, чем
+  /// здесь запускали свой, он становится «последним» и здесь — плеер
+  /// покажет его в мини-плеере на паузе с того же места.
+  Future<void> _applyRemoteLast(List<EpisodeAction> actions) async {
+    EpisodeAction? newest;
+    for (final a in actions) {
+      if (a.action != 'play' || a.timestamp == null || _isPlayed(a)) continue;
+      if (newest == null || a.timestamp!.isAfter(newest.timestamp!)) newest = a;
+    }
+    if (newest == null) return;
+    final localAt = DateTime.tryParse(await _db.setting(PlayerSettings.lastAt) ?? '');
+    if (localAt != null && !newest.timestamp!.isAfter(localAt)) return;
+    final episode = await _db.findEpisodeByEnclosure(newest.episode, feedUrl: newest.podcast);
+    if (episode == null) return;
+    await _db.setSetting(PlayerSettings.lastAt, newest.timestamp!.toUtc().toIso8601String());
+    await _db.setSetting(PlayerSettings.last, '${episode.id}');
   }
 
   /// Очередь и архив. Правило конфликтов — более позднее изменение

@@ -33,6 +33,17 @@ typedef DirtyStateItem = ({
   DateTime changed,
 });
 
+/// Последний эпизод плеера: возвращается в мини-плеер после перезапуска
+/// и переходит между устройствами.
+abstract final class PlayerSettings {
+  /// id эпизода; пусто — плеер закрыт.
+  static const last = 'player.last';
+
+  /// Когда эпизод запустили (UTC, ISO 8601) — чтобы понять, какое
+  /// устройство слушало позже.
+  static const lastAt = 'player.lastAt';
+}
+
 /// Ключи настроек очереди, архива и жестов.
 abstract final class QueueSettings {
   /// Дослушав эпизод, играть следующий из очереди. По умолчанию включено.

@@ -636,7 +636,7 @@ class _PhoneLayoutState extends State<_PhoneLayout> {
                 if (v == 'podcast' && p != null) _openPodcast(context, p.id);
                 if (v == 'stop') {
                   Navigator.of(context).pop();
-                  audio.stop();
+                  audio.close();
                 }
               },
               itemBuilder: (_) => [

@@ -160,6 +160,35 @@ void main() {
     expect(await db.queueIds(), isEmpty);
   });
 
+  test('последний эпизод возвращается в плеер на паузе; «закрыть» его забывает', () async {
+    await handler.playEpisode(episodeId);
+    await settled();
+    expect(await db.setting(PlayerSettings.last), '$episodeId');
+    await handler.seek(const Duration(minutes: 3));
+    await handler.stop();
+    await settled();
+
+    // Как после перезапуска: новый обработчик, плеер пуст.
+    final again = PodcastAudioHandler(db, player: AudioPlayer(handleAudioSessionActivation: false));
+    addTearDown(again.stop);
+    platform.lastLoad = null;
+    await again.restoreLast();
+    await settled();
+    expect(again.currentEpisodeId, episodeId);
+    expect(again.mediaItem.value?.title, 'Эпизод');
+    expect(again.playbackState.value.playing, isFalse, reason: 'на паузе, а не сразу играет');
+    expect(platform.lastLoad?.initialPosition?.inMilliseconds, closeTo(180000, 500));
+
+    await again.close();
+    expect(await db.setting(PlayerSettings.last), '');
+  });
+
+  test('в уведомлении под названием эпизода — название подкаста', () async {
+    await handler.playEpisode(episodeId);
+    await settled();
+    expect(handler.mediaItem.value?.artist, 'Подкаст');
+  });
+
   test('карточка эпизода для системного плеера', () async {
     await handler.playEpisode(episodeId);
     await settled();

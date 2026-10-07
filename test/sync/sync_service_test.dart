@@ -159,6 +159,25 @@ void main() {
     expect(await phone.db.isArchived(await phone.episode(2)), isFalse);
   });
 
+  test('последний эпизод переходит на другое устройство', () async {
+    await phone.repo.addAndSubscribe(feedUrl);
+    await phone.signIn();
+    await laptop.signIn();
+    await phone.sync.syncNow();
+    await laptop.sync.syncNow();
+
+    await laptop.db.savePosition(await laptop.episode(2), const Duration(minutes: 5));
+    await laptop.sync.syncNow();
+    await phone.sync.syncNow();
+    expect(await phone.db.setting(PlayerSettings.last), '${await phone.episode(2)}');
+
+    // Здесь запустили свой эпизод позже — чужой, более старый, его не вытесняет.
+    await phone.db.setSetting(PlayerSettings.last, '${await phone.episode(1)}');
+    await phone.db.setSetting(PlayerSettings.lastAt, DateTime.now().toUtc().toIso8601String());
+    await phone.sync.syncNow();
+    expect(await phone.db.setting(PlayerSettings.last), '${await phone.episode(1)}');
+  });
+
   test('сервер без очереди: остальное синхронизируется, ошибки нет', () async {
     server.supportsState = false;
     await phone.repo.addAndSubscribe(feedUrl);

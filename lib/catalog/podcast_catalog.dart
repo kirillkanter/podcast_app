@@ -9,6 +9,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io' show SocketException;
 
+import 'package:flutter/foundation.dart' show ValueNotifier;
 import 'package:http/http.dart' as http;
 
 class CatalogPodcast {
@@ -70,15 +71,56 @@ class CatalogException implements Exception {
   String toString() => message;
 }
 
+/// Ключ настройки региона каталога (двухбуквенный код; пусто — как в системе).
+abstract final class CatalogSettings {
+  static const country = 'catalog.country';
+}
+
+/// Регионы каталога для выбора в настройках.
+const catalogCountries = {
+  'ru': 'Россия',
+  'kz': 'Казахстан',
+  'by': 'Беларусь',
+  'ua': 'Украина',
+  'uz': 'Узбекистан',
+  'ge': 'Грузия',
+  'am': 'Армения',
+  'rs': 'Сербия',
+  'tr': 'Турция',
+  'il': 'Израиль',
+  'de': 'Германия',
+  'fr': 'Франция',
+  'es': 'Испания',
+  'it': 'Италия',
+  'gb': 'Великобритания',
+  'us': 'США',
+};
+
 class PodcastCatalog {
-  PodcastCatalog({http.Client? client, String? country})
+  PodcastCatalog({http.Client? client, String? country, String? defaultCountry})
       : _client = client ?? http.Client(),
-        country = (country ?? 'us').toLowerCase();
+        defaultCountry = (defaultCountry ?? country ?? 'us').toLowerCase(),
+        region = ValueNotifier((country ?? 'us').toLowerCase());
 
   final http.Client _client;
 
+  /// Регион системы — используется, когда в настройках выбрано «как в системе».
+  final String defaultCountry;
+
+  /// Текущий регион; экран поиска перезагружает подборки при его смене.
+  final ValueNotifier<String> region;
+
   /// Двухбуквенный код страны: влияет на «популярное» и порядок выдачи.
-  final String country;
+  String get country => region.value;
+
+  /// Сменить регион ([code] = null — как в системе). Сохранённые чарты
+  /// прежнего региона забываются.
+  void setCountry(String? code) {
+    final next = (code == null || code.isEmpty ? defaultCountry : code).toLowerCase();
+    if (next == region.value) return;
+    _charts.clear();
+    region.value = next;
+  }
 
   static const _timeout = Duration(seconds: 20);
 

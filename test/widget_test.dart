@@ -328,10 +328,21 @@ void main() {
     tester.view.physicalSize = const Size(1400, 900);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
+    // Временно: где именно переполнение строки.
+    final original = FlutterError.onError;
+    final overflows = <String>[];
+    FlutterError.onError = (details) {
+      final text = details.toString();
+      final creator = RegExp(r'creator: [^\n]*').firstMatch(text)?.group(0);
+      overflows.add('${details.exceptionAsString()} | ${creator?.substring(0, creator.length.clamp(0, 900))}');
+    };
     await tester.pumpWidget(PodcastApp(db: db, repository: repo, refreshOnStart: false));
     await settle(tester, 'запуск');
+    final atStart = [...overflows];
     await tester.tap(find.byKey(const Key('tab-settings')));
     await settle(tester, 'настройки');
+    FlutterError.onError = original;
+    expect(overflows, isEmpty, reason: 'Error: при запуске ${atStart.length}; ${overflows.join(' ;; ')}');
     final playback = tester.getTopLeft(find.text('ВОСПРОИЗВЕДЕНИЕ'));
     final look = tester.getTopLeft(find.text('ОФОРМЛЕНИЕ'));
     expect(look.dx, greaterThan(playback.dx + 300), reason: 'оформление в правой колонке');

@@ -850,7 +850,23 @@ class _WideLayout extends StatefulWidget {
   State<_WideLayout> createState() => _WideLayoutState();
 }
 
-class _WideLayoutState extends State<_WideLayout> {
+class _WideLayoutState extends State<_WideLayout> with SingleTickerProviderStateMixin {
+  /// 0 — обложка видна, 1 — главы развёрнуты вместо неё.
+  late final AnimationController _chapters = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 320),
+  );
+  late final Animation<double> _coverShown =
+      CurvedAnimation(parent: ReverseAnimation(_chapters), curve: Curves.easeInOutCubic);
+
+  @override
+  void dispose() {
+    _chapters.dispose();
+    super.dispose();
+  }
+
+  void _toggleChapters() => _chapters.isForwardOrCompleted ? _chapters.reverse() : _chapters.forward();
+
   @override
   Widget build(BuildContext context) {
     final c = BcColors.of(context);
@@ -885,111 +901,137 @@ class _WideLayoutState extends State<_WideLayout> {
         ),
       ),
       Expanded(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(48, 0, 48, 40),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(48, 0, 48, 24),
           child: LayoutBuilder(builder: (context, box) {
-            final side = box.maxWidth >= 1000;
-            final cover = side ? math.min(380.0, box.maxWidth * 0.32) : math.min(320.0, box.maxWidth);
-            final info = ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 680),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            final leftWidth = (box.maxWidth * 0.36).clamp(340.0, 440.0);
+            // Обложка — сколько позволяет высота окна: плеер под ней
+            // должен помещаться целиком.
+            final cover = math.min(leftWidth, box.maxHeight - 380);
+            final speed = _SpeedMenu(
+              audio: audio,
+              builder: (speed) => Container(
+                height: 40,
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                decoration: pill,
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Text(speed,
+                      style: TextStyle(fontFamily: displayFont, fontWeight: FontWeight.w600, fontSize: 15, color: c.ink)),
+                ]),
+              ),
+            );
+            final timer = _SleepMenu(
+              audio: audio,
+              builder: (timer, label) => Container(
+                height: 40,
+                constraints: const BoxConstraints(minWidth: 40),
+                padding: EdgeInsets.symmetric(horizontal: timer == null ? 10 : 14),
+                decoration: pill,
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  BcIcon(BcIcons.timer, size: 20, color: timer == null ? c.text : c.ink),
+                  if (timer != null) ...[
+                    const SizedBox(width: 6),
+                    Text(label, style: const TextStyle(fontSize: 13)),
+                  ],
+                ]),
+              ),
+            );
+
+            // Слева — всегда на экране: обложка, название, плеер, главы.
+            final left = _ChaptersBuilder(
+              episode: e,
+              builder: (context, chapters) => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                if (cover >= 120)
+                  SizeTransition(
+                    sizeFactor: _coverShown,
+                    axisAlignment: 1,
+                    child: FadeTransition(
+                      opacity: _coverShown,
+                      child: Padding(
+                        padding: const EdgeInsets.only(bottom: 24),
+                        child: Center(child: _Cover(url: item.artUri?.toString(), size: cover, radius: 28)),
+                      ),
+                    ),
+                  ),
                 Text(item.title,
-                    style: const TextStyle(fontFamily: displayFont, fontWeight: FontWeight.w600, fontSize: 32, height: 1.2)),
-                const SizedBox(height: 8),
-                _PodcastLink(podcast: podcast, fallback: item.album, suffix: date.isEmpty ? null : date, size: 16),
-                const SizedBox(height: 20),
-                _SeekBar(audio: audio, duration: item.duration, frost: frost),
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontFamily: displayFont, fontWeight: FontWeight.w600, fontSize: 24, height: 1.2)),
+                const SizedBox(height: 6),
+                _PodcastLink(podcast: podcast, fallback: item.album, suffix: date.isEmpty ? null : date, size: 15),
                 const SizedBox(height: 16),
-                LayoutBuilder(builder: (context, row) {
-                  final speed = _SpeedMenu(
-                    audio: audio,
-                    builder: (speed) => Container(
-                      height: 40,
-                      padding: const EdgeInsets.symmetric(horizontal: 14),
-                      decoration: pill,
-                      child: Row(mainAxisSize: MainAxisSize.min, children: [
-                        Text(speed,
-                            style: TextStyle(
-                                fontFamily: displayFont, fontWeight: FontWeight.w600, fontSize: 15, color: c.ink)),
-                      ]),
+                _SeekBar(audio: audio, duration: item.duration, frost: frost),
+                const SizedBox(height: 10),
+                Center(child: _Controls(audio: audio, now: now)),
+                const SizedBox(height: 14),
+                Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                  speed,
+                  const SizedBox(width: 8),
+                  timer,
+                  const SizedBox(width: 8),
+                  _Volume(audio: audio, frost: frost),
+                ]),
+                if (chapters.isNotEmpty && e != null) ...[
+                  const SizedBox(height: 18),
+                  Material(
+                    color: frost.tint,
+                    borderRadius: BorderRadius.circular(14),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(14),
+                      onTap: _toggleChapters,
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
+                        child: Row(children: [
+                          BcIcon(BcIcons.chapters, size: 20, color: c.text),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text('Главы · ${chapters.length}',
+                                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                          ),
+                          RotationTransition(
+                            turns: Tween(begin: 0.0, end: 0.5).animate(_chapters),
+                            child: BcIcon(BcIcons.chevronDown, size: 18, color: c.muted),
+                          ),
+                        ]),
+                      ),
                     ),
-                  );
-                  final timer = _SleepMenu(
-                    audio: audio,
-                    builder: (timer, label) => Container(
-                      height: 40,
-                      constraints: const BoxConstraints(minWidth: 40),
-                      padding: EdgeInsets.symmetric(horizontal: timer == null ? 10 : 14),
-                      decoration: pill,
-                      child: Row(mainAxisSize: MainAxisSize.min, children: [
-                        BcIcon(BcIcons.timer, size: 20, color: timer == null ? c.text : c.ink),
-                        if (timer != null) ...[
-                          const SizedBox(width: 6),
-                          Text(label, style: const TextStyle(fontSize: 13)),
-                        ],
-                      ]),
+                  ),
+                  // Развёрнутые главы занимают место обложки.
+                  Expanded(
+                    child: FadeTransition(
+                      opacity: _chapters,
+                      child: AnimatedBuilder(
+                        animation: _chapters,
+                        builder: (context, child) =>
+                            _chapters.value == 0 ? const SizedBox.shrink() : child!,
+                        child: SingleChildScrollView(
+                          padding: const EdgeInsets.fromLTRB(4, 8, 4, 8),
+                          child: ChaptersList(episodeId: e.id, chapters: chapters, dividers: true),
+                        ),
+                      ),
                     ),
-                  );
-                  final extras = [speed, const SizedBox(width: 8), timer, const SizedBox(width: 8), _Volume(audio: audio, frost: frost)];
-                  if (row.maxWidth >= 620) {
-                    return Row(children: [_Controls(audio: audio, now: now), const Spacer(), ...extras]);
-                  }
-                  return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    _Controls(audio: audio, now: now),
-                    const SizedBox(height: 12),
-                    Row(mainAxisSize: MainAxisSize.min, children: extras),
-                  ]);
-                }),
-                const SizedBox(height: 24),
-                _ChaptersBuilder(
-                  episode: e,
-                  builder: (context, chapters) {
-                    // Описание целиком: прокручивается вместе со страницей.
-                    final about = _AboutCard(frost: frost, episode: e);
-                    if (chapters.isEmpty || e == null) return about;
-                    final chapterCard = Container(
-                      decoration: BoxDecoration(color: frost.tint, borderRadius: BorderRadius.circular(16)),
-                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-                      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                        Text('Главы', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: c.muted)),
-                        const SizedBox(height: 4),
-                        ChaptersList(episodeId: e.id, chapters: chapters),
-                      ]),
-                    );
-                    return LayoutBuilder(builder: (context, inner) {
-                      if (inner.maxWidth < 600) {
-                        return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                          about,
-                          const SizedBox(height: 20),
-                          chapterCard,
-                        ]);
-                      }
-                      return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Expanded(child: about),
-                        const SizedBox(width: 20),
-                        Expanded(child: chapterCard),
-                      ]);
-                    });
-                  },
-                ),
+                  ),
+                ] else
+                  const Spacer(),
               ]),
             );
-            if (!side) {
-              return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                Center(child: _Cover(url: item.artUri?.toString(), size: cover, radius: 28)),
-                const SizedBox(height: 28),
-                info,
-              ]);
-            }
-            return Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                _Cover(url: item.artUri?.toString(), size: cover, radius: 28),
-                const SizedBox(width: 48),
-                Flexible(child: info),
-              ],
-            );
+
+            return Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              SizedBox(width: leftWidth, child: left),
+              const SizedBox(width: 48),
+              // Справа — только описание, оно листается само по себе.
+              Expanded(
+                child: Align(
+                  alignment: Alignment.topLeft,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 760),
+                    child: SingleChildScrollView(
+                      child: _AboutCard(frost: frost, episode: e),
+                    ),
+                  ),
+                ),
+              ),
+            ]);
           }),
         ),
       ),

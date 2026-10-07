@@ -15,6 +15,7 @@ import 'feed/feed_fetcher.dart';
 import 'platform/notifications.dart';
 import 'player/podcast_audio_handler.dart';
 import 'sync/sync_service.dart';
+import 'ui/scrolling.dart';
 import 'ui/app_scope.dart';
 import 'ui/diagnostics_dialog.dart';
 import 'ui/shell.dart';
@@ -210,6 +211,8 @@ class _PodcastAppState extends State<PodcastApp> {
         builder: (context, theme) => MaterialApp(
           title: 'Basic Caster',
           debugShowCheckedModeBanner: false,
+          // На компьютере списки тянутся мышью (ряды подборок, пилюли).
+          scrollBehavior: const AppScrollBehavior(),
           scaffoldMessengerKey: _messenger,
           theme: _light,
           darkTheme: _dark,

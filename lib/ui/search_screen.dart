@@ -10,6 +10,7 @@ import 'app_scope.dart';
 import 'icons.dart';
 import 'podcast_cover.dart';
 import 'podcast_screen.dart';
+import 'scrolling.dart';
 import 'shell.dart';
 import 'theme.dart';
 
@@ -286,7 +287,7 @@ class _SearchScreenState extends State<SearchScreen> {
           else if (_query.isNotEmpty)
             Expanded(child: CustomScrollView(slivers: [..._searchResults(context, side), bottom]))
           else ...[
-            _genres(context, side),
+            _genres(context, side, wide),
             Expanded(
               child: PageView.builder(
                 controller: _pages,
@@ -322,7 +323,7 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   /// Пилюли рубрик: «Все» закреплена слева, остальные уезжают под неё.
-  Widget _genres(BuildContext context, double side) {
+  Widget _genres(BuildContext context, double side, bool wide) {
     final c = BcColors.of(context);
     Widget chip(String label, bool on, VoidCallback onTap, {Key? key}) => ChoiceChip(
           key: key,
@@ -340,7 +341,11 @@ class _SearchScreenState extends State<SearchScreen> {
           child: chip('Все', _page == 0, () => _goTo(0)),
         ),
         Expanded(
-          child: ShaderMask(
+          child: ScrollArrows(
+            controller: _chips,
+            enabled: wide,
+            size: 32,
+            child: ShaderMask(
             // Пилюли растворяются у «Все», а не обрезаются ножом.
             shaderCallback: (rect) => LinearGradient(
               colors: const [Colors.transparent, Colors.black],
@@ -359,6 +364,7 @@ class _SearchScreenState extends State<SearchScreen> {
                   ),
               ]),
             ),
+          ),
           ),
         ),
       ]),
@@ -468,6 +474,13 @@ class _Shelf extends StatefulWidget {
 
 class _ShelfState extends State<_Shelf> {
   late final Future<List<CatalogPodcast>> _future = widget.future;
+  final _scroll = ScrollController();
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -504,7 +517,12 @@ class _ShelfState extends State<_Shelf> {
                         style: TextStyle(color: c.muted),
                       ),
                     )
-                  : ListView.separated(
+                  : ScrollArrows(
+                      controller: _scroll,
+                      enabled: widget.wide,
+                      top: card / 2 - 20,
+                      child: ListView.separated(
+                      controller: _scroll,
                       scrollDirection: Axis.horizontal,
                       padding: EdgeInsets.symmetric(horizontal: widget.side),
                       itemCount: items == null ? 6 : items.length.clamp(0, widget.big ? 10 : 15),
@@ -522,6 +540,7 @@ class _ShelfState extends State<_Shelf> {
                               ),
                             )
                           : _Card(podcast: items[i], size: card, rank: widget.big ? i + 1 : null),
+                    ),
                     ),
             ),
           ]),

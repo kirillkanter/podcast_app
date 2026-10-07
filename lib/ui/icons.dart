@@ -34,6 +34,7 @@ enum BcIcons {
   eyeOff('<path d="M3 3l18 18"/><path d="M10.6 5.1A10 10 0 0 1 12 5c5 0 9 4.5 10 7a13 13 0 0 1-3 4M6.6 6.6C4.5 8 2.8 10 2 12c1 2.5 5 7 10 7a10 10 0 0 0 4.4-1"/>'),
   chevronDown('<path d="m6 9 6 6 6-6"/>'),
   chevronRight('<path d="m9 6 6 6-6 6"/>'),
+  chevronLeft('<path d="m15 6-6 6 6 6"/>'),
   close('<path d="M6 6l12 12M18 6 6 18"/>'),
   trash('<path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/>'),
   alert('<circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.5v.01"/>'),

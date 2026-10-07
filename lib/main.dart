@@ -125,6 +125,7 @@ class _PodcastAppState extends State<PodcastApp> {
   StreamSubscription<bool>? _playing;
   StreamSubscription<int>? _dirtySubscriptions;
   StreamSubscription<int>? _dirtyState;
+  StreamSubscription<String?>? _lastEpisode;
   AppLifecycleListener? _lifecycle;
   Timer? _periodicSync;
   bool _notificationsChecked = false;
@@ -146,6 +147,14 @@ class _PodcastAppState extends State<PodcastApp> {
       } else {
         // Пауза или конец эпизода — отправить позицию на другие устройства.
         sync?.schedule(const Duration(seconds: 5));
+      }
+    });
+    // Последний эпизод сменился на другом устройстве (пришёл с синхронизацией):
+    // если здесь ничего не играет, он появляется в мини-плеере на паузе.
+    _lastEpisode = widget.db.watchSetting(PlayerSettings.last).skip(1).listen((value) {
+      final id = int.tryParse(value ?? '');
+      if (id != null && audio != null && audio.currentEpisodeId != id && !audio.playbackState.value.playing) {
+        audio.restoreLast();
       }
     });
     if (sync != null) {
@@ -198,6 +207,7 @@ class _PodcastAppState extends State<PodcastApp> {
     _playing?.cancel();
     _dirtySubscriptions?.cancel();
     _dirtyState?.cancel();
+    _lastEpisode?.cancel();
     _lifecycle?.dispose();
     _periodicSync?.cancel();
     super.dispose();

@@ -47,15 +47,7 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
     _player.processingStateStream.listen((state) {
       if (state == ProcessingState.completed) _onCompleted();
     });
-    // Последний эпизод сменился на другом устройстве (через синхронизацию):
-    // если здесь ничего не играет, показываем его в мини-плеере на паузе.
-    _lastSub = _db.watchSetting(PlayerSettings.last).skip(1).listen((value) {
-      final id = int.tryParse(value ?? '');
-      if (id != null && id != _episodeId && !_player.playing) unawaited(restoreLast());
-    });
   }
-
-  StreamSubscription<String?>? _lastSub;
 
   final AppDatabase _db;
   final AudioPlayer _player;

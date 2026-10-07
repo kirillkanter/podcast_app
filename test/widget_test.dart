@@ -258,6 +258,10 @@ void main() {
 
     // Свайп влево по эпизоду ленты — в архив (по умолчанию).
     await tester.drag(find.text('Второй выпуск'), const Offset(-500, 0));
+    // Строка уезжает, схлопывается, потом действие — несколько кадров.
+    for (var i = 0; i < 30; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
     await settle(tester, 'свайп влево');
     expect(find.text('Эпизод в архиве'), findsOneWidget);
     expect(find.text('Второй выпуск'), findsNothing, reason: 'архив скрыт из ленты');
@@ -270,6 +274,10 @@ void main() {
 
     // Свайп в очереди убирает эпизод.
     await tester.drag(find.text('Первый выпуск'), const Offset(-500, 0));
+    // Строка уезжает, схлопывается, потом действие — несколько кадров.
+    for (var i = 0; i < 30; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
     await settle(tester, 'свайп в очереди');
     expect(find.text('Очередь пуста'), findsOneWidget);
 

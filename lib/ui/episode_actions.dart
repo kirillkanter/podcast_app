@@ -232,50 +232,108 @@ class SwipeableEpisode extends StatefulWidget {
   State<SwipeableEpisode> createState() => _SwipeableEpisodeState();
 }
 
-class _SwipeableEpisodeState extends State<SwipeableEpisode> with SingleTickerProviderStateMixin {
+class _SwipeableEpisodeState extends State<SwipeableEpisode> with TickerProviderStateMixin {
   /// Порог — доля ширины строки.
   static const _threshold = 0.35;
 
-  double _dx = 0;
-  double _from = 0;
+  /// Сдвиг строки в пикселях.
+  late final AnimationController _offset = AnimationController.unbounded(vsync: this);
+
+  /// Высота строки: 1 — обычная, 0 — схлопнута (эпизод уходит из списка).
+  late final AnimationController _size = AnimationController(vsync: this, value: 1);
+
   bool _armed = false;
-  late final AnimationController _back = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 220),
-  )..addListener(() => setState(() => _dx = _from * (1 - Curves.easeOutCubic.transform(_back.value))));
+
+  /// Идёт анимация после отпускания — новые жесты не принимаем.
+  bool _busy = false;
+
+  @override
+  void didUpdateWidget(SwipeableEpisode old) {
+    super.didUpdateWidget(old);
+    // Строку списка заняла другая серия — вернуть её в обычный вид.
+    if (old.episode.id != widget.episode.id) {
+      _offset.value = 0;
+      _size.value = 1;
+      _armed = false;
+      _busy = false;
+    }
+  }
 
   @override
   void dispose() {
-    _back.dispose();
+    _offset.dispose();
+    _size.dispose();
     super.dispose();
   }
 
   double get _width => context.size?.width ?? 400;
 
   void _update(DragUpdateDetails d, SwipeAction left, SwipeAction right) {
-    _back.stop();
-    var dx = _dx + d.delta.dx;
+    if (_busy) return;
+    var dx = _offset.value + d.delta.dx;
     // В сторону, где действия нет, строка не тянется.
     if (left == SwipeAction.none && dx < 0) dx = 0;
     if (right == SwipeAction.none && dx > 0) dx = 0;
     final armed = dx.abs() >= _width * _threshold;
     if (armed != _armed) HapticFeedback.selectionClick();
-    setState(() {
-      _dx = dx.clamp(-_width, _width);
-      _armed = armed;
-    });
+    _offset.value = dx.clamp(-_width, _width);
+    if (armed != _armed) setState(() => _armed = armed);
   }
 
-  void _end(SwipeAction left, SwipeAction right) {
-    if (_armed) {
-      final action = _dx < 0 ? left : right;
-      // Не ждём: подтверждение и «Отменить» живут сами по себе,
-      // а строка сразу возвращается на место.
-      unawaited(EpisodeActions.run(context, action, widget.episode));
+  /// Уберёт ли действие эпизод из списка (в архив, прослушан, из очереди).
+  bool _hides(SwipeAction action) {
+    final e = widget.episode;
+    return switch (action) {
+      SwipeAction.archive => !e.archived,
+      SwipeAction.played => !e.played,
+      // В очереди свайп убирает эпизод из неё; в остальных списках
+      // «в очередь» эпизод не прячет.
+      SwipeAction.queue => e.queued && widget.left == SwipeAction.queue,
+      _ => false,
+    };
+  }
+
+  Future<void> _end(SwipeAction left, SwipeAction right) async {
+    if (_busy) return;
+    final dx = _offset.value;
+    if (!_armed || dx == 0) {
+      setState(() => _armed = false);
+      await _offset.animateTo(0, duration: const Duration(milliseconds: 220), curve: Curves.easeOutCubic);
+      return;
     }
-    _armed = false;
-    _from = _dx;
-    _back.forward(from: 0);
+    _busy = true;
+    final action = dx < 0 ? left : right;
+    final id = widget.episode.id;
+    final run = EpisodeActions.run;
+    final ctx = context;
+
+    // 1. Строка уезжает до конца — видно, какое действие сработало.
+    await _offset.animateTo(dx.sign * _width, duration: const Duration(milliseconds: 220), curve: Curves.easeOutCubic);
+    if (!mounted || widget.episode.id != id) return;
+
+    if (_hides(action)) {
+      // 2. Пауза, затем строка схлопывается, и только потом эпизод уходит
+      // из списка — без рывка.
+      await Future<void>.delayed(const Duration(milliseconds: 220));
+      if (!mounted || widget.episode.id != id) return;
+      await _size.animateTo(0, duration: const Duration(milliseconds: 240), curve: Curves.easeInCubic);
+      if (!mounted || widget.episode.id != id) return;
+      if (ctx.mounted) await run(ctx, action, widget.episode);
+      // Эпизод остался в списке (например, архив показан) — вернуть строку.
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+      if (!mounted || widget.episode.id != id) return;
+      _offset.value = 0;
+      setState(() => _armed = false);
+      await _size.animateTo(1, duration: const Duration(milliseconds: 220), curve: Curves.easeOutCubic);
+    } else {
+      // Эпизод остаётся в списке: показать подложку и вернуть строку.
+      if (ctx.mounted) unawaited(run(ctx, action, widget.episode));
+      await Future<void>.delayed(const Duration(milliseconds: 350));
+      if (!mounted || widget.episode.id != id) return;
+      setState(() => _armed = false);
+      await _offset.animateTo(0, duration: const Duration(milliseconds: 260), curve: Curves.easeOutCubic);
+    }
+    if (mounted) _busy = false;
   }
 
   @override
@@ -286,24 +344,38 @@ class _SwipeableEpisodeState extends State<SwipeableEpisode> with SingleTickerPr
     final c = BcColors.of(context);
     final row = Material(color: c.bg, child: widget.child);
     if (left == SwipeAction.none && right == SwipeAction.none) return row;
-    final action = _dx < 0 ? left : right;
-    return GestureDetector(
-      behavior: HitTestBehavior.translucent,
-      onHorizontalDragStart: (_) => _back.stop(),
-      onHorizontalDragUpdate: (d) => _update(d, left, right),
-      onHorizontalDragEnd: (_) => _end(left, right),
-      onHorizontalDragCancel: () => _end(SwipeAction.none, SwipeAction.none),
-      child: Stack(children: [
-        if (_dx != 0)
-          Positioned.fill(
-            child: _SwipeBackground(
-              look: EpisodeActions.look(action, widget.episode),
-              alignEnd: _dx < 0,
-              armed: _armed,
-            ),
-          ),
-        Transform.translate(offset: Offset(_dx, 0), child: row),
-      ]),
+    return SizeTransition(
+      sizeFactor: _size,
+      axisAlignment: -1,
+      child: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onHorizontalDragUpdate: (d) => _update(d, left, right),
+        onHorizontalDragEnd: (_) => _end(left, right),
+        onHorizontalDragCancel: () {
+          if (_busy) return;
+          setState(() => _armed = false);
+          _offset.animateTo(0, duration: const Duration(milliseconds: 220), curve: Curves.easeOutCubic);
+        },
+        child: AnimatedBuilder(
+          animation: _offset,
+          child: row,
+          builder: (context, row) {
+            final dx = _offset.value;
+            final action = dx < 0 ? left : right;
+            return Stack(children: [
+              if (dx != 0)
+                Positioned.fill(
+                  child: _SwipeBackground(
+                    look: EpisodeActions.look(action, widget.episode),
+                    alignEnd: dx < 0,
+                    armed: _armed,
+                  ),
+                ),
+              Transform.translate(offset: Offset(dx, 0), child: row),
+            ]);
+          },
+        ),
+      ),
     );
   }
 }

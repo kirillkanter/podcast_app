@@ -184,6 +184,14 @@ void main() {
     expect(find.text('Популярное'), findsOneWidget);
     expect(find.text('Популярный подкаст'), findsOneWidget);
 
+    // Рубрика открывается целиком; «назад» возвращает к «Все», а не уводит с экрана.
+    await tester.tap(find.text('Наука'));
+    await settle(tester, 'открытие рубрики');
+    expect(find.text('В этой рубрике пока ничего нет'), findsOneWidget);
+    await tester.binding.handlePopRoute();
+    await settle(tester, 'назад из рубрики');
+    expect(find.text('Популярное'), findsOneWidget);
+
     await tester.enterText(find.byKey(const Key('searchField')), 'тест');
     await tester.pump(const Duration(milliseconds: 500));
     await settle(tester, 'поиск');

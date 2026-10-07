@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../data/db/database.dart';
 import '../sync/sync_service.dart';
@@ -47,6 +48,18 @@ class AppShell extends StatefulWidget {
   /// Работает и из экранов поверх каркаса (большой плеер).
   static void openPodcast(BuildContext context, int podcastId) =>
       (context.findAncestorStateOfType<_AppShellState>() ?? _AppShellState._current)?._openPodcast(podcastId);
+
+  static final _backHandlers = <ShellTab, bool Function()>{};
+
+  /// Корневой экран раздела [tab] обрабатывает «назад» сам, пока [handler]
+  /// возвращает `true` (например, поиск возвращается к «Все»).
+  static void setBackHandler(ShellTab tab, bool Function()? handler) {
+    if (handler == null) {
+      _backHandlers.remove(tab);
+    } else {
+      _backHandlers[tab] = handler;
+    }
+  }
 
   /// Открыть очередь: на компьютере — раздел меню, на телефоне — экран
   /// поверх текущего раздела.
@@ -152,17 +165,26 @@ class _AppShellState extends State<AppShell> {
     if (!wide && !_tab.phone) {
       _tab = ShellTab.library;
     }
-    return NavigatorPopHandler(
-      onPopWithResult: (_) {
-        // Жест «назад» сначала закрывает то, что открыто поверх разделов:
-        // карточку эпизода, диалог, большой плеер. Иначе жест уходил
-        // в раздел под ними, а окно оставалось висеть.
+    // «Назад» всегда обрабатываем сами, по порядку: окно поверх разделов,
+    // экран внутри раздела, внутреннее состояние экрана (рубрика в поиске),
+    // и только потом — выход из приложения.
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
         final root = Navigator.of(context, rootNavigator: true);
         if (root.canPop()) {
           root.maybePop();
           return;
         }
-        _navigators[_tab]!.currentState?.maybePop();
+        final nested = _navigators[_tab]!.currentState;
+        if (nested != null && nested.canPop()) {
+          nested.maybePop();
+          return;
+        }
+        final handler = AppShell._backHandlers[_tab];
+        if (handler != null && handler()) return;
+        SystemNavigator.pop();
       },
       child: SwipeSettingsProvider(
         child: NowPlayingBuilder(builder: (context, now, audio) {

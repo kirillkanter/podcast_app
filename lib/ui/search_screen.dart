@@ -96,12 +96,34 @@ class SearchScreen extends StatefulWidget {
 
 class _SearchScreenState extends State<SearchScreen> {
   final _controller = TextEditingController();
+  final _pages = PageController();
+  final _chips = ScrollController();
+  final _chipKeys = [for (final _ in catalogGenres) GlobalKey()];
   Timer? _debounce;
   String _query = '';
   Future<List<CatalogPodcast>>? _results;
   Future<List<CatalogPodcast>>? _top;
-  CatalogGenre? _genre;
-  Future<List<CatalogPodcast>>? _genreList;
+  final _genreLists = <int, Future<List<CatalogPodcast>>>{};
+
+  /// Открытая страница: 0 — «Все» (подборки), 1… — рубрика catalogGenres[page - 1].
+  int _page = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    // «Назад» из рубрики — сначала к «Все», потом уже выход.
+    AppShell.setBackHandler(ShellTab.search, () {
+      if (_query.isNotEmpty) {
+        _clear();
+        return true;
+      }
+      if (_page != 0) {
+        _goTo(0);
+        return true;
+      }
+      return false;
+    });
+  }
 
   @override
   void didChangeDependencies() {
@@ -111,8 +133,11 @@ class _SearchScreenState extends State<SearchScreen> {
 
   @override
   void dispose() {
+    AppShell.setBackHandler(ShellTab.search, null);
     _debounce?.cancel();
     _controller.dispose();
+    _pages.dispose();
+    _chips.dispose();
     super.dispose();
   }
 
@@ -129,16 +154,57 @@ class _SearchScreenState extends State<SearchScreen> {
       _query = query;
       _results = query.isEmpty ? null : AppScope.of(context).catalog?.search(query);
     });
+    // Страницы рубрик заново строятся после поиска: вернуть на нужную.
+    if (query.isEmpty && _page != 0) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_pages.hasClients) _pages.jumpToPage(_page);
+        _scrollChips(_page);
+      });
+    }
   }
 
-  void _selectGenre(CatalogGenre? genre) {
-    final catalog = AppScope.of(context).catalog;
-    setState(() {
-      _genre = genre;
-      _genreList = genre == null || catalog == null
-          ? null
-          : catalog.chart(genreId: genre.id).then(catalog.withFeeds);
-    });
+  void _clear() {
+    _controller.clear();
+    _debounce?.cancel();
+    _search('');
+  }
+
+  Future<List<CatalogPodcast>> _genreList(CatalogGenre g) {
+    final catalog = AppScope.of(context).catalog!;
+    return _genreLists.putIfAbsent(g.id, () => catalog.chart(genreId: g.id).then(catalog.withFeeds));
+  }
+
+  /// Перейти на страницу: соседнюю — плавно, далёкую — сразу.
+  void _goTo(int page) {
+    if (!_pages.hasClients) return;
+    if ((page - _page).abs() <= 1) {
+      _pages.animateToPage(page, duration: const Duration(milliseconds: 280), curve: Curves.easeOutCubic);
+    } else {
+      _pages.jumpToPage(page);
+    }
+  }
+
+  void _onPage(int page) {
+    setState(() => _page = page);
+    _scrollChips(page);
+  }
+
+  /// Пилюля открытой рубрики — сразу после закреплённой «Все».
+  void _scrollChips(int page) {
+    if (!_chips.hasClients) return;
+    if (page == 0) {
+      _chips.animateTo(0, duration: const Duration(milliseconds: 250), curve: Curves.easeOutCubic);
+      return;
+    }
+    final chip = _chipKeys[page - 1].currentContext;
+    if (chip != null) {
+      Scrollable.ensureVisible(chip, alignment: 0, duration: const Duration(milliseconds: 250), curve: Curves.easeOutCubic);
+    } else {
+      // Пилюля ещё не построена (далеко за краем): прокрутка по примерной ширине.
+      _chips.jumpTo((_chips.position.maxScrollExtent * (page - 1) / catalogGenres.length)
+          .clamp(0.0, _chips.position.maxScrollExtent));
+      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollChips(page));
+    }
   }
 
   Future<void> _openUrl(String url) async {
@@ -159,108 +225,142 @@ class _SearchScreenState extends State<SearchScreen> {
     final catalog = AppScope.of(context).catalog;
     final wide = MediaQuery.sizeOf(context).width >= wideLayoutWidth;
     final side = wide ? 32.0 : 20.0;
+    final bottom = SliverToBoxAdapter(child: SizedBox(height: MediaQuery.paddingOf(context).bottom + 16));
     return Scaffold(
       backgroundColor: c.bg,
       body: SafeArea(
         bottom: false,
-        child: CustomScrollView(slivers: [
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: EdgeInsets.fromLTRB(side, wide ? 24 : 16, side, 14),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('Поиск', style: screenTitleStyle(context)),
-                const SizedBox(height: 14),
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 640),
-                  child: Container(
-                    height: 48,
-                    padding: const EdgeInsets.only(left: 16, right: 4),
-                    decoration: BoxDecoration(color: c.raised, borderRadius: BorderRadius.circular(24)),
-                    child: Row(children: [
-                      BcIcon(BcIcons.search, size: 20, color: c.muted),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: TextField(
-                          key: const Key('searchField'),
-                          controller: _controller,
-                          textInputAction: TextInputAction.search,
-                          onChanged: _onChanged,
-                          onSubmitted: (text) {
-                            _debounce?.cancel();
-                            _search(text);
-                          },
-                          style: const TextStyle(fontSize: 15),
-                          decoration: InputDecoration(
-                            hintText: 'Подкаст, автор или ссылка на RSS',
-                            hintStyle: TextStyle(color: c.muted),
-                            border: InputBorder.none,
-                            enabledBorder: InputBorder.none,
-                            focusedBorder: InputBorder.none,
-                            filled: false,
-                            isDense: true,
-                          ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Padding(
+            padding: EdgeInsets.fromLTRB(side, wide ? 24 : 16, side, 14),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('Поиск', style: screenTitleStyle(context)),
+              const SizedBox(height: 14),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 640),
+                child: Container(
+                  height: 48,
+                  padding: const EdgeInsets.only(left: 16, right: 4),
+                  decoration: BoxDecoration(color: c.raised, borderRadius: BorderRadius.circular(24)),
+                  child: Row(children: [
+                    BcIcon(BcIcons.search, size: 20, color: c.muted),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: TextField(
+                        key: const Key('searchField'),
+                        controller: _controller,
+                        textInputAction: TextInputAction.search,
+                        onChanged: _onChanged,
+                        onSubmitted: (text) {
+                          _debounce?.cancel();
+                          _search(text);
+                        },
+                        style: const TextStyle(fontSize: 15),
+                        decoration: InputDecoration(
+                          hintText: 'Подкаст, автор или ссылка на RSS',
+                          hintStyle: TextStyle(color: c.muted),
+                          border: InputBorder.none,
+                          enabledBorder: InputBorder.none,
+                          focusedBorder: InputBorder.none,
+                          filled: false,
+                          isDense: true,
                         ),
                       ),
-                      if (_controller.text.isNotEmpty)
-                        RoundIconButton(
-                          icon: BcIcons.close,
-                          tooltip: 'Очистить',
-                          size: 40,
-                          iconSize: 18,
-                          color: c.muted,
-                          onPressed: () {
-                            _controller.clear();
-                            _debounce?.cancel();
-                            _search('');
-                          },
-                        ),
-                    ]),
-                  ),
+                    ),
+                    if (_controller.text.isNotEmpty)
+                      RoundIconButton(
+                        icon: BcIcons.close,
+                        tooltip: 'Очистить',
+                        size: 40,
+                        iconSize: 18,
+                        color: c.muted,
+                        onPressed: _clear,
+                      ),
+                  ]),
                 ),
-              ]),
-            ),
+              ),
+            ]),
           ),
           if (catalog == null)
-            const SliverToBoxAdapter(child: _Message('Каталог недоступен'))
+            const _Message('Каталог недоступен')
           else if (_query.isNotEmpty)
-            ..._searchResults(context, side)
+            Expanded(child: CustomScrollView(slivers: [..._searchResults(context, side), bottom]))
           else ...[
-            SliverToBoxAdapter(child: _genres(context, side)),
-            if (_genre == null)
-              ..._collections(context, catalog, wide, side)
-            else
-              _CatalogFuture(
-                key: ValueKey(_genre!.id),
-                future: _genreList!,
-                ranked: true,
-                empty: 'В этой рубрике пока ничего нет',
-                horizontalPadding: side,
+            _genres(context, side),
+            Expanded(
+              child: PageView.builder(
+                controller: _pages,
+                onPageChanged: _onPage,
+                itemCount: catalogGenres.length + 1,
+                itemBuilder: (context, page) {
+                  if (page == 0) {
+                    return CustomScrollView(
+                      key: const PageStorageKey('search-all'),
+                      slivers: [..._collections(context, catalog, wide, side), bottom],
+                    );
+                  }
+                  final g = catalogGenres[page - 1];
+                  return CustomScrollView(
+                    key: PageStorageKey('search-${g.id}'),
+                    slivers: [
+                      _CatalogFuture(
+                        future: _genreList(g),
+                        ranked: true,
+                        empty: 'В этой рубрике пока ничего нет',
+                        horizontalPadding: side,
+                      ),
+                      bottom,
+                    ],
+                  );
+                },
               ),
+            ),
           ],
-          SliverToBoxAdapter(child: SizedBox(height: MediaQuery.paddingOf(context).bottom + 16)),
         ]),
       ),
     );
   }
 
+  /// Пилюли рубрик: «Все» закреплена слева, остальные уезжают под неё.
   Widget _genres(BuildContext context, double side) {
     final c = BcColors.of(context);
-    Widget chip(String label, bool on, VoidCallback onTap) => Padding(
-          padding: const EdgeInsets.only(right: 8),
-          child: ChoiceChip(
-            label: Text(label, maxLines: 1),
-            selected: on,
-            labelStyle: TextStyle(fontWeight: on ? FontWeight.w600 : FontWeight.w500, color: on ? c.onFill : c.text),
-            side: on ? BorderSide.none : BorderSide(color: c.line),
-            onSelected: (_) => onTap(),
-          ),
+    Widget chip(String label, bool on, VoidCallback onTap, {Key? key}) => ChoiceChip(
+          key: key,
+          label: Text(label, maxLines: 1),
+          selected: on,
+          labelStyle: TextStyle(fontWeight: on ? FontWeight.w600 : FontWeight.w500, color: on ? c.onFill : c.text),
+          side: on ? BorderSide.none : BorderSide(color: c.line),
+          onSelected: (_) => onTap(),
         );
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      padding: EdgeInsets.fromLTRB(side, 0, side, 18),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
       child: Row(children: [
-        chip('Все', _genre == null, () => _selectGenre(null)),
-        for (final g in catalogGenres) chip(g.name, _genre?.id == g.id, () => _selectGenre(g)),
+        Padding(
+          padding: EdgeInsets.only(left: side, right: 8),
+          child: chip('Все', _page == 0, () => _goTo(0)),
+        ),
+        Expanded(
+          child: ShaderMask(
+            // Пилюли растворяются у «Все», а не обрезаются ножом.
+            shaderCallback: (rect) => LinearGradient(
+              colors: const [Colors.transparent, Colors.black],
+              stops: [0, (12 / rect.width).clamp(0.0, 1.0)],
+            ).createShader(rect),
+            blendMode: BlendMode.dstIn,
+            child: SingleChildScrollView(
+              controller: _chips,
+              scrollDirection: Axis.horizontal,
+              padding: EdgeInsets.only(right: side),
+              child: Row(children: [
+                for (var i = 0; i < catalogGenres.length; i++)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: chip(catalogGenres[i].name, _page == i + 1, () => _goTo(i + 1), key: _chipKeys[i]),
+                  ),
+              ]),
+            ),
+          ),
+        ),
       ]),
     );
   }
@@ -325,16 +425,16 @@ class _SearchScreenState extends State<SearchScreen> {
           )),
         ),
       ),
-      for (final g in catalogGenres.take(8))
+      for (var i = 0; i < catalogGenres.length; i++)
         SliverToBoxAdapter(
           child: _Shelf(
-            key: ValueKey(g.id),
-            title: g.name,
-            future: catalog.chart(genreId: g.id),
+            key: ValueKey(catalogGenres[i].id),
+            title: catalogGenres[i].name,
+            future: catalog.chart(genreId: catalogGenres[i].id),
             big: false,
             wide: wide,
             side: side,
-            onAll: (_) => _selectGenre(g),
+            onAll: (_) => _goTo(i + 1),
           ),
         ),
     ];

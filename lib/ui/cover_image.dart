@@ -44,7 +44,9 @@ class CoverCache {
   /// одного адреса (обложка в двух размерах) качают файл один раз.
   Future<Uint8List> bytes(String url) => _offline
       ? Future.error(const HttpException('Обложки в тестах не загружаются'))
-      : _inflight.putIfAbsent(url, () => _bytes(url).whenComplete(() => _inflight.remove(url)));
+      : _inflight.putIfAbsent(url, () => _bytes(url).whenComplete(() {
+          _inflight.remove(url);
+        }));
 
   Future<Uint8List> _bytes(String url) async {
     if (!_pruned) {

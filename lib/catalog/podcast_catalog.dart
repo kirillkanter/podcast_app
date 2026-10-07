@@ -323,7 +323,9 @@ class PodcastCatalog {
     final key = uri.toString();
     final mem = _memory[key];
     if (mem != null && DateTime.now().difference(mem.at) < maxAge) return Future.value(mem.data);
-    return _inflight.putIfAbsent(key, () => _load(key, uri, maxAge).whenComplete(() => _inflight.remove(key)));
+    return _inflight.putIfAbsent(key, () => _load(key, uri, maxAge).whenComplete(() {
+          _inflight.remove(key);
+        }));
   }
 
   Future<Object?> _load(String key, Uri uri, Duration maxAge) async {

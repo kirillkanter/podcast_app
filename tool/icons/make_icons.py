@@ -18,10 +18,11 @@ def png(svg, size, path):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     cairosvg.svg2png(bytestring=svg.encode(), write_to=path, output_width=size, output_height=size)
 
-full = logo()                                         # цветной, на тёмном круге
+full = logo()                                         # тёмный знак на лаймовом круге
 glyph = logo(bg=False)                                # без фона — передний слой адаптивной иконки
-mono = logo(mono=True, outline_slice=True, bg=False)  # тематический значок: кусок обводкой
-stat = logo(mono=True, bg=False)                      # строка состояния: кусок залит
+# Одноцветные значки — прежние (тонкая линия, без увеличения): их рисует система.
+mono = logo(mono=True, outline_slice=True, bg=False, b=39, scale=1)  # тематический значок
+stat = logo(mono=True, bg=False, b=39, scale=1)                      # строка состояния
 
 open(f'{repo}/tool/icons/logo.svg', 'w').write(full)
 open(f'{repo}/sync-server/server/icon.svg', 'w').write(full)
@@ -48,7 +49,7 @@ open(f'{res}/mipmap-anydpi-v26/ic_launcher.xml', 'w').write('''<?xml version="1.
 os.makedirs(f'{res}/values', exist_ok=True)
 open(f'{res}/values/ic_launcher_background.xml', 'w').write('''<?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ic_launcher_background">#292929</color>
+    <color name="ic_launcher_background">#C5F52E</color>
 </resources>
 ''')
 
@@ -60,4 +61,7 @@ cairosvg.svg2png(bytestring=full.encode(), write_to=big, output_width=256, outpu
 os.makedirs(f'{repo}/tool/windows', exist_ok=True)
 Image.open(big).save(f'{repo}/tool/windows/app_icon.ico',
                      sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
+# Значок в трее Windows — тот же, что у программы.
+import shutil
+shutil.copyfile(f'{repo}/tool/windows/app_icon.ico', f'{repo}/assets/images/tray.ico')
 print('icons ok')

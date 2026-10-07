@@ -34,8 +34,14 @@ def contour(O,Ra,A,B,apex_concave,r_apex,r_arc,large):
             f'A{Ra} {Ra} 0 {large} 1 {f(b2)} A{r_arc} {r_arc} 0 0 1 {f(b1)} '
             f'L{f(b0)} A{r_apex} {r_apex} 0 0 {ap_sweep} {f(a0)}Z')
 
-def logo(mono=False, outline_slice=False, shift=(5,8.2), center=(1.5,-0.7), bg=True):
-    R, b, rc, rf, ri = 282.5, 39, 28, 30, 12
+# Цвета иконки (вариант с лаймовым фоном, октябрь 2026): фон — фирменный
+# лаймовый, знак тёмный, крупнее и толще прежнего, чтобы иконка не казалась
+# меньше соседних.
+LIME, INK = '#C5F52E', '#161616'
+
+def logo(mono=False, outline_slice=False, shift=(5,8.2), center=(1.5,-0.7), bg=True,
+         b=52, scale=1.10, bg_color=LIME, ring=INK, slice_color=INK):
+    R, rc, rf, ri = 282.5, 28, 30, 12
     O=(382.5+center[0], 382.5+center[1])
     # кольцо: край A — луч на 30°, край B — луч вверх
     eA=(O, v(30), v(120)); eB=(O, v(-90), v(180))
@@ -49,9 +55,11 @@ def logo(mono=False, outline_slice=False, shift=(5,8.2), center=(1.5,-0.7), bg=T
     if outline_slice:
         sAi=(add(Os,v(0),b), v(-90), v(0)); sBi=(add(Os,v(-60),b), v(30), v(-60))
         sl+=' '+contour(Os,Rs-b,sAi,sBi,False,8,ri,0)
-    white='white'; lime='white' if mono else '#C5F52E'
-    back='<circle cx="382.5" cy="382.5" r="382.5" fill="#292929"/>\n' if bg else ''
-    return (f'<svg width="765" height="765" viewBox="0 0 765 765" fill="none" xmlns="http://www.w3.org/2000/svg">\n{back}'
-            f'<path d="{outer} {inner}" fill="{white}" fill-rule="evenodd"/>\n'
-            f'<path d="{sl}" fill="{lime}" fill-rule="evenodd"/>\n</svg>\n')
+    ring_fill = 'white' if mono else ring
+    slice_fill = 'white' if mono else slice_color
+    back=f'<circle cx="382.5" cy="382.5" r="382.5" fill="{bg_color}"/>\n' if bg else ''
+    g = f'<g transform="translate(382.5 382.5) scale({scale}) translate(-382.5 -382.5)">' if scale != 1 else '<g>'
+    return (f'<svg width="765" height="765" viewBox="0 0 765 765" fill="none" xmlns="http://www.w3.org/2000/svg">\n{back}{g}\n'
+            f'<path d="{outer} {inner}" fill="{ring_fill}" fill-rule="evenodd"/>\n'
+            f'<path d="{sl}" fill="{slice_fill}" fill-rule="evenodd"/>\n</g>\n</svg>\n')
 

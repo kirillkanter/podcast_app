@@ -10,6 +10,7 @@ import 'shell.dart';
 import 'icons.dart';
 import 'theme.dart';
 import 'menu.dart';
+import 'marquee.dart';
 
 void _openPlayer(BuildContext context) =>
     Navigator.of(context, rootNavigator: true).push(PlayerScreen.route());
@@ -39,7 +40,7 @@ class MiniPlayer extends StatelessWidget {
                   child: Row(children: [
                     PodcastCover(url: item.artUri?.toString(), size: 44),
                     const SizedBox(width: 12),
-                    Expanded(child: _Titles(item: item)),
+                    Expanded(child: _Titles(item: item, running: now.playing)),
                     RoundIconButton(
                       icon: SkipStepIcon(audio: audio, forward: false, size: 26),
                       tooltip: 'Перемотать назад',
@@ -95,7 +96,7 @@ class DesktopPlayerBar extends StatelessWidget {
                       child: Row(children: [
                         PodcastCover(url: item.artUri?.toString(), size: 52),
                         const SizedBox(width: 12),
-                        Expanded(child: _Titles(item: item)),
+                        Expanded(child: _Titles(item: item, running: now.playing)),
                       ]),
                     ),
                   ),
@@ -143,9 +144,12 @@ class DesktopPlayerBar extends StatelessWidget {
 }
 
 class _Titles extends StatelessWidget {
-  const _Titles({required this.item});
+  const _Titles({required this.item, required this.running});
 
   final MediaItem item;
+
+  /// Играет — длинные названия бегут строкой.
+  final bool running;
 
   @override
   Widget build(BuildContext context) {
@@ -154,12 +158,13 @@ class _Titles extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        Text(item.title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: c.text)),
+        Marquee(
+          text: item.title,
+          running: running,
+          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: c.text),
+        ),
         if (item.album != null)
-          Text(item.album!, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12, color: c.muted)),
+          Marquee(text: item.album!, running: running, style: TextStyle(fontSize: 12, color: c.muted)),
       ],
     );
   }

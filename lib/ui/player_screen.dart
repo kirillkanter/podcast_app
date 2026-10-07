@@ -20,6 +20,7 @@ import 'podcast_cover.dart';
 import 'shell.dart';
 import 'theme.dart';
 import 'menu.dart';
+import 'marquee.dart';
 
 /// Цвета стекла большого плеера для светлой и тёмной темы.
 class _Frost {
@@ -237,7 +238,16 @@ class _Header extends StatelessWidget {
 
 /// Ссылка на страницу подкаста: «Наука вслух ›».
 class _PodcastLink extends StatelessWidget {
-  const _PodcastLink({required this.podcast, required this.fallback, this.suffix, this.size = 15});
+  const _PodcastLink({
+    required this.podcast,
+    required this.fallback,
+    this.suffix,
+    this.size = 15,
+    this.running = false,
+  });
+
+  /// Играет — длинное название бежит строкой.
+  final bool running;
 
   final Podcast? podcast;
   final String? fallback;
@@ -259,9 +269,9 @@ class _PodcastLink extends StatelessWidget {
           constraints: const BoxConstraints(minHeight: 32),
           child: Row(mainAxisSize: MainAxisSize.min, children: [
             Flexible(
-              child: Text(name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+              child: Marquee(
+                  text: name,
+                  running: running,
                   style: TextStyle(fontSize: size, fontWeight: FontWeight.w500, color: c.ink)),
             ),
             BcIcon(BcIcons.chevronRight, size: size + 2, color: c.ink),
@@ -690,13 +700,13 @@ class _PhoneLayoutState extends State<_PhoneLayout> {
                           Padding(
                             padding: const EdgeInsets.fromLTRB(32, 20, 32, 0),
                             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                              Text(item.title,
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
+                              Marquee(
+                                  text: item.title,
+                                  running: now.playing,
                                   style: const TextStyle(
                                       fontFamily: displayFont, fontWeight: FontWeight.w600, fontSize: 20, height: 1.25)),
                               const SizedBox(height: 4),
-                              _PodcastLink(podcast: p, fallback: item.album),
+                              _PodcastLink(podcast: p, fallback: item.album, running: now.playing),
                             ]),
                           ),
                         ]),
@@ -1003,12 +1013,17 @@ class _WideLayoutState extends State<_WideLayout> with SingleTickerProviderState
                       ),
                     ),
                   ),
-                Text(item.title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
+                Marquee(
+                    text: item.title,
+                    running: now.playing,
                     style: const TextStyle(fontFamily: displayFont, fontWeight: FontWeight.w600, fontSize: 24, height: 1.2)),
                 const SizedBox(height: 6),
-                _PodcastLink(podcast: podcast, fallback: item.album, suffix: date.isEmpty ? null : date, size: 15),
+                _PodcastLink(
+                    podcast: podcast,
+                    fallback: item.album,
+                    suffix: date.isEmpty ? null : date,
+                    size: 15,
+                    running: now.playing),
                 const SizedBox(height: 16),
                 _SeekBar(audio: audio, duration: item.duration, frost: frost),
                 const SizedBox(height: 10),
@@ -1076,13 +1091,13 @@ class _WideLayoutState extends State<_WideLayout> with SingleTickerProviderState
                     width: leftWidth,
                     child: SingleChildScrollView(
                       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                        Text(item.title,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
+                        Marquee(
+                            text: item.title,
+                            running: now.playing,
                             style: const TextStyle(
                                 fontFamily: displayFont, fontWeight: FontWeight.w600, fontSize: 18, height: 1.2)),
                         const SizedBox(height: 2),
-                        _PodcastLink(podcast: podcast, fallback: item.album, size: 14),
+                        _PodcastLink(podcast: podcast, fallback: item.album, size: 14, running: now.playing),
                         const SizedBox(height: 6),
                         _SeekBar(audio: audio, duration: item.duration, frost: frost),
                         const SizedBox(height: 4),

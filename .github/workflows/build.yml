@@ -56,8 +56,11 @@ jobs:
         run: |
           # Подробности упавших тестов выводятся аннотацией к запуску:
           # её видно на странице Actions и через API.
-          if ! flutter test --reporter expanded --timeout 120s > test.log 2>&1; then
+          if ! timeout 600 flutter test --reporter expanded --timeout 60s > test.log 2>&1; then
             cat test.log
+            # Конец лога: видно, на каком тесте всё остановилось.
+            tail_log=$(tail -25 test.log | cut -c1-300 | sed -e 's/%/%25/g' -e 's/\r//g' | awk '{printf "%s%%0A", $0}')
+            echo "::warning title=Конец лога тестов::${tail_log}"
             # Только упавшие тесты: строки с [E], блоки исключений и ожиданий,
             # без строк прогресса прошедших тестов (иначе аннотация обрезается).
             grep -E -A14 '\[E\]|EXCEPTION CAUGHT|Expected:|Error:|Exception:|relevant error-causing widget|^#[0-9]+ .*(file://|package:podcast_app)' test.log \

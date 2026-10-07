@@ -337,7 +337,7 @@ class _Feed extends StatelessWidget {
         }
         final more = items.length > _preview;
         return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          for (final item in items.take(_preview)) FeedEpisodeRow(item: item),
+          for (final item in items.take(_preview)) FeedEpisodeRow(item: item, hidesPlayed: filter != FeedFilter.downloaded),
           if (more) _ShowAll(filter: filter),
         ]);
       },
@@ -386,7 +386,10 @@ class _ShowAll extends StatelessWidget {
 
 /// Эпизод в ленте: обложка, подкаст и дата, название, прогресс, кнопка «слушать».
 class FeedEpisodeRow extends StatelessWidget {
-  const FeedEpisodeRow({super.key, required this.item, this.showDate = true});
+  const FeedEpisodeRow({super.key, required this.item, this.showDate = true, this.hidesPlayed = true});
+
+  /// Список прячет прослушанные («Новые», «Начатые»); в «Загруженных» — нет.
+  final bool hidesPlayed;
 
   final FeedEpisode item;
 
@@ -404,6 +407,7 @@ class FeedEpisodeRow extends StatelessWidget {
     final wide = MediaQuery.sizeOf(context).width >= wideLayoutWidth;
     return SwipeableEpisode(
       episode: item.ref,
+      hidesPlayed: hidesPlayed,
       child: InkWell(
       onTap: () => showEpisodeSheet(context, item.withState),
       child: Padding(

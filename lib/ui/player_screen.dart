@@ -85,7 +85,11 @@ class _PlayerScreenState extends State<PlayerScreen> with SingleTickerProviderSt
   @override
   Widget build(BuildContext context) {
     final f = _Frost(context);
-    final wide = MediaQuery.sizeOf(context).width >= wideLayoutWidth;
+    final size = MediaQuery.sizeOf(context);
+    // Телефон набок — тоже раскладка в две колонки, только компактная.
+    final landscape = size.width > size.height && size.height < 600;
+    final wide = size.width >= wideLayoutWidth || landscape;
+    final compact = size.height < 560;
     return Material(
       type: MaterialType.transparency,
       child: Transform.translate(
@@ -116,7 +120,15 @@ class _PlayerScreenState extends State<PlayerScreen> with SingleTickerProviderSt
                 return _EpisodeLoader(
                   episodeId: episodeId,
                   builder: (context, episode, podcast) => wide
-                      ? _WideLayout(frost: f, now: now, audio: audio, item: item, episode: episode, podcast: podcast)
+                      ? _WideLayout(
+                          frost: f,
+                          now: now,
+                          audio: audio,
+                          item: item,
+                          episode: episode,
+                          podcast: podcast,
+                          compact: compact,
+                        )
                       : _PhoneLayout(frost: f, now: now, audio: audio, item: item, episode: episode, podcast: podcast),
                 );
               }),
@@ -319,31 +331,34 @@ class _SeekBarState extends State<_SeekBar> {
 }
 
 class _Controls extends StatelessWidget {
-  const _Controls({required this.audio, required this.now});
+  const _Controls({required this.audio, required this.now, this.compact = false});
 
   final PodcastAudioHandler audio;
   final NowPlaying now;
+
+  /// Поменьше — для телефона, повёрнутого набок.
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
     final c = BcColors.of(context);
     Widget skip(bool forward, String tooltip, VoidCallback onPressed) => IconButton(
           tooltip: tooltip,
-          constraints: const BoxConstraints.tightFor(width: 56, height: 56),
-          icon: SkipIcon(forward: forward, seconds: forward ? 30 : 10, color: c.text),
+          constraints: BoxConstraints.tightFor(width: compact ? 48 : 56, height: compact ? 48 : 56),
+          icon: SkipIcon(forward: forward, seconds: forward ? 30 : 10, color: c.text, size: compact ? 28 : 34),
           onPressed: onPressed,
         );
     return Row(mainAxisSize: MainAxisSize.min, children: [
       skip(false, 'Назад на 10 секунд', audio.rewind),
-      const SizedBox(width: 28),
+      SizedBox(width: compact ? 18 : 28),
       SizedBox.square(
-        dimension: 80,
+        dimension: compact ? 60 : 80,
         child: Material(
           color: c.fill,
           shape: const CircleBorder(),
           child: now.loading
               ? Padding(
-                  padding: const EdgeInsets.all(26),
+                  padding: EdgeInsets.all(compact ? 18 : 26),
                   child: CircularProgressIndicator(color: c.onFill, strokeWidth: 3),
                 )
               : InkWell(
@@ -351,12 +366,13 @@ class _Controls extends StatelessWidget {
                   onTap: now.playing ? audio.pause : audio.play,
                   child: Tooltip(
                     message: now.playing ? 'Пауза' : 'Продолжить',
-                    child: Icon(now.playing ? Icons.pause_rounded : Icons.play_arrow_rounded, size: 40, color: c.onFill),
+                    child: Icon(now.playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                        size: compact ? 32 : 40, color: c.onFill),
                   ),
                 ),
         ),
       ),
-      const SizedBox(width: 28),
+      SizedBox(width: compact ? 18 : 28),
       skip(true, 'Вперёд на 30 секунд', audio.fastForward),
     ]);
   }
@@ -831,6 +847,7 @@ class _BottomAction extends StatelessWidget {
 
 class _WideLayout extends StatefulWidget {
   const _WideLayout({
+    this.compact = false,
     required this.frost,
     required this.now,
     required this.audio,
@@ -846,11 +863,16 @@ class _WideLayout extends StatefulWidget {
   final Episode? episode;
   final Podcast? podcast;
 
+  /// Телефон набок: без обложки, всё мельче, главы — под описанием справа.
+  final bool compact;
+
   @override
   State<_WideLayout> createState() => _WideLayoutState();
 }
 
 class _WideLayoutState extends State<_WideLayout> with SingleTickerProviderStateMixin {
+  bool get compact => widget.compact;
+
   /// 0 — обложка видна, 1 — главы развёрнуты вместо неё.
   late final AnimationController _chapters = AnimationController(
     vsync: this,
@@ -882,7 +904,7 @@ class _WideLayoutState extends State<_WideLayout> with SingleTickerProviderState
       _Header(
         frost: frost,
         title: podcast == null ? 'Сейчас играет' : 'Сейчас играет · ${podcast!.title}',
-        wide: true,
+        wide: !compact,
         trailing: Material(
           color: frost.tint,
           shape: const StadiumBorder(),
@@ -902,9 +924,10 @@ class _WideLayoutState extends State<_WideLayout> with SingleTickerProviderState
       ),
       Expanded(
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(48, 0, 48, 24),
+          padding: compact ? const EdgeInsets.fromLTRB(24, 0, 24, 8) : const EdgeInsets.fromLTRB(48, 0, 48, 24),
           child: LayoutBuilder(builder: (context, box) {
-            final leftWidth = (box.maxWidth * 0.36).clamp(340.0, 440.0);
+            final leftWidth =
+                compact ? (box.maxWidth * 0.45).clamp(280.0, 400.0) : (box.maxWidth * 0.36).clamp(340.0, 440.0);
             // Обложка — сколько позволяет высота окна: плеер под ней
             // должен помещаться целиком.
             final cover = math.min(leftWidth, box.maxHeight - 460);
@@ -1016,6 +1039,44 @@ class _WideLayoutState extends State<_WideLayout> with SingleTickerProviderState
               ]),
             );
 
+            if (compact) {
+              // Набок: слева плеер (листается, если не влез), справа описание с главами.
+              return _ChaptersBuilder(
+                episode: e,
+                builder: (context, chapters) => Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                  SizedBox(
+                    width: leftWidth,
+                    child: SingleChildScrollView(
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                        Text(item.title,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                                fontFamily: displayFont, fontWeight: FontWeight.w600, fontSize: 18, height: 1.2)),
+                        const SizedBox(height: 2),
+                        _PodcastLink(podcast: podcast, fallback: item.album, size: 14),
+                        const SizedBox(height: 6),
+                        _SeekBar(audio: audio, duration: item.duration, frost: frost),
+                        const SizedBox(height: 4),
+                        Center(child: _Controls(audio: audio, now: now, compact: true)),
+                        const SizedBox(height: 8),
+                        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                          speed,
+                          const SizedBox(width: 8),
+                          timer,
+                        ]),
+                      ]),
+                    ),
+                  ),
+                  const SizedBox(width: 24),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      child: _AboutCard(frost: frost, episode: e, chapters: chapters),
+                    ),
+                  ),
+                ]),
+              );
+            }
             return Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
               SizedBox(width: leftWidth, child: left),
               const SizedBox(width: 48),

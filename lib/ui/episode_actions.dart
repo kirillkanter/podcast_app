@@ -170,7 +170,17 @@ abstract final class EpisodeActions {
 
 /// Настройки свайпов для всех списков; ставится один раз в каркасе.
 class SwipeSettingsScope extends InheritedWidget {
-  const SwipeSettingsScope({super.key, required this.left, required this.right, required super.child});
+  const SwipeSettingsScope({
+    super.key,
+    required this.left,
+    required this.right,
+    this.autoArchive = true,
+    required super.child,
+  });
+
+  /// «Прослушанные — в архив»: отмеченный прослушанным эпизод уходит
+  /// из списков, где архив скрыт.
+  final bool autoArchive;
 
   /// Свайп справа налево.
   final SwipeAction left;
@@ -185,7 +195,8 @@ class SwipeSettingsScope extends InheritedWidget {
       context.dependOnInheritedWidgetOfExactType<SwipeSettingsScope>();
 
   @override
-  bool updateShouldNotify(SwipeSettingsScope oldWidget) => left != oldWidget.left || right != oldWidget.right;
+  bool updateShouldNotify(SwipeSettingsScope oldWidget) =>
+      left != oldWidget.left || right != oldWidget.right || autoArchive != oldWidget.autoArchive;
 }
 
 /// Читает настройки свайпов из базы и передаёт их вниз по дереву.
@@ -201,10 +212,14 @@ class SwipeSettingsProvider extends StatelessWidget {
       stream: db.watchSetting(QueueSettings.swipeLeft),
       builder: (context, left) => StreamBuilder<String?>(
         stream: db.watchSetting(QueueSettings.swipeRight),
-        builder: (context, right) => SwipeSettingsScope(
-          left: SwipeAction.parse(left.data, SwipeSettingsScope.defaultLeft),
-          right: SwipeAction.parse(right.data, SwipeSettingsScope.defaultRight),
-          child: child,
+        builder: (context, right) => StreamBuilder<String?>(
+          stream: db.watchSetting(QueueSettings.autoArchive),
+          builder: (context, auto) => SwipeSettingsScope(
+            left: SwipeAction.parse(left.data, SwipeSettingsScope.defaultLeft),
+            right: SwipeAction.parse(right.data, SwipeSettingsScope.defaultRight),
+            autoArchive: auto.data != 'false',
+            child: child,
+          ),
         ),
       ),
     );
@@ -219,7 +234,23 @@ class SwipeSettingsProvider extends StatelessWidget {
 /// только если отпустить строку за порогом; резкий мах не считается.
 /// После этого строка сразу возвращается на место.
 class SwipeableEpisode extends StatefulWidget {
-  const SwipeableEpisode({super.key, required this.episode, required this.child, this.left, this.right});
+  const SwipeableEpisode({
+    super.key,
+    required this.episode,
+    required this.child,
+    this.left,
+    this.right,
+    this.showsArchived = false,
+    this.hidesPlayed,
+  });
+
+  /// Список показывает и эпизоды из архива: «в архив» строку не убирает,
+  /// она только затемняется.
+  final bool showsArchived;
+
+  /// Убирает ли список прослушанные. `null` — если они уходят в архив
+  /// (настройка) и архив здесь скрыт.
+  final bool? hidesPlayed;
 
   final EpisodeRef episode;
   final Widget child;
@@ -284,8 +315,10 @@ class _SwipeableEpisodeState extends State<SwipeableEpisode> with TickerProvider
   bool _hides(SwipeAction action) {
     final e = widget.episode;
     return switch (action) {
-      SwipeAction.archive => !e.archived,
-      SwipeAction.played => !e.played,
+      SwipeAction.archive => !e.archived && !widget.showsArchived,
+      SwipeAction.played => !e.played &&
+          (widget.hidesPlayed ??
+              ((SwipeSettingsScope.maybeOf(context)?.autoArchive ?? true) && !widget.showsArchived)),
       // В очереди свайп убирает эпизод из неё; в остальных списках
       // «в очередь» эпизод не прячет.
       SwipeAction.queue => e.queued && widget.left == SwipeAction.queue,

@@ -1,3 +1,5 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 
 import '../catalog/podcast_catalog.dart';
@@ -81,6 +83,16 @@ class SettingsScreen extends StatelessWidget {
                 ),
               ),
             ]),
+            if (Platform.isAndroid) ...[
+              const SizedBox(height: 12),
+              _Card(children: [
+                const _SwitchRow(
+                  label: 'Поворачивать экран',
+                  hint: 'Альбомная ориентация, когда телефон повёрнут набок',
+                  settingKey: rotateSettingKey,
+                ),
+              ]),
+            ],
             const _SectionTitle('ПРИЛОЖЕНИЕ'),
             _Card(children: [
               _Row(

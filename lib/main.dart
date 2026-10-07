@@ -5,6 +5,7 @@ import 'package:audio_service/audio_service.dart';
 import 'package:audio_session/audio_session.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'catalog/podcast_catalog.dart';
@@ -126,6 +127,7 @@ class _PodcastAppState extends State<PodcastApp> {
   StreamSubscription<int>? _dirtySubscriptions;
   StreamSubscription<int>? _dirtyState;
   StreamSubscription<String?>? _lastEpisode;
+  StreamSubscription<String?>? _rotate;
   AppLifecycleListener? _lifecycle;
   Timer? _periodicSync;
   bool _notificationsChecked = false;
@@ -149,6 +151,14 @@ class _PodcastAppState extends State<PodcastApp> {
         sync?.schedule(const Duration(seconds: 5));
       }
     });
+    // Поворот экрана: по умолчанию разрешён, в настройках можно запретить.
+    if (Platform.isAndroid) {
+      _rotate = widget.db.watchSetting(rotateSettingKey).listen((value) {
+        SystemChrome.setPreferredOrientations(
+          value == 'false' ? const [DeviceOrientation.portraitUp] : const [],
+        );
+      });
+    }
     // Последний эпизод сменился на другом устройстве (пришёл с синхронизацией):
     // если здесь ничего не играет, он появляется в мини-плеере на паузе.
     _lastEpisode = widget.db.watchSetting(PlayerSettings.last).skip(1).listen((value) {
@@ -208,6 +218,7 @@ class _PodcastAppState extends State<PodcastApp> {
     _dirtySubscriptions?.cancel();
     _dirtyState?.cancel();
     _lastEpisode?.cancel();
+    _rotate?.cancel();
     _lifecycle?.dispose();
     _periodicSync?.cancel();
     super.dispose();

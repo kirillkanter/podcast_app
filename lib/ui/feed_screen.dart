@@ -64,7 +64,7 @@ class _FeedScreenState extends State<FeedScreen> {
   /// прослушивания, поэтому для них группы нет.
   List<Widget> _grouped(List<FeedEpisode> items, BcColors c) {
     if (_filter == FeedFilter.started) {
-      return [for (final item in items) FeedEpisodeRow(item: item)];
+      return [for (final item in items) FeedEpisodeRow(item: item, hidesPlayed: _filter != FeedFilter.downloaded)];
     }
     final out = <Widget>[];
     String? current;
@@ -78,7 +78,7 @@ class _FeedScreenState extends State<FeedScreen> {
               style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: c.muted)),
         ));
       }
-      out.add(FeedEpisodeRow(item: item, showDate: false));
+      out.add(FeedEpisodeRow(item: item, showDate: false, hidesPlayed: _filter != FeedFilter.downloaded));
     }
     return out;
   }

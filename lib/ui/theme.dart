@@ -391,6 +391,9 @@ class ThinProgress extends StatelessWidget {
   }
 }
 
+/// Поворот экрана на телефоне: `false` — только вертикально.
+const rotateSettingKey = 'ui.rotate';
+
 /// Ключ настройки темы: `system`, `light` или `dark`.
 const themeSettingKey = 'ui.theme';
 

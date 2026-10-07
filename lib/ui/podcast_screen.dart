@@ -224,7 +224,7 @@ class _PodcastScreenState extends State<PodcastScreen> {
               SliverList.separated(
                 itemCount: _visible(all).length,
                 separatorBuilder: (_, _) => Divider(height: 1, color: c.divider),
-                itemBuilder: (context, i) => _EpisodeTile(item: _visible(all)[i]),
+                itemBuilder: (context, i) => _EpisodeTile(item: _visible(all)[i], showsArchived: _showArchived),
               ),
           ],
           SliverToBoxAdapter(child: SizedBox(height: MediaQuery.paddingOf(context).bottom + 24)),
@@ -255,6 +255,7 @@ class _PodcastScreenState extends State<PodcastScreen> {
           sliver: SliverList.builder(
             itemCount: visible.length,
             itemBuilder: (context, i) => _WideEpisodeRow(
+              showsArchived: _showArchived,
               item: visible[i],
               selected: visible[i].episode.id == selected?.episode.id,
               onTap: () => setState(() => _selected = visible[i].episode.id),
@@ -699,9 +700,10 @@ class _EpisodesHeader extends StatelessWidget {
 }
 
 class _EpisodeTile extends StatelessWidget {
-  const _EpisodeTile({required this.item});
+  const _EpisodeTile({required this.item, this.showsArchived = false});
 
   final EpisodeWithState item;
+  final bool showsArchived;
 
   @override
   Widget build(BuildContext context) {
@@ -720,6 +722,7 @@ class _EpisodeTile extends StatelessWidget {
 
     return SwipeableEpisode(
       episode: item.ref,
+      showsArchived: showsArchived,
       child: InkWell(
         onTap: () => showEpisodeSheet(context, item),
         child: Opacity(
@@ -757,7 +760,9 @@ class _EpisodeTile extends StatelessWidget {
 
 /// Строка эпизода на компьютере: нажатие открывает эпизод в правой колонке.
 class _WideEpisodeRow extends StatelessWidget {
-  const _WideEpisodeRow({required this.item, required this.selected, required this.onTap});
+  const _WideEpisodeRow({required this.item, required this.selected, required this.onTap, this.showsArchived = false});
+
+  final bool showsArchived;
 
   final EpisodeWithState item;
   final bool selected;
@@ -777,6 +782,7 @@ class _WideEpisodeRow extends StatelessWidget {
     ].where((t) => t.isNotEmpty).join(' · ');
     return SwipeableEpisode(
       episode: item.ref,
+      showsArchived: showsArchived,
       child: Material(
         color: selected ? c.raised : Colors.transparent,
         borderRadius: BorderRadius.circular(14),

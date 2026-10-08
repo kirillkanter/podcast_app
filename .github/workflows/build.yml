@@ -22,8 +22,9 @@ jobs:
           channel: stable
           cache: true
       - name: Платформенные файлы
-        run: flutter create --platforms=android,windows --project-name podcast_app .
-      - run: flutter pub get
+        run: bash tool/ci_run.sh 'Платформенные файлы' flutter create --no-pub --platforms=android,windows --project-name podcast_app .
+      - name: Зависимости
+        run: bash tool/ci_run.sh 'Зависимости (pub get)' flutter pub get
       - name: Генерация кода БД
         run: bash tool/ci_run.sh 'Ошибка генерации кода' dart run build_runner build --delete-conflicting-outputs
       - name: Анализ кода

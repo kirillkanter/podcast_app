@@ -27,8 +27,8 @@ void main() {
     for (var i = 0; i < 5; i++) {
       await tester.pump(const Duration(milliseconds: 200));
     }
-    expect(find.text(long), findsNWidgets(2), reason: 'бегущая строка: текст и его продолжение');
-    final moved = tester.getTopLeft(find.text(long).first).dx;
+    expect(find.text(long), findsNWidgets(3), reason: 'невидимый текст для размера, строка и её продолжение');
+    final moved = tester.getTopLeft(find.text(long).at(1)).dx;
 
     expect(moved, lessThan(340), reason: 'строка поехала влево');
 
@@ -38,6 +38,17 @@ void main() {
     }
     expect(find.text(long), findsOneWidget);
     expect(tester.getTopLeft(find.text(long)).dx, 340, reason: 'вернулась к началу');
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('высота не меняется, когда строка начинает бежать', (tester) async {
+    await tester.pumpWidget(app(long, running: false));
+    final still = tester.getSize(find.byType(Marquee));
+    await tester.pumpWidget(app(long, running: true));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(tester.getSize(find.byType(Marquee)), still);
     await tester.pumpWidget(const SizedBox());
   });
 

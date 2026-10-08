@@ -107,10 +107,13 @@ class _MarqueeState extends State<Marquee> with SingleTickerProviderStateMixin {
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(builder: (context, box) {
+      // Тот же стиль, что получит Text (шрифт темы + свой стиль), иначе
+      // ширина посчитается для другого шрифта.
       final painter = TextPainter(
-        text: TextSpan(text: widget.text, style: widget.style),
+        text: TextSpan(text: widget.text, style: DefaultTextStyle.of(context).style.merge(widget.style)),
         textDirection: Directionality.of(context),
         textScaler: MediaQuery.textScalerOf(context),
+        textHeightBehavior: DefaultTextStyle.of(context).textHeightBehavior,
         maxLines: 1,
       )..layout();
       final changed = painter.width != _textWidth || box.maxWidth != _boxWidth;
@@ -123,9 +126,17 @@ class _MarqueeState extends State<Marquee> with SingleTickerProviderStateMixin {
 
       final line = Text(widget.text, maxLines: 1, softWrap: false, style: widget.style);
       final strip = Row(mainAxisSize: MainAxisSize.min, children: [line, SizedBox(width: widget.gap), line]);
-      return SizedBox(
-        width: box.maxWidth,
-        height: painter.height,
+      // Размер задаёт тот же неподвижный текст (невидимый), что и на паузе:
+      // высота строки не меняется, когда она начинает или перестаёт бежать.
+      return Stack(children: [
+        Visibility(
+          visible: false,
+          maintainSize: true,
+          maintainAnimation: true,
+          maintainState: true,
+          child: SizedBox(width: box.maxWidth, child: plain),
+        ),
+        Positioned.fill(
         child: AnimatedBuilder(
           animation: _scroll,
           child: strip,
@@ -153,7 +164,8 @@ class _MarqueeState extends State<Marquee> with SingleTickerProviderStateMixin {
             );
           },
         ),
-      );
+        ),
+      ]);
     });
   }
 }

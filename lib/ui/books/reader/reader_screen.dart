@@ -204,6 +204,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     WidgetsBinding.instance.removeObserver(this);
     unawaited(keepScreenOn(false));
     _clockTimer?.cancel();
+    _returnTimer?.cancel();
     if (_immersive == true) unawaited(setImmersive(false));
     _saveTimer?.cancel();
     _longPress?.cancel();
@@ -338,15 +339,26 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     if (_returnTo != null && ++_returnTurns >= 3) _returnTo = null;
   }
 
+  Timer? _returnTimer;
+
+  /// Показать «Вернуться на стр. N» на 4 секунды: дольше она закрывает текст.
+  void _offerReturn(TextLocator from) {
+    _returnTimer?.cancel();
+    setState(() {
+      _returnTo = from;
+      _returnTurns = 0;
+    });
+    _returnTimer = Timer(const Duration(seconds: 4), () {
+      if (mounted) setState(() => _returnTo = null);
+    });
+  }
+
   /// Перейти по оглавлению, поиску, закладке — запомнив, откуда.
   void _jump(TextLocator l) {
     final from = _anchor;
     _goTo(l);
     if (from.compareTo(_anchor) != 0) {
-      setState(() {
-        _returnTo = from;
-        _returnTurns = 0;
-      });
+      _offerReturn(from);
     }
   }
 
@@ -1081,12 +1093,19 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
           ),
         ),
       // Вернуться туда, откуда ушли по оглавлению, поиску или закладке.
-      if (_returnTo != null && !_menu)
+      if (!_menu)
         Positioned(
           left: 0,
           right: 0,
           bottom: _statusH + 4,
-          child: Center(child: _ReturnPill(label: _returnLabel(_returnTo!), onTap: _goBack)),
+          child: Center(
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 250),
+              child: _returnTo == null
+                  ? const SizedBox.shrink()
+                  : _ReturnPill(key: const ValueKey('return'), label: _returnLabel(_returnTo!), onTap: _goBack),
+            ),
+          ),
         ),
     ]);
   }
@@ -1100,6 +1119,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   void _goBack() {
     final to = _returnTo;
     if (to == null) return;
+    _returnTimer?.cancel();
     setState(() => _returnTo = null);
     _goTo(to);
   }
@@ -1299,10 +1319,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
         setState(() => _menu = false);
         _showPage(chapter, sheet * _step);
         if (from.compareTo(_anchor) != 0) {
-          setState(() {
-            _returnTo = from;
-            _returnTurns = 0;
-          });
+          _offerReturn(from);
         }
       },
       // Pop, а не maybePop: maybePop перехватывается и только закрывает меню.
@@ -1502,7 +1519,7 @@ class _PageView extends StatelessWidget {
 
 /// «Вернуться на стр. N» — после перехода по оглавлению, поиску, закладке.
 class _ReturnPill extends StatelessWidget {
-  const _ReturnPill({required this.label, required this.onTap});
+  const _ReturnPill({super.key, required this.label, required this.onTap});
 
   final String label;
   final VoidCallback onTap;

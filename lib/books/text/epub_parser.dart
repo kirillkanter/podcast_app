@@ -171,6 +171,26 @@ TextBookContent parseEpub(Uint8List bytes, {required String fallbackTitle}) {
     }
   }
 
+  // Все страницы spine (и нелинейные — там часто сноски): разбор и
+  // указатель «путь#id → элемент» для сносок.
+  final docs = <String, XmlDocument>{};
+  final ids = <String, XmlElement>{};
+  if (spineEl != null) {
+    for (final ref in kids(spineEl, 'itemref')) {
+      final item = manifest[attr(ref, 'idref') ?? ''];
+      if (item == null || docs.containsKey(item.path)) continue;
+      final f = file(item.path);
+      final doc = f == null ? null : _parseXml(_decode(f.content));
+      if (doc == null) continue;
+      docs[item.path] = doc;
+      for (final e in doc.descendants.whereType<XmlElement>()) {
+        final id = attr(e, 'id');
+        if (id != null && id.isNotEmpty) ids['${item.path}#$id'] = e;
+      }
+    }
+  }
+  final notes = <String, String>{};
+
   // Главы по порядку spine.
   final chapters = <TextChapter>[];
   if (spineEl != null) {
@@ -180,7 +200,11 @@ TextBookContent parseEpub(Uint8List bytes, {required String fallbackTitle}) {
       if (item == null) continue;
       final f = file(item.path);
       if (f == null) continue;
-      final blocks = xhtmlToBlocks(_decode(f.content));
+      final doc = docs[item.path];
+      final dir = p.posix.dirname(item.path) == '.' ? '' : p.posix.dirname(item.path);
+      final blocks = doc == null
+          ? xhtmlToBlocks(_decode(f.content))
+          : _docToBlocks(doc, noteRef: (a) => _noteRef(a, item.path, dir, ids, notes));
       if (blocks.isEmpty) continue;
       final title = toc[item.path] ??
           blocks.where((b) => b.kind == TextBlockKind.heading).map((b) => b.text).firstOrNull ??
@@ -198,14 +222,50 @@ TextBookContent parseEpub(Uint8List bytes, {required String fallbackTitle}) {
     description: description == null ? null : htmlToText(description),
     cover: cover,
     chapters: chapters,
+    notes: notes,
   );
+}
+
+const _blockLike = {'p', 'li', 'aside', 'div', 'section', 'dd', 'td', 'blockquote', 'body'};
+final _shortMark = RegExp(r'^[\[\(]?[0-9*†‡§a-zа-я]{1,4}[\]\)]?$', caseSensitive: false);
+
+/// Ссылка [a] — сноска? Тогда ключ сноски (текст кладётся в [notes]).
+String? _noteRef(XmlElement a, String path, String dir, Map<String, XmlElement> ids, Map<String, String> notes) {
+  final href = attr(a, 'href');
+  if (href == null || !href.contains('#')) return null;
+  final hash = href.indexOf('#');
+  final target = hash == 0 ? path : _resolve(dir, href.substring(0, hash));
+  final key = '$target#${href.substring(hash + 1)}';
+  if (notes.containsKey(key)) return key;
+  final el = ids[key];
+  if (el == null) return null;
+  final type = '${attr(a, 'type') ?? ''} ${attr(a, 'role') ?? ''}'.toLowerCase();
+  final inSup = a.ancestors.whereType<XmlElement>().any((e) => e.name.local.toLowerCase() == 'sup') ||
+      a.descendants.whereType<XmlElement>().any((e) => e.name.local.toLowerCase() == 'sup');
+  final isNote = type.contains('noteref') || type.contains('footnote') || inSup || _shortMark.hasMatch(textOf(a));
+  if (!isNote) return null;
+  // Цель — сам блок сноски или метка внутри него.
+  var block = el;
+  while (!_blockLike.contains(block.name.local.toLowerCase()) && block.parentElement != null) {
+    block = block.parentElement!;
+  }
+  final blockName = block.name.local.toLowerCase();
+  if (blockName == 'body') return null;
+  var text = textOf(block);
+  // Ссылка на начало главы, а не на сноску.
+  if (text.length > 3000 && blockName != 'aside') return null;
+  // Номер-ссылка обратно в начале сноски («1.», «[1]») не нужен.
+  text = text.replaceFirst(RegExp(r'^[\[\(]?[0-9*†‡]{1,4}[\]\)\.]?\s+'), '');
+  if (text.isEmpty) return null;
+  notes[key] = text.length > 4000 ? '${text.substring(0, 4000)}…' : text;
+  return key;
 }
 
 /// XHTML-страница → абзацы.
 List<TextBlock> xhtmlToBlocks(String html) {
   final doc = _parseXml(html);
-  final out = <TextBlock>[];
   if (doc == null) {
+    final out = <TextBlock>[];
     // Не XML (битая разметка) — хотя бы текст абзацами.
     for (final para in htmlToText(html).split(RegExp(r'\n+'))) {
       final b = BlockBuilder()..add(para);
@@ -214,18 +274,33 @@ List<TextBlock> xhtmlToBlocks(String html) {
     }
     return out;
   }
+  return _docToBlocks(doc);
+}
+
+/// Сноски (aside с epub:type footnote/endnote) в текст не идут — они
+/// показываются по нажатию на ссылку.
+bool _isNoteAside(XmlElement e) {
+  final n = e.name.local.toLowerCase();
+  if (n != 'aside') return false;
+  final t = (attr(e, 'type') ?? '').toLowerCase();
+  return t.contains('footnote') || t.contains('endnote') || t.contains('rearnote') || t.contains('note');
+}
+
+List<TextBlock> _docToBlocks(XmlDocument doc, {String? Function(XmlElement link)? noteRef}) {
+  final out = <TextBlock>[];
   final body = doc.descendants.whereType<XmlElement>().where((e) => e.name.local.toLowerCase() == 'body').firstOrNull ??
       doc.rootElement;
-  final w = _Walker(out);
+  final w = _Walker(out, noteRef);
   w.walk(body, TextBlockKind.paragraph, false, false);
   w.flush(TextBlockKind.paragraph);
   return out;
 }
 
 class _Walker {
-  _Walker(this.out);
+  _Walker(this.out, this.noteRef);
 
   final List<TextBlock> out;
+  final String? Function(XmlElement link)? noteRef;
   final b = BlockBuilder();
 
   void flush(TextBlockKind kind) {
@@ -233,16 +308,24 @@ class _Walker {
     if (block != null) out.add(block);
   }
 
-  void walk(XmlElement e, TextBlockKind kind, bool bold, bool italic) {
+  void walk(XmlElement e, TextBlockKind kind, bool bold, bool italic, [String? note]) {
     for (final c in e.children) {
       final text = dataOf(c);
       if (text != null) {
-        b.add(text, bold: bold, italic: italic);
+        b.add(text, bold: bold, italic: italic, note: note);
         continue;
       }
       if (c is! XmlElement) continue;
       final n = c.name.local.toLowerCase();
       if (_skip.contains(n)) continue;
+      if (_isNoteAside(c)) continue;
+      if (n == 'a' && note == null && noteRef != null) {
+        final ref = noteRef!(c);
+        if (ref != null) {
+          walk(c, kind, bold, italic, ref);
+          continue;
+        }
+      }
       if (n == 'br') {
         flush(kind);
         continue;
@@ -262,7 +345,7 @@ class _Walker {
         flush(verse && inner == TextBlockKind.paragraph ? TextBlockKind.verse : inner);
         continue;
       }
-      walk(c, kind, bold || _bold.contains(n), italic || _italic.contains(n));
+      walk(c, kind, bold || _bold.contains(n), italic || _italic.contains(n), note);
     }
   }
 }

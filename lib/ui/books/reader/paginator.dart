@@ -52,7 +52,7 @@ class BlockLook {
   final double after;
 }
 
-BlockLook blockLook(TextBlockKind kind, TextStyle base) {
+BlockLook blockLook(TextBlockKind kind, TextStyle base, {bool justify = true}) {
   final fs = base.fontSize ?? 18;
   final gap = fs * 0.3;
   return switch (kind) {
@@ -77,7 +77,7 @@ BlockLook blockLook(TextBlockKind kind, TextStyle base) {
         after: gap,
       ),
     TextBlockKind.empty => BlockLook(style: base),
-    TextBlockKind.paragraph => BlockLook(style: base, after: gap),
+    TextBlockKind.paragraph => BlockLook(style: base, after: gap, align: justify ? TextAlign.justify : TextAlign.left),
   };
 }
 
@@ -94,13 +94,18 @@ TextSpan fragmentSpan(
   required bool indent,
   ({int start, int end})? highlight,
   Color? highlightColor,
+  Color? noteColor,
 }) {
+  final fs = look.style.fontSize ?? 18;
   TextStyle? styleOf(TextRun r, bool lit) {
-    if (!r.bold && !r.italic && !lit) return null;
+    if (!r.bold && !r.italic && !lit && r.note == null) return null;
     return TextStyle(
-      fontWeight: r.bold ? FontWeight.w700 : null,
+      fontWeight: r.bold ? FontWeight.w700 : (r.note != null ? FontWeight.w600 : null),
       fontStyle: r.italic ? FontStyle.italic : null,
       backgroundColor: lit ? highlightColor : null,
+      // Ссылка на сноску — мельче и цветом, как в бумажной книге.
+      fontSize: r.note != null ? fs * 0.78 : null,
+      color: r.note != null ? noteColor : null,
     );
   }
 
@@ -130,6 +135,7 @@ List<ReaderPage> paginateChapter(
   required double height,
   required TextStyle base,
   required TextScaler scaler,
+  bool justify = true,
 }) {
   final pages = <ReaderPage>[];
   var frags = <PageFragment>[];
@@ -145,7 +151,7 @@ List<ReaderPage> paginateChapter(
 
   for (var i = 0; i < chapter.blocks.length; i++) {
     final block = chapter.blocks[i];
-    final look = blockLook(block.kind, base);
+    final look = blockLook(block.kind, base, justify: justify);
     if (block.kind == TextBlockKind.empty) {
       final h = lineHeight * 0.6;
       if (frags.isEmpty) continue; // пустая строка в начале страницы не нужна

@@ -178,6 +178,11 @@ void main() {
       expect(verses, ['Строка один', 'Строка два']);
       // Примечания в главы не попадают.
       expect(book.chapters.expand((c) => c.blocks).any((b) => b.text == 'Примечание'), isFalse);
+      // Ссылка на примечание — сноска по нажатию.
+      final noted = first.firstWhere((b) => b.text.startsWith('Второй'));
+      final ref = noted.runs.firstWhere((r) => r.note != null);
+      expect(ref.text, '[1]');
+      expect(book.notes[ref.note], 'Примечание');
     });
 
     test('EPUB 3: оглавление, главы, сущности HTML, обложка', () {
@@ -198,6 +203,15 @@ void main() {
       final p1 = book.chapters.first.blocks[1];
       expect(p1.runs.where((r) => r.italic).map((r) => r.text), ['dark']);
       expect(book.chapters.first.blocks.first.kind, TextBlockKind.heading);
+    });
+
+    test('EPUB: сноска по ссылке, текст сноски не в главе', () {
+      final book = parseTextBook(epubSample(), 'epub', fallbackTitle: 'файл');
+      final second = book.chapters[1].blocks;
+      expect(second.map((b) => b.text), ['Second chapter.1']);
+      final ref = second.single.runs.firstWhere((r) => r.note != null);
+      expect(ref.text, '1');
+      expect(book.notes[ref.note], 'A short note.');
     });
 
     test('TXT: главы по строкам «Глава», windows-1251', () {

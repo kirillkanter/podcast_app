@@ -50,6 +50,7 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
         if (!_activated) unawaited(_activate());
         _saveTimer = Timer.periodic(positionSaveInterval, (_) => _savePosition());
       } else {
+        _pausedAt = DateTime.now();
         _savePosition();
         // Пауза в книге — место сразу на сервер (другое устройство может
         // понадобиться через минуту).
@@ -304,10 +305,30 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
     await _db.setSetting(PlayerSettings.last, '');
   }
 
+  /// Когда поставили на паузу (для отмотки назад после паузы в книге).
+  DateTime? _pausedAt;
+
+  /// Отмотка назад после паузы в книге: чем дольше пауза, тем больше —
+  /// чтобы вспомнить, на чём остановились.
+  static Duration smartRewind(Duration pause) {
+    if (pause < const Duration(seconds: 10)) return Duration.zero;
+    if (pause < const Duration(minutes: 5)) return const Duration(seconds: 3);
+    if (pause < const Duration(hours: 1)) return const Duration(seconds: 10);
+    return const Duration(seconds: 20);
+  }
+
   @override
   Future<void> play() async {
     final episodeId = _episodeId;
     if (_starting) return; // уже запускаемся
+    final pausedAt = _pausedAt;
+    _pausedAt = null;
+    if (_bookId != null && pausedAt != null && !_player.playing && _player.processingState == ProcessingState.ready) {
+      final back = smartRewind(DateTime.now().difference(pausedAt));
+      if (back > Duration.zero && await _db.setting(BookSettings.smartResume) != 'false') {
+        await seekBook(bookPosition - back);
+      }
+    }
     if (episodeId != null && !_player.playing && _player.processingState == ProcessingState.ready) {
       final token = ++_startToken;
       // Кнопка сразу показывает «играет», а пока проверяем прогресс:

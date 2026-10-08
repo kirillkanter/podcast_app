@@ -17,6 +17,7 @@ import 'book_import.dart';
 import 'book_screen.dart';
 import 'book_start.dart';
 import 'book_widgets.dart';
+import 'reader/reading_stats.dart';
 
 enum _Filter {
   reading('В процессе'),
@@ -132,6 +133,11 @@ class _BooksScreenState extends State<BooksScreen> with WidgetsBindingObserver {
                     padding: EdgeInsets.fromLTRB(wide ? 32 : 20, 20, wide ? 24 : 12, 8),
                     child: Row(children: [
                       Expanded(child: Text('Книги', style: screenTitleStyle(context).copyWith(fontSize: wide ? 30 : 26))),
+                      IconButton(
+                        tooltip: 'Статистика чтения',
+                        onPressed: () => showReadingStats(context),
+                        icon: Icon(Icons.insights_rounded, color: c.text),
+                      ),
                       IconButton(
                         tooltip: 'Обновить: проверить папки с книгами и синхронизировать',
                         onPressed: _refreshing ? null : _refresh,

@@ -20,6 +20,9 @@ typedef DirtyBookProgress = ({
 
 /// Ключи настроек книг.
 abstract final class BookSettings {
+  /// Отматывать назад после паузы в аудиокниге ('false' — нет).
+  static const smartResume = 'books.smartResume';
+
   /// Ревизия books.php, до которой всё получено.
   static const syncSince = 'books.since';
 

@@ -93,7 +93,7 @@ const fb2Sample = '''<?xml version="1.0" encoding="windows-1251"?>
       <epigraph><p>Эпиграф</p></epigraph>
       <p>Говорили, что на набережной появилось <emphasis>новое лицо</emphasis>.</p>
       <empty-line/>
-      <p>Второй <strong>абзац</strong>.</p>
+      <p>Второй <strong>абзац</strong>.<a l:href="#n1" type="note">[1]</a></p>
     </section>
     <section>
       <title><p>Ионыч</p></title>
@@ -148,6 +148,8 @@ Uint8List epubSample() {
 <p>Line one<br/>Line two</p>
 </body></html>'''))
     ..addFile(ArchiveFile.string('OEBPS/text/ch2.xhtml',
-        '<html xmlns="http://www.w3.org/1999/xhtml"><body><p id="start">Second chapter.</p></body></html>'));
+        '<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><body>'
+        '<p id="start">Second chapter.<sup><a epub:type="noteref" href="#fn1">1</a></sup></p>'
+        '<aside epub:type="footnote" id="fn1"><p>1. A short note.</p></aside></body></html>'));
   return ZipEncoder().encodeBytes(archive);
 }

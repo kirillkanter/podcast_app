@@ -205,6 +205,11 @@ class SettingsScreen extends StatelessWidget {
             onTap: () => pickBookFolder(context),
             trailing: BcIcon(BcIcons.plus, size: 20, color: c.muted),
           ),
+          const _SwitchRow(
+            label: 'Отматывать назад после паузы',
+            hint: 'В аудиокниге: после короткой паузы — на 3 секунды, после долгой — до 20 секунд',
+            settingKey: BookSettings.smartResume,
+          ),
           _Row(
             label: 'Вернуть убранные аудиокниги',
             hint: 'Книги из папок, которые убирали из библиотеки',

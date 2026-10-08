@@ -1,6 +1,8 @@
-/// Меню книги, как в Kindle: страница уменьшается, соседние видны по бокам,
-/// их можно листать; ушли со своей страницы — кнопка «Вернуться на стр. N».
-/// Внизу — мини-плеер (если что-то играет), ползунок по книге и кнопки.
+/// Меню книги, как в Kindle: открытая страница уменьшается (весь экран
+/// целиком, с полями), соседние видны по бокам, их можно листать; ушли со
+/// своей страницы — кнопка «Вернуться на стр. N». Внизу — мини-плеер (если
+/// что-то играет), ползунок по книге и кнопки. Открытие и закрытие — та же
+/// страница плавно меняет размер.
 library;
 
 import 'dart:async';
@@ -17,7 +19,7 @@ import '../../theme.dart';
 import '../book_start.dart';
 import 'reader_style.dart';
 
-/// Книга глазами меню: сколько глав и страниц, как нарисовать страницу.
+/// Книга глазами меню: сколько глав и листов, как нарисовать экран.
 abstract class MenuBook {
   int get chapterCount;
 
@@ -30,10 +32,13 @@ abstract class MenuBook {
   /// Номера страниц листа: «31» или «31–32».
   String pageNumbers(int chapter, int sheet);
   String chapterTitle(int chapter);
-  Widget page(int chapter, int page);
-  double percentAt(int chapter, int page);
+
+  /// Экран читалки с этим листом — во весь размер экрана, с полями и
+  /// строками над и под текстом (меню его уменьшает).
+  Widget screen(int chapter, int sheet);
+  double percentAt(int chapter, int sheet);
   ({int chapter, int page}) locate(double percent);
-  bool bookmarked(int chapter, int page);
+  bool bookmarked(int chapter, int sheet);
 }
 
 class ReaderMenu extends StatefulWidget {
@@ -45,7 +50,7 @@ class ReaderMenu extends StatefulWidget {
     required this.chapter,
     required this.page,
     required this.paper,
-    required this.pageSize,
+    required this.screenSize,
     required this.onOpenPage,
     required this.onExit,
     required this.onToggleBookmark,
@@ -53,50 +58,88 @@ class ReaderMenu extends StatefulWidget {
     required this.onBookmarks,
     required this.onStyle,
     required this.onSearch,
+    required this.onStats,
   });
 
   final String bookTitle;
   final String? author;
   final MenuBook book;
 
-  /// Где читаем.
+  /// Где читаем (лист).
   final int chapter;
   final int page;
   final Paper paper;
-  final Size pageSize;
-  final void Function(int chapter, int page) onOpenPage;
+
+  /// Размер экрана читалки (меню показывает его уменьшенным).
+  final Size screenSize;
+
+  /// Меню закрылось на листе [sheet] главы [chapter] (анимация уже прошла).
+  final void Function(int chapter, int sheet) onOpenPage;
   final VoidCallback onExit;
 
-  /// Поставить или убрать закладку на странице, которая сейчас в центре ленты.
-  final void Function(int chapter, int page) onToggleBookmark;
+  /// Поставить или убрать закладку на листе, который сейчас в центре ленты.
+  final void Function(int chapter, int sheet) onToggleBookmark;
   final VoidCallback onContents;
   final VoidCallback onBookmarks;
   final VoidCallback onStyle;
   final VoidCallback onSearch;
+  final VoidCallback onStats;
 
   @override
-  State<ReaderMenu> createState() => _ReaderMenuState();
+  State<ReaderMenu> createState() => ReaderMenuState();
 }
 
-
-class _ReaderMenuState extends State<ReaderMenu> {
-  /// Глава, страницы которой сейчас в ленте. По краям ленты — по странице
-  /// соседних глав: долистали до неё — лента переходит на ту главу.
+class ReaderMenuState extends State<ReaderMenu> with SingleTickerProviderStateMixin {
+  /// Глава, листы которой сейчас в ленте. По краям ленты — по листу
+  /// соседних глав: долистали до него — лента переходит на ту главу.
   late int _ch = widget.chapter;
 
   /// Доля ширины ленты под один лист: столько, чтобы между листами были
-  /// небольшие зазоры (в альбомной ориентации листы шире).
+  /// небольшие зазоры.
   double _fraction = 0.62;
   bool _sized = false;
   late PageController _pages = PageController(initialPage: _pre + widget.page, viewportFraction: _fraction);
   late int _index = _pre + widget.page;
   double? _drag;
 
+  /// 0 — экран во весь размер (читалка), 1 — меню.
+  late final AnimationController _zoom = AnimationController(vsync: this, duration: const Duration(milliseconds: 280));
+
+  /// Лист, который сейчас увеличивается или уменьшается; `null` — анимации нет.
+  ({int chapter, int page})? _flying = (chapter: -1, page: -1);
+  bool _closing = false;
+
+  final _rootKey = GlobalKey();
+  final _areaKey = GlobalKey();
+
+  /// Размер уменьшенного экрана в ленте.
+  Size _mini = Size.zero;
+
   int get _pre => _ch > 0 ? 1 : 0;
   int get _count => widget.book.pageCount(_ch);
   int get _post => _ch < widget.book.chapterCount - 1 ? 1 : 0;
 
-  /// Глава и страница элемента ленты [i].
+  @override
+  void initState() {
+    super.initState();
+    _flying = (chapter: widget.chapter, page: widget.page);
+    _zoom.addListener(() => setState(() {}));
+    // Первый кадр — экран во весь размер; дальше он уменьшается до места в ленте.
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      await _zoom.animateTo(1, curve: Curves.easeOutCubic);
+      if (mounted && !_closing) setState(() => _flying = null);
+    });
+  }
+
+  @override
+  void dispose() {
+    _zoom.dispose();
+    _pages.dispose();
+    super.dispose();
+  }
+
+  /// Глава и лист элемента ленты [i].
   ({int chapter, int page}) _at(int i) {
     if (_pre == 1 && i == 0) return (chapter: _ch - 1, page: widget.book.pageCount(_ch - 1) - 1);
     final p = i - _pre;
@@ -108,13 +151,37 @@ class _ReaderMenuState extends State<ReaderMenu> {
 
   bool get _away => _shown.chapter != widget.chapter || _shown.page != widget.page;
 
-  @override
-  void dispose() {
-    _pages.dispose();
-    super.dispose();
+  /// Закрыть меню: лист в центре увеличивается во весь экран. [toReading] —
+  /// вернуться на лист, с которого открыли меню.
+  Future<void> close({bool toReading = false}) async {
+    if (_closing) return;
+    var at = _shown;
+    if (toReading && _away) {
+      _show(widget.chapter, widget.page);
+      at = (chapter: widget.chapter, page: widget.page);
+    }
+    await _closeOn(at);
   }
 
-  /// Показать страницу [page] главы [chapter]: та же глава — листаем,
+  Future<void> _closeOn(({int chapter, int page}) at) async {
+    _closing = true;
+    setState(() => _flying = at);
+    await _zoom.animateBack(0, curve: Curves.easeInCubic);
+    if (mounted) widget.onOpenPage(at.chapter, at.page);
+  }
+
+  Future<void> _tapItem(int i) async {
+    if (_closing || _flying != null) return;
+    if (i != _index && _pages.hasClients) {
+      // Сначала лист — в центр, потом увеличивается.
+      await _pages.animateToPage(i, duration: const Duration(milliseconds: 220), curve: Curves.easeOutCubic);
+      if (!mounted) return;
+      _index = i;
+    }
+    await _closeOn(_at(i));
+  }
+
+  /// Показать лист [page] главы [chapter]: та же глава — листаем,
   /// другая — перестраиваем ленту.
   void _show(int chapter, int page, {bool animate = false}) {
     if (chapter == _ch && _pages.hasClients) {
@@ -148,7 +215,7 @@ class _ReaderMenuState extends State<ReaderMenu> {
   bool _onScrollEnd(ScrollNotification n) {
     if (n is ScrollEndNotification && n.depth == 0) {
       final at = _shown;
-      // Остановились на странице соседней главы — переходим на неё.
+      // Остановились на листе соседней главы — переходим на неё.
       if (at.chapter != _ch) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) _show(at.chapter, at.page);
@@ -158,6 +225,20 @@ class _ReaderMenuState extends State<ReaderMenu> {
     return false;
   }
 
+  /// Где в меню лежит лист из центра ленты.
+  Rect? _targetRect() {
+    final root = _rootKey.currentContext?.findRenderObject() as RenderBox?;
+    final area = _areaKey.currentContext?.findRenderObject() as RenderBox?;
+    if (root == null || area == null || !area.hasSize || _mini == Size.zero) return null;
+    final center = root.globalToLocal(area.localToGlobal(area.size.center(Offset.zero)));
+    return Rect.fromCenter(center: center, width: _mini.width, height: _mini.height);
+  }
+
+  Widget _miniScreen(int chapter, int sheet) => FittedBox(
+        fit: BoxFit.fill,
+        child: SizedBox.fromSize(size: widget.screenSize, child: widget.book.screen(chapter, sheet)),
+      );
+
   @override
   Widget build(BuildContext context) {
     final c = BcColors.of(context);
@@ -165,173 +246,207 @@ class _ReaderMenuState extends State<ReaderMenu> {
     final shade = dark ? const Color(0xFF0E0E0E) : const Color(0xFFE6E6E0);
     final shown = _shown;
     final percent = _drag ?? widget.book.percentAt(shown.chapter, shown.page);
-    return Material(
-      color: shade,
-      child: SafeArea(
-        child: Column(children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(4, 4, 4, 0),
-            child: Row(children: [
-              IconButton(
-                tooltip: 'Закрыть книгу',
-                icon: BcIcon(BcIcons.chevronLeft, color: c.text),
-                onPressed: widget.onExit,
+    // Телефон набок: места по высоте мало — всё в одну строку.
+    final compact = widget.screenSize.height < 520;
+    final t = _zoom.value;
+    final chrome = Curves.easeOut.transform(t);
+
+    Widget fade(Widget child) => Opacity(opacity: chrome, child: child);
+
+    final header = Padding(
+      padding: EdgeInsets.fromLTRB(4, compact ? 0 : 4, 4, 0),
+      child: Row(children: [
+        IconButton(
+          tooltip: 'Закрыть книгу',
+          icon: BcIcon(BcIcons.chevronLeft, color: c.text),
+          onPressed: widget.onExit,
+        ),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+            Text(widget.bookTitle,
+                maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+            Text(
+              compact
+                  ? '${widget.book.chapterTitle(shown.chapter)} · стр. ${widget.book.pageNumbers(shown.chapter, shown.page)} из ${widget.book.pagesInChapter(shown.chapter)}'
+                  : (widget.author ?? ''),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 12, color: c.muted),
+            ),
+          ]),
+        ),
+        IconButton(tooltip: 'Статистика чтения', icon: Icon(Icons.insights_rounded, color: c.text), onPressed: widget.onStats),
+        IconButton(tooltip: 'Поиск по книге', icon: BcIcon(BcIcons.search, color: c.text), onPressed: widget.onSearch),
+        Builder(builder: (context) {
+          final marked = widget.book.bookmarked(shown.chapter, shown.page);
+          return IconButton(
+            tooltip: marked ? 'Убрать закладку' : 'Закладка на этой странице',
+            icon: Icon(marked ? Icons.bookmark : Icons.bookmark_outline, color: marked ? c.ink : c.text),
+            onPressed: () => widget.onToggleBookmark(shown.chapter, shown.page),
+          );
+        }),
+      ]),
+    );
+
+    final chapterLine = Padding(
+      padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
+      child: Row(children: [
+        Expanded(
+          child: Text(widget.book.chapterTitle(shown.chapter),
+              maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+        ),
+        Text(
+            'стр. ${widget.book.pageNumbers(shown.chapter, shown.page)} из ${widget.book.pagesInChapter(shown.chapter)} · ${(percent * 100).floor()} %',
+            style: TextStyle(fontSize: 12, color: c.muted, fontFeatures: const [FontFeature.tabularFigures()])),
+      ]),
+    );
+
+    final back = AnimatedSwitcher(
+      duration: const Duration(milliseconds: 180),
+      child: !_away
+          ? const SizedBox.shrink()
+          : FilledButton.icon(
+              key: const ValueKey('back'),
+              style: FilledButton.styleFrom(minimumSize: const Size(0, 36), shape: const StadiumBorder()),
+              onPressed: () => _show(widget.chapter, widget.page, animate: true),
+              icon: const Icon(Icons.undo_rounded, size: 18),
+              label: Text('Вернуться на стр. ${widget.book.pageNumbers(widget.chapter, widget.page)}'),
+            ),
+    );
+
+    final strip = LayoutBuilder(builder: (context, box) {
+      final screen = widget.screenSize;
+      final h = box.maxHeight - (compact ? 12 : 24);
+      final byHeight = h / screen.height;
+      final wanted = ((screen.width * byHeight + 28) / box.maxWidth).clamp(0.3, 0.86);
+      if (!_sized) {
+        // Первый показ: сразу нужная ширина, без перескока.
+        _sized = true;
+        if ((wanted - _fraction).abs() > 0.02) {
+          _pages.dispose();
+          _fraction = wanted;
+          _pages = PageController(initialPage: _index, viewportFraction: wanted);
+        }
+      } else if ((wanted - _fraction).abs() > 0.02) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _setFraction(wanted);
+        });
+      }
+      final w = box.maxWidth * _fraction - 28;
+      final scale = math.min(byHeight, w / screen.width).clamp(0.05, 1.0);
+      _mini = Size(screen.width * scale, screen.height * scale);
+      return NotificationListener<ScrollNotification>(
+        onNotification: _onScrollEnd,
+        child: PageView.builder(
+          key: ValueKey('$_ch/$_fraction'),
+          controller: _pages,
+          pageSnapping: false,
+          physics: _FlingPagePhysics(fraction: _fraction),
+          itemCount: _pre + _count + _post,
+          onPageChanged: (i) => setState(() => _index = i),
+          itemBuilder: (context, i) {
+            final at = _at(i);
+            final current = at.chapter == widget.chapter && at.page == widget.page;
+            return Center(
+              child: GestureDetector(
+                onTap: () => _tapItem(i),
+                child: AnimatedScale(
+                  duration: const Duration(milliseconds: 200),
+                  scale: i == _index ? 1 : 0.92,
+                  child: Container(
+                    width: _mini.width,
+                    height: _mini.height,
+                    foregroundDecoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(8),
+                      border: current ? Border.all(color: c.bar, width: 2) : null,
+                    ),
+                    decoration: BoxDecoration(
+                      color: widget.paper.bg,
+                      borderRadius: BorderRadius.circular(8),
+                      boxShadow: const [BoxShadow(color: Color(0x59000000), blurRadius: 24, offset: Offset(0, 8))],
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: IgnorePointer(child: _miniScreen(at.chapter, at.page)),
+                  ),
+                ),
               ),
+            );
+          },
+        ),
+      );
+    });
+
+    final slider = Slider(
+      value: percent.clamp(0.0, 1.0),
+      // Ползунок листает ленту на ходу; книга не открывается — открыть лист
+      // можно нажатием на него.
+      onChanged: (v) {
+        final at = widget.book.locate(v);
+        setState(() => _drag = v);
+        if (at.chapter != _shown.chapter || at.page != _shown.page) _show(at.chapter, at.page);
+      },
+      onChangeEnd: (_) => setState(() => _drag = null),
+    );
+    final percentText = SizedBox(
+      width: 44,
+      child: Text('${(percent * 100).floor()} %', textAlign: TextAlign.right, style: TextStyle(fontSize: 12, color: c.muted)),
+    );
+    final actions = [
+      _Action(icon: const BcIcon(BcIcons.chapters, size: 22), label: 'Оглавление', onTap: widget.onContents, compact: compact),
+      _Action(icon: const BcIcon(BcIcons.bookmark, size: 22), label: 'Закладки', onTap: widget.onBookmarks, compact: compact),
+      _Action(
+        icon: const Text('Аа', style: TextStyle(fontFamily: 'PTSerif', fontSize: 19, fontWeight: FontWeight.w700)),
+        label: 'Текст',
+        onTap: widget.onStyle,
+        compact: compact,
+      ),
+    ];
+    final bottom = Container(
+      decoration: BoxDecoration(color: c.card, border: Border(top: BorderSide(color: c.divider))),
+      padding: EdgeInsets.fromLTRB(16, compact ? 2 : 6, 16, compact ? 2 : 8),
+      child: compact
+          ? Row(children: [...actions, Expanded(child: slider), percentText])
+          : Column(mainAxisSize: MainAxisSize.min, children: [
+              Row(children: [Expanded(child: slider), percentText]),
+              Row(children: [for (final a in actions) Expanded(child: a)]),
+            ]),
+    );
+
+    final flying = _flying;
+    final target = flying == null ? null : _targetRect();
+    final full = Offset.zero & widget.screenSize;
+
+    return Material(
+      key: _rootKey,
+      color: shade,
+      child: Stack(children: [
+        SafeArea(
+          child: IgnorePointer(
+            ignoring: flying != null,
+            child: Column(children: [
+              fade(header),
+              if (!compact) fade(chapterLine),
               Expanded(
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-                  Text(widget.bookTitle,
-                      maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
-                  if (widget.author != null)
-                    Text(widget.author!, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12, color: c.muted)),
+                child: Stack(key: _areaKey, children: [
+                  Positioned.fill(child: Opacity(opacity: flying == null ? 1 : 0, child: strip)),
+                  if (compact) Positioned(left: 0, right: 0, bottom: 4, child: Center(child: fade(back))),
                 ]),
               ),
-              IconButton(tooltip: 'Поиск по книге', icon: BcIcon(BcIcons.search, color: c.text), onPressed: widget.onSearch),
-              Builder(builder: (context) {
-                final marked = widget.book.bookmarked(shown.chapter, shown.page);
-                return IconButton(
-                  tooltip: marked ? 'Убрать закладку' : 'Закладка на этой странице',
-                  icon: Icon(marked ? Icons.bookmark : Icons.bookmark_outline, color: marked ? c.ink : c.text),
-                  onPressed: () => widget.onToggleBookmark(shown.chapter, shown.page),
-                );
-              }),
+              if (!compact) fade(SizedBox(height: 48, child: Center(child: back))),
+              fade(_MiniPlayer(compact: compact)),
+              fade(bottom),
             ]),
           ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
-            child: Row(children: [
-              Expanded(
-                child: Text(widget.book.chapterTitle(shown.chapter),
-                    maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-              ),
-              Text(
-                  'стр. ${widget.book.pageNumbers(shown.chapter, shown.page)} из ${widget.book.pagesInChapter(shown.chapter)} · ${(percent * 100).floor()} %',
-                  style: TextStyle(fontSize: 12, color: c.muted, fontFeatures: const [FontFeature.tabularFigures()])),
-            ]),
-          ),
-          Expanded(
-            child: LayoutBuilder(builder: (context, box) {
-              // Уменьшенная страница: целиком по высоте, с полями вокруг.
-              final h = box.maxHeight - 24;
-              final byHeight = h / widget.pageSize.height;
-              final wanted = ((widget.pageSize.width * byHeight + 20 + 28) / box.maxWidth).clamp(0.3, 0.86);
-              if (!_sized) {
-                // Первый показ: сразу нужная ширина, без перескока.
-                _sized = true;
-                if ((wanted - _fraction).abs() > 0.02) {
-                  _pages.dispose();
-                  _fraction = wanted;
-                  _pages = PageController(initialPage: _index, viewportFraction: wanted);
-                }
-              } else if ((wanted - _fraction).abs() > 0.02) {
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  if (mounted) _setFraction(wanted);
-                });
-              }
-              final w = box.maxWidth * _fraction - 28;
-              final scale = math.min(byHeight, w / widget.pageSize.width).clamp(0.05, 1.0);
-              return NotificationListener<ScrollNotification>(
-                onNotification: _onScrollEnd,
-                child: PageView.builder(
-                  key: ValueKey('$_ch/$_fraction'),
-                  controller: _pages,
-                  pageSnapping: false,
-                  physics: _FlingPagePhysics(fraction: _fraction),
-                  itemCount: _pre + _count + _post,
-                  onPageChanged: (i) => setState(() => _index = i),
-                  itemBuilder: (context, i) {
-                    final at = _at(i);
-                    final current = at.chapter == widget.chapter && at.page == widget.page;
-                    return Center(
-                      child: GestureDetector(
-                        onTap: () => widget.onOpenPage(at.chapter, at.page),
-                        child: AnimatedScale(
-                          duration: const Duration(milliseconds: 200),
-                          scale: i == _index ? 1 : 0.9,
-                          child: Container(
-                            width: widget.pageSize.width * scale + 20,
-                            height: widget.pageSize.height * scale + 28,
-                            decoration: BoxDecoration(
-                              color: widget.paper.bg,
-                              borderRadius: BorderRadius.circular(10),
-                              border: current ? Border.all(color: c.bar, width: 2) : null,
-                              boxShadow: const [BoxShadow(color: Color(0x59000000), blurRadius: 24, offset: Offset(0, 8))],
-                            ),
-                            padding: const EdgeInsets.fromLTRB(10, 10, 10, 18),
-                            child: FittedBox(
-                              fit: BoxFit.contain,
-                              alignment: Alignment.topCenter,
-                              child: SizedBox(
-                                width: widget.pageSize.width,
-                                height: widget.pageSize.height,
-                                child: IgnorePointer(child: widget.book.page(at.chapter, at.page)),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              );
-            }),
-          ),
-          SizedBox(
-            height: 48,
-            child: Center(
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 180),
-                child: !_away
-                    ? const SizedBox.shrink()
-                    : FilledButton.icon(
-                        key: const ValueKey('back'),
-                        style: FilledButton.styleFrom(minimumSize: const Size(0, 36), shape: const StadiumBorder()),
-                        onPressed: () => _show(widget.chapter, widget.page, animate: true),
-                        icon: const Icon(Icons.undo_rounded, size: 18),
-                        label: Text('Вернуться на стр. ${widget.book.pageNumbers(widget.chapter, widget.page)}'),
-                      ),
-              ),
+        ),
+        if (flying != null)
+          Positioned.fromRect(
+            rect: Rect.lerp(full, target ?? full, target == null ? 0 : t)!,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(8 * t),
+              child: ColoredBox(color: widget.paper.bg, child: _miniScreen(flying.chapter, flying.page)),
             ),
           ),
-          const _MiniPlayer(),
-          Container(
-            decoration: BoxDecoration(color: c.card, border: Border(top: BorderSide(color: c.divider))),
-            padding: const EdgeInsets.fromLTRB(16, 6, 16, 8),
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              Row(children: [
-                Expanded(
-                  child: Slider(
-                    value: percent.clamp(0.0, 1.0),
-                    // Ползунок листает ленту на ходу; книга не открывается —
-                    // открыть страницу можно тапом по ней.
-                    onChanged: (v) {
-                      final at = widget.book.locate(v);
-                      setState(() => _drag = v);
-                      if (at.chapter != _shown.chapter || at.page != _shown.page) _show(at.chapter, at.page);
-                    },
-                    onChangeEnd: (_) => setState(() => _drag = null),
-                  ),
-                ),
-                SizedBox(
-                  width: 44,
-                  child: Text('${(percent * 100).floor()} %',
-                      textAlign: TextAlign.right, style: TextStyle(fontSize: 12, color: c.muted)),
-                ),
-              ]),
-              Row(children: [
-                Expanded(child: _Action(icon: const BcIcon(BcIcons.chapters, size: 22), label: 'Оглавление', onTap: widget.onContents)),
-                Expanded(child: _Action(icon: const BcIcon(BcIcons.bookmark, size: 22), label: 'Закладки', onTap: widget.onBookmarks)),
-                Expanded(
-                  child: _Action(
-                    icon: const Text('Аа', style: TextStyle(fontFamily: 'PTSerif', fontSize: 19, fontWeight: FontWeight.w700)),
-                    label: 'Текст',
-                    onTap: widget.onStyle,
-                  ),
-                ),
-              ]),
-            ]),
-          ),
-        ]),
-      ),
+      ]),
     );
   }
 }
@@ -377,14 +492,18 @@ class _FlingPagePhysics extends ScrollPhysics {
 }
 
 class _Action extends StatelessWidget {
-  const _Action({required this.icon, required this.label, required this.onTap});
+  const _Action({required this.icon, required this.label, required this.onTap, this.compact = false});
 
   final Widget icon;
   final String label;
   final VoidCallback onTap;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
+    if (compact) {
+      return IconButton(tooltip: label, onPressed: onTap, icon: SizedBox(height: 24, child: Center(child: icon)));
+    }
     return InkWell(
       borderRadius: BorderRadius.circular(12),
       onTap: onTap,
@@ -402,7 +521,9 @@ class _Action extends StatelessWidget {
 
 /// Маленький плеер: что играет и пауза — не выходя из книги.
 class _MiniPlayer extends StatelessWidget {
-  const _MiniPlayer();
+  const _MiniPlayer({this.compact = false});
+
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
@@ -411,20 +532,20 @@ class _MiniPlayer extends StatelessWidget {
       if (audio == null || item == null || !now.active) return const SizedBox.shrink();
       final c = BcColors.of(context);
       return Padding(
-        padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+        padding: EdgeInsets.fromLTRB(10, 0, 10, compact ? 4 : 10),
         child: Glass(
           child: SizedBox(
-            height: 56,
+            height: compact ? 44 : 56,
             child: Stack(children: [
               Padding(
-                padding: const EdgeInsets.all(8),
+                padding: EdgeInsets.all(compact ? 4 : 8),
                 child: Row(children: [
-                  PodcastCover(url: item.artUri?.toString(), size: 40),
+                  PodcastCover(url: item.artUri?.toString(), size: compact ? 36 : 40),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.center, children: [
                       Text(item.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
-                      if (item.album != null)
+                      if (item.album != null && !compact)
                         Text(item.album!, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12, color: c.muted)),
                     ]),
                   ),
@@ -432,7 +553,7 @@ class _MiniPlayer extends StatelessWidget {
                     icon: now.playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
                     tooltip: now.playing ? 'Пауза' : 'Продолжить',
                     style: RoundStyle.accent,
-                    size: 40,
+                    size: compact ? 36 : 40,
                     iconSize: 22,
                     onPressed: now.playing ? audio.pause : (now.bookId != null ? () => resumeAudioBook(context) : audio.play),
                   ),

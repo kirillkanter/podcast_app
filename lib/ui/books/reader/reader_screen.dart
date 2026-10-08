@@ -29,6 +29,7 @@ import 'reader_menu.dart';
 import 'reader_selection.dart';
 import 'reader_style.dart';
 import 'reader_style_sheet.dart';
+import 'reading_stats.dart';
 import 'translate_sheet.dart';
 
 /// Ключ скорости чтения (символов в минуту) — для «осталось до конца главы».
@@ -113,6 +114,22 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   int _turnDir = 1;
   double _gutter = 40;
 
+  /// Следующая смена страницы — без анимации (вернулись из меню).
+  bool _instantTurn = false;
+
+  /// Откуда ушли по оглавлению, поиску, закладке или из меню — для кнопки
+  /// «Вернуться на стр. N». Пропадает после нескольких перелистываний.
+  TextLocator? _returnTo;
+  int _returnTurns = 0;
+
+  late final ReadingStats _stats;
+
+  // Размеры экрана читалки (для уменьшенных страниц в меню).
+  double _statusH = 40;
+  double _hPad = 22;
+  Size _screenSize = Size.zero;
+  final _menuKey = GlobalKey<ReaderMenuState>();
+
   final _readerKey = GlobalKey();
   final _fragKeys = <String, GlobalKey>{};
 
@@ -138,6 +155,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     _bookSync = scope.bookSync;
     if (!_started) {
       _started = true;
+      _stats = ReadingStats(_db);
       _bookmarksSub = _db.watchBookmarks(widget.book.id).listen((list) {
         if (mounted) setState(() => _bookmarks = list);
       });
@@ -164,11 +182,17 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       _layoutKey = null;
       _ready = true;
     });
+    _stats.resume();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) _saveNow(push: true);
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+      _saveNow(push: true);
+      if (_started) _stats.pause();
+    } else if (state == AppLifecycleState.resumed && _ready) {
+      _stats.resume();
+    }
   }
 
   @override
@@ -179,6 +203,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     _longPress?.cancel();
     _toastTimer?.cancel();
     unawaited(_bookmarksSub?.cancel());
+    if (_started) _stats.pause();
     _saveNow(push: true);
     _focus.dispose();
     super.dispose();
@@ -260,6 +285,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
           height: _pageHeight,
           base: _baseStyle,
           scaler: _scaler,
+          justify: _style.justify,
         ),
       );
 
@@ -288,6 +314,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       _charsPerMinute = (_charsPerMinute * 0.8 + measured * 0.2).clamp(300, 4000).toDouble();
     }
     _pageShownAt = DateTime.now();
+    _countTurn(forward: true);
     final pages = _pagesOf(_chapter);
     if (_page + _step < pages.length) {
       _showPage(_chapter, _page + _step);
@@ -299,8 +326,27 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     }
   }
 
+  /// Перелистывание: статистика и кнопка «Вернуться».
+  void _countTurn({required bool forward}) {
+    _stats.turn(forward: forward);
+    if (_returnTo != null && ++_returnTurns >= 3) _returnTo = null;
+  }
+
+  /// Перейти по оглавлению, поиску, закладке — запомнив, откуда.
+  void _jump(TextLocator l) {
+    final from = _anchor;
+    _goTo(l);
+    if (from.compareTo(_anchor) != 0) {
+      setState(() {
+        _returnTo = from;
+        _returnTurns = 0;
+      });
+    }
+  }
+
   void _prev() {
     _pageShownAt = DateTime.now();
+    _countTurn(forward: false);
     if (_page > 0) {
       _showPage(_chapter, _page - _step);
     } else if (_chapter > 0) {
@@ -647,6 +693,12 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       unawaited(_toggleBookmark());
       return;
     }
+    // Нажали на ссылку на сноску — показать сноску.
+    final note = _noteAt(e.position);
+    if (note != null) {
+      _showNote(note);
+      return;
+    }
     final x = local.dx / area.width;
     if (x < 0.3) {
       _prev();
@@ -670,7 +722,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     final k = e.logicalKey;
     if (_menu) {
       if (k == LogicalKeyboardKey.escape) {
-        setState(() => _menu = false);
+        _closeMenu();
         return KeyEventResult.handled;
       }
       return KeyEventResult.ignored;
@@ -698,6 +750,80 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     return KeyEventResult.ignored;
   }
 
+  /// Закрыть меню с анимацией — обратно на страницу, где читали.
+  void _closeMenu() {
+    final menu = _menuKey.currentState;
+    if (menu != null) {
+      unawaited(menu.close(toReading: true));
+    } else {
+      setState(() => _menu = false);
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Сноски
+  // -------------------------------------------------------------------------
+
+  /// Ссылка на сноску под точкой [global] (с запасом в несколько пикселей).
+  String? _noteAt(Offset global) {
+    if (_content.notes.isEmpty) return null;
+    for (final v in _visibleParagraphs()) {
+      final block = _chapterText.blocks[v.f.block];
+      if (!block.runs.any((r) => r.note != null)) continue;
+      final shift = v.f.indent ? indentChar.length : 0;
+      var pos = 0;
+      for (final r in block.runs) {
+        final rs = pos;
+        final re = pos + r.text.length;
+        pos = re;
+        if (r.note == null || re <= v.f.start || rs >= v.f.end) continue;
+        final a = math.max(rs, v.f.start) - v.f.start + shift;
+        final b = math.min(re, v.f.end) - v.f.start + shift;
+        for (final box in v.p.getBoxesForSelection(TextSelection(baseOffset: a, extentOffset: b))) {
+          final rect = Rect.fromLTRB(box.left, box.top, box.right, box.bottom).inflate(12);
+          if (rect.contains(v.p.globalToLocal(global))) return r.note;
+        }
+      }
+    }
+    return null;
+  }
+
+  void _showNote(String key) {
+    final text = _content.notes[key];
+    if (text == null) return;
+    unawaited(HapticFeedback.selectionClick());
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (context) {
+        final c = BcColors.of(context);
+        return ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * 0.6),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(22, 10, 22, 28),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 5,
+                  margin: const EdgeInsets.only(bottom: 14),
+                  decoration: BoxDecoration(color: c.line, borderRadius: BorderRadius.circular(3)),
+                ),
+              ),
+              Text('Сноска', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: c.muted)),
+              const SizedBox(height: 8),
+              SelectableText(
+                text,
+                style: TextStyle(fontFamily: _style.font.family, fontSize: math.min(_style.fontSize, 19), height: 1.5, color: c.text),
+              ),
+            ]),
+          ),
+        );
+      },
+    );
+  }
+
   // -------------------------------------------------------------------------
   // Отрисовка
   // -------------------------------------------------------------------------
@@ -709,13 +835,11 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       canPop: !_menu && _selection == null,
       onPopInvokedWithResult: (didPop, _) {
         if (didPop) return;
-        setState(() {
-          if (_selection != null) {
-            _clearSelection();
-          } else {
-            _menu = false;
-          }
-        });
+        if (_selection != null) {
+          setState(_clearSelection);
+        } else {
+          _closeMenu();
+        }
       },
       child: Scaffold(
         backgroundColor: paper.bg,
@@ -737,7 +861,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     final landscape = box.maxWidth > box.maxHeight;
     final wide = box.maxWidth >= 1000;
     _spread = wide || (_style.landscapeSpread && landscape && box.maxWidth >= 560);
-    final hPad = wide ? 56.0 : (box.maxWidth > 600 ? 40.0 : 22.0);
+    final hPad = (wide ? 56.0 : (box.maxWidth > 600 ? 40.0 : 22.0)) * _style.marginFactor;
     final statusH = landscape && !wide ? 30.0 : 40.0;
     final gutter = wide ? 64.0 : 40.0;
     _scaler = MediaQuery.textScalerOf(context);
@@ -745,6 +869,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     _pageWidth = _spread ? (contentW - gutter) / 2 : contentW;
     _pageHeight = box.maxHeight - statusH * 2 - 8;
     _gutter = gutter;
+    _statusH = statusH;
+    _hPad = hPad;
+    _screenSize = box.biggest;
 
     // Сменились размеры или шрифт — встаём на то же место.
     final key = _cacheKey(_chapter);
@@ -764,44 +891,20 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     final pages = _pagesOf(_chapter);
     _page = _page.clamp(0, pages.length - 1);
 
-    final faint = TextStyle(fontSize: 12, color: paper.faint, fontFamily: bodyFont);
-    final pageLabel = _spread && _page + 1 < pages.length
-        ? 'стр. ${_page + 1}–${_page + 2} из ${pages.length}'
-        : 'стр. ${_page + 1} из ${pages.length}';
-    final minutes = (_charsLeftInChapter(pages) / _charsPerMinute).ceil();
     final cornerMarked = _bookmarksOn(_cornerPage).isNotEmpty;
     final c = BcColors.of(context);
-
-    Widget pageAt(int i) => SizedBox(
-          width: _pageWidth,
-          height: _pageHeight,
-          child: i < pages.length
-              ? _PageView(
-                  chapter: _chapterText,
-                  page: pages[i],
-                  base: _baseStyle,
-                  scaler: _scaler,
-                  keyFor: (frag) => _fragKey(i, frag),
-                  selection: _selection,
-                  highlight: c.bar.withValues(alpha: 0.32),
-                )
-              : null,
-        );
+    if (_instantTurn) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _instantTurn = false);
+    }
 
     final reading = Column(children: [
-      SizedBox(
-        height: statusH,
-        child: Center(
-          child: Padding(
-            padding: EdgeInsets.symmetric(horizontal: _cornerSize.width),
-            child: Text(_chapterText.title, maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center, style: faint),
-          ),
-        ),
-      ),
+      _statusTop(_chapter, paper),
       Expanded(
         child: ClipRect(
           child: AnimatedSwitcher(
-            duration: switch (_style.pageTurn) {
+            duration: _instantTurn
+                ? Duration.zero
+                : switch (_style.pageTurn) {
               PageTurn.none => Duration.zero,
               PageTurn.slide => const Duration(milliseconds: 180),
               PageTurn.fade => const Duration(milliseconds: 220),
@@ -821,14 +924,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
               child: SizedBox.expand(
                 child: Center(
                   child: Row(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    pageAt(_page),
-                    if (_spread) ...[
-                      SizedBox(
-                          width: gutter,
-                          height: _pageHeight,
-                          child: Center(child: VerticalDivider(width: 1, color: paper.faint.withValues(alpha: 0.2)))),
-                      pageAt(_page + 1),
-                    ],
+                    ..._pageRow(_chapter, _page, paper: paper, live: true),
                   ]),
                 ),
               ),
@@ -836,17 +932,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
           ),
         ),
       ),
-      SizedBox(
-        height: statusH,
-        child: Padding(
-          padding: EdgeInsets.symmetric(horizontal: hPad),
-          child: Row(children: [
-            Text(pageLabel, style: faint.copyWith(fontFeatures: const [FontFeature.tabularFigures()])),
-            const Spacer(),
-            Text(minutes <= 1 ? 'меньше минуты до конца главы' : '$minutes мин до конца главы', style: faint),
-          ]),
-        ),
-      ),
+      _statusBottom(_chapter, _page, paper),
     ]);
 
     return Stack(key: _readerKey, children: [
@@ -907,26 +993,142 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
             },
           ),
         ),
-      // Меню книги поверх страницы: появляется, будто страница уменьшается.
-      Positioned.fill(
-        child: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 220),
-          switchInCurve: Curves.easeOutCubic,
-          switchOutCurve: Curves.easeInCubic,
-          transitionBuilder: (child, animation) => FadeTransition(
-            opacity: animation,
-            child: ScaleTransition(scale: Tween(begin: 1.12, end: 1.0).animate(animation), child: child),
-          ),
-          child: _menu
-              ? Listener(
-                  key: const ValueKey('menu'),
-                  behavior: HitTestBehavior.opaque,
-                  child: _menuView(paper, pages),
-                )
-              : const SizedBox.shrink(key: ValueKey('page')),
+      // Вернуться туда, откуда ушли по оглавлению, поиску или закладке.
+      if (_returnTo != null && !_menu)
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: _statusH + 4,
+          child: Center(child: _ReturnPill(label: _returnLabel(_returnTo!), onTap: _goBack)),
         ),
-      ),
+      // Меню книги: страница уменьшается и становится листом в ленте.
+      if (_menu) Positioned.fill(child: _menuView(paper, pages)),
     ]);
+  }
+
+  String _returnLabel(TextLocator l) {
+    if (l.chapter >= _content.chapters.length) return 'Вернуться';
+    final n = _pageNumber(l);
+    return l.chapter == _chapter ? 'Вернуться на стр. $n' : 'Вернуться: ${_content.chapters[l.chapter].title}, стр. $n';
+  }
+
+  void _goBack() {
+    final to = _returnTo;
+    if (to == null) return;
+    setState(() => _returnTo = null);
+    _goTo(to);
+  }
+
+  /// Строка над страницей: название главы.
+  Widget _statusTop(int chapter, Paper paper) => SizedBox(
+        height: _statusH,
+        child: Center(
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: _cornerSize.width),
+            child: Text(_content.chapters[chapter].title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 12, color: paper.faint, fontFamily: bodyFont)),
+          ),
+        ),
+      );
+
+  /// Строка под страницей: номер страницы и сколько читать до конца главы.
+  Widget _statusBottom(int chapter, int page, Paper paper) {
+    final pages = _pagesOf(chapter);
+    final faint = TextStyle(fontSize: 12, color: paper.faint, fontFamily: bodyFont);
+    final label = _spread && page + 1 < pages.length
+        ? 'стр. ${page + 1}–${page + 2} из ${pages.length}'
+        : 'стр. ${page + 1} из ${pages.length}';
+    final minutes = (_charsLeft(chapter, page) / _charsPerMinute).ceil();
+    return SizedBox(
+      height: _statusH,
+      child: Padding(
+        padding: EdgeInsets.symmetric(horizontal: _hPad),
+        child: Row(children: [
+          Text(label, style: faint.copyWith(fontFeatures: const [FontFeature.tabularFigures()])),
+          const Spacer(),
+          Flexible(
+            child: Text(minutes <= 1 ? 'меньше минуты до конца главы' : '$minutes мин до конца главы',
+                maxLines: 1, overflow: TextOverflow.ellipsis, style: faint),
+          ),
+        ]),
+      ),
+    );
+  }
+
+  /// Страница (или разворот) [page] главы [chapter]. [live] — та, что на
+  /// экране: с выделением и ключами для попадания пальцем в текст.
+  List<Widget> _pageRow(int chapter, int page, {required Paper paper, required bool live}) {
+    final pages = _pagesOf(chapter);
+    final c = BcColors.of(context);
+    Widget one(int i) => SizedBox(
+          width: _pageWidth,
+          height: _pageHeight,
+          child: i < pages.length
+              ? _PageView(
+                  chapter: _content.chapters[chapter],
+                  page: pages[i],
+                  base: _baseStyle,
+                  scaler: _scaler,
+                  justify: _style.justify,
+                  noteColor: c.ink,
+                  keyFor: live ? (frag) => _fragKey(i, frag) : null,
+                  selection: live ? _selection : null,
+                  highlight: c.bar.withValues(alpha: 0.32),
+                )
+              : null,
+        );
+    return [
+      one(page),
+      if (_spread) ...[
+        SizedBox(
+            width: _gutter,
+            height: _pageHeight,
+            child: Center(child: VerticalDivider(width: 1, color: paper.faint.withValues(alpha: 0.2)))),
+        one(page + 1),
+      ],
+    ];
+  }
+
+  /// Экран читалки целиком (для меню): строки сверху и снизу, страница,
+  /// ленточка закладки.
+  Widget _screenFor(int chapter, int page, Paper paper) {
+    final c = BcColors.of(context);
+    final last = math.min(page + _step - 1, _pagesOf(chapter).length - 1);
+    return ColoredBox(
+      color: paper.bg,
+      child: Stack(children: [
+        Column(children: [
+          _statusTop(chapter, paper),
+          Expanded(
+            child: Center(
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: _pageRow(chapter, page, paper: paper, live: false),
+              ),
+            ),
+          ),
+          _statusBottom(chapter, page, paper),
+        ]),
+        if (_bookmarksAt(chapter, last).isNotEmpty)
+          Positioned(top: 0, right: 24, child: _Ribbon(color: _style.ribbonColor(c.bar))),
+      ]),
+    );
+  }
+
+  /// Символов от начала страницы [page] до конца главы.
+  int _charsLeft(int chapter, int page) {
+    final text = _content.chapters[chapter];
+    final pages = _pagesOf(chapter);
+    final at = chapter == _chapter && page == _page ? _anchor : pages[page.clamp(0, pages.length - 1)].locator(chapter);
+    var before = at.offset;
+    for (var i = 0; i < at.block && i < text.blocks.length; i++) {
+      before += text.blocks[i].length;
+    }
+    return math.max(0, text.length - before);
   }
 
   List<Widget> _handles(BcColors c) {
@@ -977,18 +1179,27 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   }
 
   Widget _menuView(Paper paper, List<ReaderPage> pages) {
-    final book = _MenuBookView(this);
+    final book = _MenuBookView(this, paper);
     return ReaderMenu(
+      key: _menuKey,
       bookTitle: widget.book.title,
       author: widget.book.author,
       book: book,
       chapter: _chapter,
       page: _page ~/ _step,
       paper: paper,
-      pageSize: _spread ? Size(_pageWidth * 2 + _gutter, _pageHeight) : Size(_pageWidth, _pageHeight),
+      screenSize: _screenSize,
       onOpenPage: (chapter, sheet) {
+        final from = _anchor;
+        _instantTurn = true;
         setState(() => _menu = false);
         _showPage(chapter, sheet * _step);
+        if (from.compareTo(_anchor) != 0) {
+          setState(() {
+            _returnTo = from;
+            _returnTurns = 0;
+          });
+        }
       },
       // Pop, а не maybePop: maybePop перехватывается и только закрывает меню.
       onExit: () => Navigator.of(context).pop(),
@@ -997,19 +1208,11 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       onBookmarks: _showBookmarks,
       onStyle: _showStyle,
       onSearch: _showSearch,
+      onStats: () => showReadingStats(context),
     );
   }
 
 
-  int _charsLeftInChapter(List<ReaderPage> pages) {
-    final chapter = _chapterText;
-    final at = _anchor.chapter == _chapter ? _anchor : pages[_page].locator(_chapter);
-    var before = at.offset;
-    for (var i = 0; i < at.block && i < chapter.blocks.length; i++) {
-      before += chapter.blocks[i].length;
-    }
-    return math.max(0, chapter.length - before);
-  }
 
   /// Место в книге на [v] (0..1) её длины.
   TextLocator _locatorAt(double v) {
@@ -1053,7 +1256,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
             onTap: () {
               Navigator.pop(context);
               setState(() => _menu = false);
-              _goTo(TextLocator(i, 0, 0));
+              _jump(TextLocator(i, 0, 0));
             },
           ),
         ),
@@ -1085,7 +1288,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
               Navigator.pop(context);
               final l = TextLocator.parse(b.locator);
               setState(() => _menu = false);
-              if (l != null) _goTo(l);
+              if (l != null) _jump(l);
             },
           ),
         ),
@@ -1117,7 +1320,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
         onOpen: (chapter, block, start, end) {
           Navigator.pop(context);
           setState(() => _menu = false);
-          _goTo(TextLocator(chapter, block, start));
+          _jump(TextLocator(chapter, block, start));
           setState(() {
             _selAnchor = ChapterPos(block, start);
             _selection = TextSelectionRange(ChapterPos(block, start), ChapterPos(block, end));
@@ -1139,8 +1342,12 @@ class _PageView extends StatelessWidget {
     required this.highlight,
     this.keyFor,
     this.selection,
+    this.justify = true,
+    this.noteColor,
   });
 
+  final bool justify;
+  final Color? noteColor;
   final TextChapter chapter;
   final ReaderPage page;
   final TextStyle base;
@@ -1163,7 +1370,7 @@ class _PageView extends StatelessWidget {
             else
               Builder(builder: (context) {
                 final block = chapter.blocks[f.block];
-                final look = blockLook(block.kind, base);
+                final look = blockLook(block.kind, base, justify: justify);
                 return Padding(
                   padding: EdgeInsets.only(left: look.inset, top: i == 0 ? 0 : look.before, bottom: look.after),
                   child: RichText(
@@ -1176,6 +1383,7 @@ class _PageView extends StatelessWidget {
                       indent: f.indent,
                       highlight: selection?.rangeIn(f.block, block.length),
                       highlightColor: highlight,
+                      noteColor: noteColor,
                     ),
                     textAlign: look.align,
                     textScaler: scaler,
@@ -1183,6 +1391,40 @@ class _PageView extends StatelessWidget {
                 );
               }),
         ]),
+      ),
+    );
+  }
+}
+
+/// «Вернуться на стр. N» — после перехода по оглавлению, поиску, закладке.
+class _ReturnPill extends StatelessWidget {
+  const _ReturnPill({required this.label, required this.onTap});
+
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = BcColors.of(context);
+    return Material(
+      color: c.raised,
+      elevation: 6,
+      shadowColor: Colors.black45,
+      shape: StadiumBorder(side: BorderSide(color: c.glassBorder)),
+      child: InkWell(
+        customBorder: const StadiumBorder(),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 16, 8),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(Icons.undo_rounded, size: 18, color: c.text),
+            const SizedBox(width: 8),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 280),
+              child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 14, color: c.text)),
+            ),
+          ]),
+        ),
       ),
     );
   }
@@ -1412,9 +1654,10 @@ class _SearchDialogState extends State<_SearchDialog> {
 /// Книга для меню: листы любой главы при текущей разбивке. В развороте
 /// лист — две страницы рядом, иначе — одна.
 class _MenuBookView implements MenuBook {
-  _MenuBookView(this.s) : step = s._step;
+  _MenuBookView(this.s, this.paper) : step = s._step;
 
   final _ReaderScreenState s;
+  final Paper paper;
   final int step;
 
   int _first(int chapter, int sheet) => math.min(sheet * step, s._pagesOf(chapter).length - 1);
@@ -1437,37 +1680,8 @@ class _MenuBookView implements MenuBook {
   @override
   String chapterTitle(int chapter) => s._content.chapters[chapter].title;
 
-  Widget _one(int chapter, int page, Color ribbon) {
-    final pages = s._pagesOf(chapter);
-    return SizedBox(
-      width: s._pageWidth,
-      height: s._pageHeight,
-      child: page >= pages.length
-          ? null
-          : Stack(children: [
-              _PageView(
-                chapter: s._content.chapters[chapter],
-                page: pages[page],
-                base: s._baseStyle,
-                scaler: s._scaler,
-                highlight: Colors.transparent,
-              ),
-              if (s._bookmarksAt(chapter, page).isNotEmpty) Positioned(top: 0, right: 16, child: _Ribbon(color: ribbon)),
-            ]),
-    );
-  }
-
   @override
-  Widget page(int chapter, int sheet) {
-    final ribbon = s._style.ribbonColor(BcColors.of(s.context).bar);
-    final first = _first(chapter, sheet);
-    if (step == 1) return _one(chapter, first, ribbon);
-    return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      _one(chapter, first, ribbon),
-      SizedBox(width: s._gutter),
-      _one(chapter, first + 1, ribbon),
-    ]);
-  }
+  Widget screen(int chapter, int sheet) => s._screenFor(chapter, _first(chapter, sheet), paper);
 
   @override
   double percentAt(int chapter, int sheet) {

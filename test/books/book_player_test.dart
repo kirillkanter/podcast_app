@@ -137,4 +137,11 @@ void main() {
     expect(handler.currentBookId, isNull);
     expect((await db.bookProgress(bookId))?.locator, at(0, 600000));
   });
+
+  test('отмотка после паузы зависит от её длины', () {
+    expect(PodcastAudioHandler.smartRewind(const Duration(seconds: 5)), Duration.zero);
+    expect(PodcastAudioHandler.smartRewind(const Duration(minutes: 2)), const Duration(seconds: 3));
+    expect(PodcastAudioHandler.smartRewind(const Duration(minutes: 30)), const Duration(seconds: 10));
+    expect(PodcastAudioHandler.smartRewind(const Duration(hours: 3)), const Duration(seconds: 20));
+  });
 }

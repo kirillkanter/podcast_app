@@ -32,6 +32,11 @@ enum ReaderFont {
 const _spreadKey = 'reader.landscapeSpread';
 const _turnKey = 'reader.pageTurn';
 const _ribbonKey = 'reader.bookmarkColor';
+const _marginKey = 'reader.margin';
+const _justifyKey = 'reader.justify';
+
+/// Поля страницы: узкие, обычные, широкие (множитель к обычным).
+const readerMargins = [0.45, 1.0, 1.75];
 
 /// Как листается страница.
 enum PageTurn {
@@ -69,6 +74,8 @@ class ReaderStyle {
     this.landscapeSpread = false,
     this.pageTurn = PageTurn.slide,
     this.bookmarkColor = 0,
+    this.margin = 1,
+    this.justify = true,
   });
 
   /// Индекс в [readerSizes].
@@ -86,6 +93,14 @@ class ReaderStyle {
 
   final PageTurn pageTurn;
 
+  /// Индекс в [readerMargins].
+  final int margin;
+
+  /// Выравнивание абзацев по ширине (иначе — по левому краю).
+  final bool justify;
+
+  double get marginFactor => readerMargins[margin.clamp(0, readerMargins.length - 1)];
+
   /// Индекс в [bookmarkColors].
   final int bookmarkColor;
 
@@ -98,7 +113,7 @@ class ReaderStyle {
   Paper paperFor(Brightness brightness) => paper ?? (brightness == Brightness.dark ? Paper.dark : Paper.light);
 
   /// Ключ для кэша разбивки на страницы.
-  String get layoutKey => '$size/${font.name}/$spacing';
+  String get layoutKey => '$size/${font.name}/$spacing/$margin/$justify';
 
   ReaderStyle copyWith({
     int? size,
@@ -108,6 +123,8 @@ class ReaderStyle {
     bool? landscapeSpread,
     PageTurn? pageTurn,
     int? bookmarkColor,
+    int? margin,
+    bool? justify,
   }) =>
       ReaderStyle(
         size: size ?? this.size,
@@ -117,6 +134,8 @@ class ReaderStyle {
         landscapeSpread: landscapeSpread ?? this.landscapeSpread,
         pageTurn: pageTurn ?? this.pageTurn,
         bookmarkColor: bookmarkColor ?? this.bookmarkColor,
+        margin: margin ?? this.margin,
+        justify: justify ?? this.justify,
       );
 
   static Future<ReaderStyle> load(AppDatabase db) async {
@@ -127,7 +146,11 @@ class ReaderStyle {
     final spread = await db.setting(_spreadKey);
     final turn = await db.setting(_turnKey);
     final ribbon = int.tryParse(await db.setting(_ribbonKey) ?? '');
+    final margin = int.tryParse(await db.setting(_marginKey) ?? '');
+    final justify = await db.setting(_justifyKey);
     return ReaderStyle(
+      margin: margin ?? 1,
+      justify: justify != 'false',
       landscapeSpread: spread == 'true',
       pageTurn: PageTurn.values.where((t) => t.name == turn).firstOrNull ?? PageTurn.slide,
       bookmarkColor: ribbon ?? 0,
@@ -146,5 +169,7 @@ class ReaderStyle {
     await db.setSetting(_spreadKey, '$landscapeSpread');
     await db.setSetting(_turnKey, pageTurn.name);
     await db.setSetting(_ribbonKey, '$bookmarkColor');
+    await db.setSetting(_marginKey, '$margin');
+    await db.setSetting(_justifyKey, '$justify');
   }
 }

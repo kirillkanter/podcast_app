@@ -62,6 +62,28 @@ TextBookContent parseFb2(Uint8List bytes, {required String fallbackTitle}) {
     }
   }
 
+  // Сноски: отдельные body «notes»/«comments», раздел с id — одна сноска.
+  final notes = <String, String>{};
+  for (final body in kids(root, 'body')) {
+    final name = attr(body, 'name');
+    if (name != 'notes' && name != 'comments' && name != 'footnotes') continue;
+    for (final sec in body.descendants.whereType<XmlElement>().where((e) => e.name.local == 'section')) {
+      final id = attr(sec, 'id');
+      if (id == null || id.isEmpty) continue;
+      final text = [
+        for (final c in sec.childElements)
+          if (c.name.local != 'title' && c.name.local != 'section') textOf(c),
+      ].where((t) => t.isNotEmpty).join('\n');
+      if (text.isNotEmpty) notes[id] = text.length > 4000 ? '${text.substring(0, 4000)}…' : text;
+    }
+  }
+  _noteRef = (a) {
+    final href = attr(a, 'href');
+    if (href == null || !href.startsWith('#')) return null;
+    final id = href.substring(1);
+    return notes.containsKey(id) ? id : null;
+  };
+
   final chapters = <TextChapter>[];
   for (final body in kids(root, 'body')) {
     // Примечания и комментарии — отдельные body; в главы не идут.
@@ -93,8 +115,12 @@ TextBookContent parseFb2(Uint8List bytes, {required String fallbackTitle}) {
     description: annotation == null ? null : textOf(annotation),
     cover: cover,
     chapters: chapters,
+    notes: notes,
   );
 }
+
+/// Ссылка на сноску текущей книги (разбор идёт в одном потоке, по книге за раз).
+String? Function(XmlElement link)? _noteRef;
 
 String? _title(XmlElement section) {
   final t = kid(section, 'title');
@@ -139,7 +165,7 @@ void _content(XmlElement e, List<TextBlock> out, {bool skipSections = false}) {
 void _element(XmlElement c, List<TextBlock> out, {TextBlockKind kind = TextBlockKind.paragraph, bool italic = false}) {
   final b = BlockBuilder();
   void para(XmlElement p, TextBlockKind k, {bool it = false}) {
-    addInline(b, p, italicTags: _italic, boldTags: _bold, italic: it);
+    addInline(b, p, italicTags: _italic, boldTags: _bold, italic: it, noteRef: _noteRef);
     final block = b.build(k);
     if (block != null) out.add(block);
   }
@@ -175,7 +201,7 @@ void _element(XmlElement c, List<TextBlock> out, {TextBlockKind kind = TextBlock
       para(c, TextBlockKind.quote);
     case 'table':
       for (final tr in c.childElements) {
-        addInline(b, tr, italicTags: _italic, boldTags: _bold);
+        addInline(b, tr, italicTags: _italic, boldTags: _bold, noteRef: _noteRef);
         final block = b.build(TextBlockKind.paragraph);
         if (block != null) out.add(block);
       }

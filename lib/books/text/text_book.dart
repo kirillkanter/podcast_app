@@ -25,13 +25,16 @@ enum TextBlockKind {
 }
 
 class TextRun {
-  const TextRun(this.text, {this.bold = false, this.italic = false});
+  const TextRun(this.text, {this.bold = false, this.italic = false, this.note});
 
   final String text;
   final bool bold;
   final bool italic;
 
-  TextRun withText(String t) => TextRun(t, bold: bold, italic: italic);
+  /// Ссылка на сноску: ключ в [TextBookContent.notes].
+  final String? note;
+
+  TextRun withText(String t) => TextRun(t, bold: bold, italic: italic, note: note);
 }
 
 class TextBlock {
@@ -80,6 +83,7 @@ class TextBookContent {
     this.language,
     this.description,
     this.cover,
+    this.notes = const {},
   }) : length = chapters.fold(0, (s, c) => s + c.length);
 
   final String title;
@@ -88,6 +92,9 @@ class TextBookContent {
   final String? description;
   final Uint8List? cover;
   final List<TextChapter> chapters;
+
+  /// Сноски: ключ из [TextRun.note] → текст сноски.
+  final Map<String, String> notes;
 
   /// Символов в книге.
   final int length;
@@ -108,14 +115,14 @@ class BlockBuilder {
 
   bool get isEmpty => _runs.every((r) => r.text.trim().isEmpty);
 
-  void add(String text, {bool bold = false, bool italic = false}) {
+  void add(String text, {bool bold = false, bool italic = false, String? note}) {
     if (text.isEmpty) return;
     // Неразрывный пробел (\u00A0) сохраняется.
     final normalized = text.replaceAll(RegExp(r'[ \t\r\n\f]+'), ' ');
-    if (_runs.isNotEmpty && _runs.last.bold == bold && _runs.last.italic == italic) {
+    if (_runs.isNotEmpty && _runs.last.bold == bold && _runs.last.italic == italic && _runs.last.note == note) {
       _runs[_runs.length - 1] = _runs.last.withText(_runs.last.text + normalized);
     } else {
-      _runs.add(TextRun(normalized, bold: bold, italic: italic));
+      _runs.add(TextRun(normalized, bold: bold, italic: italic, note: note));
     }
   }
 

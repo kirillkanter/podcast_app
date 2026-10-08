@@ -399,9 +399,11 @@ class _ChaptersCardState extends State<_ChaptersCard> {
     final chapters = widget.audio.bookChapters;
     final t = widget.audio.bookTimeline;
     final cur = widget.current;
-    // Свёрнуто: предыдущая, текущая и пять следующих.
-    final from = _all ? 0 : math.max(0, cur - 1);
-    final to = _all ? chapters.length : math.min(chapters.length, cur + 6);
+    // Свёрнуто: всегда семь строк (предыдущая, текущая и следующие; у конца
+    // книги — последние семь), чтобы высота не менялась и плеер не прыгал.
+    const window = 7;
+    final from = _all ? 0 : (cur - 1).clamp(0, math.max(0, chapters.length - window));
+    final to = _all ? chapters.length : math.min(chapters.length, from + window);
     final tabular = const [FontFeature.tabularFigures()];
     return Container(
       padding: const EdgeInsets.fromLTRB(6, 10, 6, 4),

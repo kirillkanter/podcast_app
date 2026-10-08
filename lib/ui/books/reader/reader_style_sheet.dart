@@ -97,6 +97,38 @@ class ReaderStyleSheet extends StatelessWidget {
             ],
           ]),
           const SizedBox(height: 16),
+          label('Поля'),
+          Row(children: [
+            for (var i = 0; i < readerMargins.length; i++) ...[
+              Expanded(
+                child: _StyleButton(
+                  selected: style.margin == i,
+                  onTap: () => onChanged(style.copyWith(margin: i)),
+                  child: _MarginIcon(factor: readerMargins[i], color: c.text),
+                ),
+              ),
+              if (i != readerMargins.length - 1) const SizedBox(width: 8),
+            ],
+          ]),
+          const SizedBox(height: 16),
+          label('Выравнивание'),
+          Row(children: [
+            for (final j in [true, false]) ...[
+              Expanded(
+                child: _StyleButton(
+                  selected: style.justify == j,
+                  onTap: () => onChanged(style.copyWith(justify: j)),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(j ? Icons.format_align_justify : Icons.format_align_left, size: 20, color: c.text),
+                    const SizedBox(width: 8),
+                    Text(j ? 'По ширине' : 'По левому краю', style: TextStyle(fontSize: 14, color: c.text)),
+                  ]),
+                ),
+              ),
+              if (j) const SizedBox(width: 8),
+            ],
+          ]),
+          const SizedBox(height: 16),
           label('Перелистывание'),
           Row(children: [
             for (final t in PageTurn.values) ...[
@@ -148,6 +180,28 @@ class _StyleButton extends StatelessWidget {
         onTap: onTap,
         child: SizedBox(width: width, height: 52, child: Center(child: Opacity(opacity: onTap == null ? 0.4 : 1, child: child))),
       ),
+    );
+  }
+}
+
+/// Схема страницы с полями: строки текста между полями.
+class _MarginIcon extends StatelessWidget {
+  const _MarginIcon({required this.factor, required this.color});
+
+  final double factor;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final pad = 3 + 5 * factor;
+    return Container(
+      width: 34,
+      height: 30,
+      padding: EdgeInsets.symmetric(horizontal: pad, vertical: 5),
+      decoration: BoxDecoration(border: Border.all(color: color.withValues(alpha: 0.5)), borderRadius: BorderRadius.circular(4)),
+      child: Column(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+        for (var i = 0; i < 4; i++) Container(height: 2, color: color.withValues(alpha: 0.8)),
+      ]),
     );
   }
 }

@@ -40,16 +40,18 @@ void addInline(
   Set<String> skipTags = const {},
   bool bold = false,
   bool italic = false,
+  String? note,
+  String? Function(XmlElement link)? noteRef,
 }) {
   for (final c in node.children) {
     final text = dataOf(c);
     if (text != null) {
-      b.add(text, bold: bold, italic: italic);
+      b.add(text, bold: bold, italic: italic, note: note);
     } else if (c is XmlElement) {
       final n = c.name.local.toLowerCase();
       if (skipTags.contains(n)) continue;
       if (n == 'br') {
-        b.add(' ', bold: bold, italic: italic);
+        b.add(' ', bold: bold, italic: italic, note: note);
         continue;
       }
       addInline(
@@ -60,6 +62,8 @@ void addInline(
         skipTags: skipTags,
         bold: bold || boldTags.contains(n),
         italic: italic || italicTags.contains(n),
+        note: note ?? (n == 'a' && noteRef != null ? noteRef(c) : null),
+        noteRef: noteRef,
       );
     }
   }

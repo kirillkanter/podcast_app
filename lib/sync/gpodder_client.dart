@@ -243,6 +243,21 @@ class GpodderClient {
     return newer;
   }
 
+  /// Обмен выделениями: свои изменения уходят, приходит всё новее [since].
+  Future<({int rev, List<Map<String, Object?>> items})> syncHighlights({
+    required int since,
+    required List<Map<String, Object?>> items,
+  }) async {
+    final data = await _send('POST', '/books.php',
+        query: {'highlights': '1'}, body: {'since': since, 'items': items}, timeout: const Duration(seconds: 20));
+    if (data is! Map<String, Object?>) throw const SyncException('Сервер вернул неожиданный ответ на запрос выделений.');
+    final list = data['items'];
+    return (
+      rev: (data['rev'] as num?)?.toInt() ?? since,
+      items: list is List ? list.whereType<Map<String, Object?>>().toList() : <Map<String, Object?>>[],
+    );
+  }
+
   /// Обмен статистикой чтения: свои дни уходят, приходят итоги других
   /// устройств по дням с [since] («2026-09-01»).
   Future<List<Map<String, Object?>>> syncReadingStats({

@@ -9,12 +9,13 @@ import 'package:path/path.dart' as p;
 import 'package:xml/xml.dart';
 
 import '../../ui/format.dart' show htmlToText;
+import 'image_size.dart';
 import 'text_book.dart';
 import 'xml_helpers.dart';
 
 const _italic = {'em', 'i', 'cite', 'var', 'dfn'};
 const _bold = {'strong', 'b'};
-const _skip = {'script', 'style', 'head', 'img', 'image', 'svg', 'math', 'audio', 'video', 'object', 'iframe', 'noscript'};
+const _skip = {'script', 'style', 'head', 'math', 'audio', 'video', 'object', 'iframe', 'noscript'};
 const _blocks = {
   'p', 'div', 'li', 'blockquote', 'pre', 'section', 'article', 'aside', 'header', 'footer', 'tr', 'dd', 'dt',
   'figcaption', 'figure', 'table', 'ul', 'ol', 'dl', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'body', 'main', 'nav', 'hr',
@@ -191,6 +192,21 @@ TextBookContent parseEpub(Uint8List bytes, {required String fallbackTitle}) {
   }
   final notes = <String, String>{};
 
+  // Картинки внутри текста: путь в архиве → картинка.
+  final images = <String, BookImage>{};
+  String? imageRef(String dir, String href) {
+    if (href.startsWith('data:') || href.contains('://')) return null;
+    final path = _resolve(dir, href);
+    if (images.containsKey(path)) return path;
+    final f = file(path);
+    if (f == null) return null;
+    final bytes = Uint8List.fromList(f.content);
+    final size = imageSize(bytes);
+    if (size == null || size.width < 2 || size.height < 2) return null;
+    images[path] = BookImage(bytes, size.width, size.height);
+    return path;
+  }
+
   // Главы по порядку spine.
   final chapters = <TextChapter>[];
   if (spineEl != null) {
@@ -204,8 +220,12 @@ TextBookContent parseEpub(Uint8List bytes, {required String fallbackTitle}) {
       final dir = p.posix.dirname(item.path) == '.' ? '' : p.posix.dirname(item.path);
       final blocks = doc == null
           ? xhtmlToBlocks(_decode(f.content))
-          : _docToBlocks(doc, noteRef: (a) => _noteRef(a, item.path, dir, ids, notes));
+          : _docToBlocks(doc,
+              noteRef: (a) => _noteRef(a, item.path, dir, ids, notes), imageRef: (href) => imageRef(dir, href));
       if (blocks.isEmpty) continue;
+      // Страница только с обложкой — обложка и так видна в библиотеке.
+      final coverPath = coverId == null ? null : manifest[coverId]?.path;
+      if (blocks.every((b) => b.kind == TextBlockKind.image && b.image == coverPath)) continue;
       final title = toc[item.path] ??
           blocks.where((b) => b.kind == TextBlockKind.heading).map((b) => b.text).firstOrNull ??
           'Глава ${chapters.length + 1}';
@@ -223,6 +243,11 @@ TextBookContent parseEpub(Uint8List bytes, {required String fallbackTitle}) {
     cover: cover,
     chapters: chapters,
     notes: notes,
+    images: {
+      for (final c in chapters)
+        for (final b in c.blocks)
+          if (b.image != null && images[b.image] != null) b.image!: images[b.image]!,
+    },
   );
 }
 
@@ -286,21 +311,35 @@ bool _isNoteAside(XmlElement e) {
   return t.contains('footnote') || t.contains('endnote') || t.contains('rearnote') || t.contains('note');
 }
 
-List<TextBlock> _docToBlocks(XmlDocument doc, {String? Function(XmlElement link)? noteRef}) {
+List<TextBlock> _docToBlocks(
+  XmlDocument doc, {
+  String? Function(XmlElement link)? noteRef,
+  String? Function(String href)? imageRef,
+}) {
   final out = <TextBlock>[];
   final body = doc.descendants.whereType<XmlElement>().where((e) => e.name.local.toLowerCase() == 'body').firstOrNull ??
       doc.rootElement;
-  final w = _Walker(out, noteRef);
+  final w = _Walker(out, noteRef, imageRef);
   w.walk(body, TextBlockKind.paragraph, false, false);
   w.flush(TextBlockKind.paragraph);
   return out;
 }
 
 class _Walker {
-  _Walker(this.out, this.noteRef);
+  _Walker(this.out, this.noteRef, this.imageRef);
 
   final List<TextBlock> out;
   final String? Function(XmlElement link)? noteRef;
+  final String? Function(String href)? imageRef;
+
+  /// Картинка — отдельным блоком между абзацами.
+  void image(String? href, TextBlockKind kind) {
+    if (href == null || imageRef == null) return;
+    final key = imageRef!(href);
+    if (key == null) return;
+    flush(kind);
+    out.add(TextBlock(TextBlockKind.image, const [], image: key));
+  }
   final b = BlockBuilder();
 
   void flush(TextBlockKind kind) {
@@ -319,6 +358,16 @@ class _Walker {
       final n = c.name.local.toLowerCase();
       if (_skip.contains(n)) continue;
       if (_isNoteAside(c)) continue;
+      if (n == 'img') {
+        image(attr(c, 'src'), kind);
+        continue;
+      }
+      if (n == 'svg' || n == 'image') {
+        // Картинка в SVG-обёртке (так часто делают иллюстрации и обложки).
+        final img = n == 'image' ? c : c.descendants.whereType<XmlElement>().where((e) => e.name.local == 'image').firstOrNull;
+        if (img != null) image(attr(img, 'href'), kind);
+        continue;
+      }
       if (n == 'a' && note == null && noteRef != null) {
         final ref = noteRef!(c);
         if (ref != null) {

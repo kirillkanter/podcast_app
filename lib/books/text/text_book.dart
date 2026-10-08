@@ -22,6 +22,18 @@ enum TextBlockKind {
 
   /// Пустая строка-разделитель.
   empty,
+
+  /// Картинка ([TextBlock.image] — ключ в [TextBookContent.images]).
+  image,
+}
+
+/// Картинка книги и её размер в пикселях (из заголовка файла).
+class BookImage {
+  const BookImage(this.bytes, this.width, this.height);
+
+  final Uint8List bytes;
+  final int width;
+  final int height;
 }
 
 class TextRun {
@@ -38,7 +50,10 @@ class TextRun {
 }
 
 class TextBlock {
-  TextBlock(this.kind, this.runs) : text = runs.map((r) => r.text).join();
+  TextBlock(this.kind, this.runs, {this.image}) : text = runs.map((r) => r.text).join();
+
+  /// Картинка: ключ в [TextBookContent.images].
+  final String? image;
 
   final TextBlockKind kind;
   final List<TextRun> runs;
@@ -84,6 +99,7 @@ class TextBookContent {
     this.description,
     this.cover,
     this.notes = const {},
+    this.images = const {},
   }) : length = chapters.fold(0, (s, c) => s + c.length);
 
   final String title;
@@ -95,6 +111,9 @@ class TextBookContent {
 
   /// Сноски: ключ из [TextRun.note] → текст сноски.
   final Map<String, String> notes;
+
+  /// Картинки внутри текста по ключу из [TextBlock.image].
+  final Map<String, BookImage> images;
 
   /// Символов в книге.
   final int length;

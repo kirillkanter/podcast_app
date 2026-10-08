@@ -21,6 +21,7 @@ import '../theme.dart';
 import 'book_start.dart';
 import 'book_widgets.dart';
 import 'cover_picker.dart';
+import 'highlights.dart';
 
 class BookScreen extends StatefulWidget {
   const BookScreen({super.key, required this.bookId});
@@ -225,10 +226,11 @@ class _BookScreenState extends State<BookScreen> {
                   ]),
                 ),
                 const SizedBox(height: 14),
-                Padding(
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
                   padding: const EdgeInsets.symmetric(horizontal: 20),
                   child: Row(children: [
-                    for (final (i, label) in [audio ? 'Главы' : 'Оглавление', 'Закладки', 'О книге'].indexed) ...[
+                    for (final (i, label) in [audio ? 'Главы' : 'Оглавление', 'Закладки', if (!audio) 'Выделения', 'О книге'].indexed) ...[
                       _TabButton(label: label, selected: _tab == i, onTap: () => setState(() => _tab = i)),
                       const SizedBox(width: 22),
                     ],
@@ -246,6 +248,20 @@ class _BookScreenState extends State<BookScreen> {
                         onOpen: (b) => audio
                             ? startAudioBook(context, book, at: AudioLocator.parse(b.locator), openPlayer: true)
                             : openTextBook(context, book, at: TextLocator.parse(b.locator)),
+                      ),
+                    ),
+                  2 when !audio => FutureBuilder<TextBookContent>(
+                      future: _text,
+                      builder: (context, text) => HighlightsList(
+                        db: AppScope.of(context).db,
+                        bookKey: book.key,
+                        place: (h) {
+                          final l = TextLocator.parse(h.startAt);
+                          final content = text.data;
+                          if (l == null || content == null || l.chapter >= content.chapters.length) return null;
+                          return content.chapters[l.chapter].title;
+                        },
+                        onOpen: (h) => openTextBook(context, book, at: TextLocator.parse(h.startAt)),
                       ),
                     ),
                   _ => _about(book),

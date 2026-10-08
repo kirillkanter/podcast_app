@@ -113,7 +113,105 @@ function books_install(DB $db): void
 		pages INTEGER NOT NULL DEFAULT 0,
 		changed INTEGER NOT NULL,
 		PRIMARY KEY (user, device, day)
-	);');
+	);
+	CREATE TABLE IF NOT EXISTS bcaster_highlights (
+		user INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+		uid TEXT NOT NULL,
+		book TEXT NOT NULL,
+		start_at TEXT NOT NULL,
+		end_at TEXT NOT NULL,
+		quote TEXT NOT NULL,
+		note TEXT NOT NULL DEFAULT \'\',
+		color INTEGER NOT NULL DEFAULT 0,
+		deleted INTEGER NOT NULL DEFAULT 0,
+		created INTEGER NOT NULL,
+		changed INTEGER NOT NULL,
+		rev INTEGER NOT NULL,
+		PRIMARY KEY (user, uid)
+	);
+	CREATE INDEX IF NOT EXISTS bcaster_highlights_rev ON bcaster_highlights (user, rev);');
+}
+
+/**
+ * Выделения цветом и заметки в текстовых книгах. Устройство присылает свои
+ * изменения и ревизию, до которой всё получило; в ответ — всё, что новее.
+ * Конфликт решается по времени изменения: более позднее побеждает.
+ * Тело: {"since": 0, "items": [{"uid", "book", "start", "end", "quote", "note", "color", "deleted", "created", "changed"}]}.
+ */
+function books_highlights(DB $db, int $user): void
+{
+	$body = json_decode(file_get_contents('php://input'), true);
+
+	if (!is_array($body)) {
+		books_reply(400, ['message' => 'Expected {"since": 0, "items": [...]}']);
+	}
+
+	$items = is_array($body['items'] ?? null) ? $body['items'] : [];
+	$since = (int) ($body['since'] ?? 0);
+
+	if (count($items) > BOOKS_MAX_ITEMS) {
+		books_reply(413, ['message' => 'Too many items, max ' . BOOKS_MAX_ITEMS]);
+	}
+
+	$db->exec('BEGIN IMMEDIATE;');
+	$rev = (int) $db->firstColumn('SELECT COALESCE(MAX(rev), 0) FROM bcaster_highlights WHERE user = ?;', $user);
+
+	foreach ($items as $item) {
+		if (!is_array($item)
+			|| !is_string($item['uid'] ?? null) || !preg_match('/^[0-9a-f]{16,64}$/', $item['uid'])
+			|| !is_string($item['book'] ?? null) || !books_valid_key($item['book'])
+			|| !is_string($item['start'] ?? null) || !is_string($item['end'] ?? null)
+			|| !is_numeric($item['changed'] ?? null)) {
+			continue;
+		}
+
+		$changed = (int) $item['changed'];
+		$current = $db->firstColumn('SELECT changed FROM bcaster_highlights WHERE user = ? AND uid = ?;', $user, $item['uid']);
+
+		if ($current !== null && $current !== false && (int) $current >= $changed) {
+			continue;
+		}
+
+		$rev++;
+		$db->simple('INSERT OR REPLACE INTO bcaster_highlights
+			(user, uid, book, start_at, end_at, quote, note, color, deleted, created, changed, rev)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);',
+			$user,
+			$item['uid'],
+			$item['book'],
+			mb_substr($item['start'], 0, 100),
+			mb_substr($item['end'], 0, 100),
+			is_string($item['quote'] ?? null) ? mb_substr($item['quote'], 0, 2100) : '',
+			is_string($item['note'] ?? null) ? mb_substr($item['note'], 0, 10000) : '',
+			is_numeric($item['color'] ?? null) ? min(15, max(0, (int) $item['color'])) : 0,
+			!empty($item['deleted']) ? 1 : 0,
+			is_numeric($item['created'] ?? null) ? (int) $item['created'] : $changed,
+			$changed,
+			$rev
+		);
+	}
+
+	$db->exec('COMMIT;');
+
+	$out = [];
+
+	foreach ($db->iterate('SELECT uid, book, start_at, end_at, quote, note, color, deleted, created, changed FROM bcaster_highlights
+		WHERE user = ? AND rev > ? ORDER BY rev;', $user, $since) as $row) {
+		$out[] = [
+			'uid'     => $row->uid,
+			'book'    => $row->book,
+			'start'   => $row->start_at,
+			'end'     => $row->end_at,
+			'quote'   => $row->quote,
+			'note'    => $row->note,
+			'color'   => (int) $row->color,
+			'deleted' => (bool) $row->deleted,
+			'created' => (int) $row->created,
+			'changed' => (int) $row->changed,
+		];
+	}
+
+	books_reply(200, ['rev' => $rev, 'items' => $out]);
 }
 
 /**
@@ -541,6 +639,9 @@ try {
 			}
 			elseif (isset($_GET['stats'])) {
 				books_stats($db, $user);
+			}
+			elseif (isset($_GET['highlights'])) {
+				books_highlights($db, $user);
 			}
 			books_post($db, $user);
 			break;

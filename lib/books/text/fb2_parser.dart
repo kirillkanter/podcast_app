@@ -9,6 +9,7 @@ import 'package:archive/archive.dart';
 import 'package:xml/xml.dart';
 
 import '../../feed/feed_decoder.dart' show decodeFeedBytes;
+import 'image_size.dart';
 import 'text_book.dart';
 import 'xml_helpers.dart';
 
@@ -84,6 +85,26 @@ TextBookContent parseFb2(Uint8List bytes, {required String fallbackTitle}) {
     return notes.containsKey(id) ? id : null;
   };
 
+  // Картинки внутри текста: <image l:href="#id"/> → <binary id="id">.
+  final binaries = {for (final b in kids(root, 'binary')) attr(b, 'id') ?? '': b};
+  final images = <String, BookImage>{};
+  _imageRef = (href) {
+    if (!href.startsWith('#')) return null;
+    final id = href.substring(1);
+    if (images.containsKey(id)) return id;
+    final bin = binaries[id];
+    if (bin == null) return null;
+    try {
+      final bytes = base64.decode(bin.innerText.replaceAll(RegExp(r'\s+'), ''));
+      final size = imageSize(bytes);
+      if (size == null || size.width < 2 || size.height < 2) return null;
+      images[id] = BookImage(bytes, size.width, size.height);
+      return id;
+    } catch (_) {
+      return null;
+    }
+  };
+
   final chapters = <TextChapter>[];
   for (final body in kids(root, 'body')) {
     // Примечания и комментарии — отдельные body; в главы не идут.
@@ -116,7 +137,17 @@ TextBookContent parseFb2(Uint8List bytes, {required String fallbackTitle}) {
     cover: cover,
     chapters: chapters,
     notes: notes,
+    images: images,
   );
+}
+
+/// Картинка книги по ссылке «#id» (как [_noteRef] — на время разбора).
+String? Function(String href)? _imageRef;
+
+void _image(XmlElement e, List<TextBlock> out) {
+  final href = attr(e, 'href');
+  final key = href == null ? null : _imageRef?.call(href);
+  if (key != null) out.add(TextBlock(TextBlockKind.image, const [], image: key));
 }
 
 /// Ссылка на сноску текущей книги (разбор идёт в одном потоке, по книге за раз).
@@ -180,6 +211,11 @@ void _element(XmlElement c, List<TextBlock> out, {TextBlockKind kind = TextBlock
       para(c, TextBlockKind.subtitle);
     case 'p':
       para(c, kind, it: italic);
+      for (final img in c.descendants.whereType<XmlElement>().where((e) => e.name.local == 'image')) {
+        _image(img, out);
+      }
+    case 'image':
+      _image(c, out);
     case 'v':
       para(c, TextBlockKind.verse);
     case 'empty-line':

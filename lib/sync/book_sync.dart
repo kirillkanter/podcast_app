@@ -195,6 +195,76 @@ class BookSync {
 
   /// Полный проход: удаления, места, список книг, загрузка и скачивание
   /// текстовых книг. Вызывается из [SyncService] после подкастов.
+  Timer? _highlightsTimer;
+
+  /// Выделение изменили — отправить через несколько секунд (правки подряд
+  /// уходят одним запросом).
+  void highlightsChanged() {
+    _highlightsTimer?.cancel();
+    _highlightsTimer = Timer(const Duration(seconds: 4), () => unawaited(syncHighlights().catchError((Object _) {})));
+  }
+
+  Future<void>? _syncingHighlights;
+
+  /// Выделения и заметки: свои изменения — на сервер, чужие — сюда.
+  Future<void> syncHighlights() => _syncingHighlights ??= () async {
+        try {
+          final client = await _sync.openClient();
+          if (client == null) return;
+          try {
+            await syncHighlightsWith(client);
+          } finally {
+            client.close();
+          }
+        } finally {
+          _syncingHighlights = null;
+        }
+      }();
+
+  Future<void> syncHighlightsWith(GpodderClient client) async {
+    final since = int.tryParse(await _db.setting(BookSettings.highlightsSince) ?? '') ?? 0;
+    final dirty = await _db.dirtyHighlights();
+    final result = await client.syncHighlights(since: since, items: [
+      for (final h in dirty)
+        {
+          'uid': h.uid,
+          'book': h.bookKey,
+          'start': h.startAt,
+          'end': h.endAt,
+          'quote': h.quote,
+          'note': h.note,
+          'color': h.color,
+          'deleted': h.deleted,
+          'created': h.createdAt.millisecondsSinceEpoch,
+          'changed': h.updatedAt.millisecondsSinceEpoch,
+        },
+    ]);
+    for (final h in dirty) {
+      await _db.markHighlightSynced(h.uid, h.updatedAt);
+    }
+    for (final j in result.items) {
+      final uid = j['uid'];
+      final book = j['book'];
+      final start = j['start'];
+      final end = j['end'];
+      final changed = j['changed'];
+      if (uid is! String || book is! String || start is! String || end is! String || changed is! num) continue;
+      await _db.applyRemoteHighlight(
+        uid: uid,
+        bookKey: book,
+        start: start,
+        end: end,
+        quote: j['quote'] is String ? j['quote']! as String : '',
+        note: j['note'] is String ? j['note']! as String : '',
+        color: (j['color'] as num?)?.toInt() ?? 0,
+        deleted: j['deleted'] == true,
+        createdAt: DateTime.fromMillisecondsSinceEpoch(((j['created'] as num?) ?? changed).toInt()),
+        updatedAt: DateTime.fromMillisecondsSinceEpoch(changed.toInt()),
+      );
+    }
+    await _db.setSetting(BookSettings.highlightsSince, '${result.rev}');
+  }
+
   /// Статистика чтения: свои дни за [days] дней — на сервер, итоги других
   /// устройств — сюда. Без синхронизации ничего не делает.
   Future<void> syncStats({int days = 60}) async {
@@ -261,6 +331,11 @@ class BookSync {
         await syncStatsWith(client);
       } catch (e) {
         debugPrint('Статистика чтения не синхронизировалась: $e');
+      }
+      try {
+        await syncHighlightsWith(client);
+      } catch (e) {
+        debugPrint('Выделения не синхронизировались: $e');
       }
 
       // 4. Текстовые книги этого устройства — на сервер.

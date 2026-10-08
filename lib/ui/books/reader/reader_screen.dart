@@ -25,6 +25,7 @@ import '../../format.dart';
 import '../../icons.dart';
 import '../../theme.dart';
 import '../book_widgets.dart';
+import '../highlights.dart';
 import 'paginator.dart';
 import 'reader_menu.dart';
 import 'reader_selection.dart';
@@ -80,6 +81,11 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   bool _started = false;
   StreamSubscription<List<BookBookmark>>? _bookmarksSub;
   List<BookBookmark> _bookmarks = const [];
+  StreamSubscription<List<BookHighlight>>? _highlightsSub;
+  List<BookHighlight> _highlights = const [];
+
+  /// Нажали на сохранённое выделение: панель для него (цвет, заметка, удалить).
+  BookHighlight? _activeHighlight;
 
   // Выделение.
   TextSelectionRange? _selection;
@@ -161,6 +167,16 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       _bookmarksSub = _db.watchBookmarks(widget.book.id).listen((list) {
         if (mounted) setState(() => _bookmarks = list);
       });
+      _highlightsSub = _db.watchHighlights(widget.book.key).listen((list) {
+        if (!mounted) return;
+        setState(() {
+          _highlights = list;
+          final active = _activeHighlight;
+          if (active != null) _activeHighlight = list.where((h) => h.id == active.id).firstOrNull;
+        });
+      });
+      // Выделения с других устройств.
+      unawaited(_bookSync?.syncHighlights().catchError((Object _) {}));
       unawaited(_init());
     }
   }
@@ -210,6 +226,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     _longPress?.cancel();
     _toastTimer?.cancel();
     unawaited(_bookmarksSub?.cancel());
+    unawaited(_highlightsSub?.cancel());
     if (_started) unawaited(_stats.pause(sync: _bookSync));
     _saveNow(push: true);
     _focus.dispose();
@@ -293,6 +310,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
           base: _baseStyle,
           scaler: _scaler,
           justify: _style.justify,
+          images: _content.images,
         ),
       );
 
@@ -470,6 +488,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   // -------------------------------------------------------------------------
 
   void _clearSelection() {
+    _activeHighlight = null;
     _selection = null;
     _selAnchor = null;
     _selecting = false;
@@ -596,6 +615,117 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   }
 
   // -------------------------------------------------------------------------
+  // Выделения цветом и заметки
+  // -------------------------------------------------------------------------
+
+  /// Сохранённые выделения в абзаце [block] главы [chapter].
+  List<TextMark> _marksOf(int chapter, int block, Paper paper) {
+    if (_highlights.isEmpty) return const [];
+    final out = <TextMark>[];
+    final alpha = paper == Paper.dark ? 0.38 : 0.55;
+    for (final h in _highlights) {
+      final a = TextLocator.parse(h.startAt);
+      final b = TextLocator.parse(h.endAt);
+      if (a == null || b == null || a.chapter != chapter || block < a.block || block > b.block) continue;
+      final length = _content.chapters[chapter].blocks[block].length;
+      final s = block == a.block ? a.offset : 0;
+      final e = block == b.block ? b.offset : length;
+      if (e <= s) continue;
+      out.add((
+        start: s,
+        end: e,
+        color: highlightColors[h.color.clamp(0, highlightColors.length - 1)].withValues(alpha: alpha),
+        note: h.note.isNotEmpty,
+      ));
+    }
+    return out;
+  }
+
+  /// Место под пальцем, только если палец прямо на тексте.
+  ChapterPos? _exactPos(Offset global) {
+    for (final v in _visibleParagraphs()) {
+      final local = v.p.globalToLocal(global);
+      if (!(Offset.zero & v.p.size).contains(local)) continue;
+      final pos = v.p.getPositionForOffset(local).offset;
+      final f = v.f;
+      return ChapterPos(f.block, (f.start + pos - (f.indent ? indentChar.length : 0)).clamp(f.start, f.end));
+    }
+    return null;
+  }
+
+  BookHighlight? _highlightAt(Offset global) {
+    if (_highlights.isEmpty) return null;
+    final pos = _exactPos(global);
+    if (pos == null) return null;
+    for (final h in _highlights.reversed) {
+      final a = TextLocator.parse(h.startAt);
+      final b = TextLocator.parse(h.endAt);
+      if (a == null || b == null || a.chapter != _chapter) continue;
+      final from = ChapterPos(a.block, a.offset);
+      final to = ChapterPos(b.block, b.offset);
+      if (!(pos < from) && pos < to) return h;
+    }
+    return null;
+  }
+
+  /// Показать панель для сохранённого выделения.
+  void _openHighlight(BookHighlight h) {
+    final a = TextLocator.parse(h.startAt)!;
+    final b = TextLocator.parse(h.endAt)!;
+    setState(() {
+      _clearSelection();
+      _activeHighlight = h;
+      _selAnchor = ChapterPos(a.block, a.offset);
+      _selection = TextSelectionRange(ChapterPos(a.block, a.offset), ChapterPos(b.block, b.offset));
+    });
+    _afterSelectionChange();
+  }
+
+  /// Выделить цветом [color] (новое выделение) или сменить цвет.
+  Future<BookHighlight?> _applyColor(int color) async {
+    final active = _activeHighlight;
+    if (active != null) {
+      await _db.updateHighlight(active.id, color: color);
+      _bookSync?.highlightsChanged();
+      if (mounted) setState(_clearSelection);
+      return active;
+    }
+    final sel = _selection;
+    if (sel == null || sel.isEmpty) return null;
+    final quote = _selectedText;
+    final id = await _db.addHighlight(
+      widget.book.key,
+      start: TextLocator(_chapter, sel.start.block, sel.start.offset).encode(),
+      end: TextLocator(_chapter, sel.end.block, sel.end.offset).encode(),
+      quote: quote.length > 2000 ? '${quote.substring(0, 2000)}…' : quote,
+      color: color,
+    );
+    _bookSync?.highlightsChanged();
+    if (mounted) setState(_clearSelection);
+    unawaited(HapticFeedback.selectionClick());
+    return _db.highlightById(id);
+  }
+
+  Future<void> _deleteHighlight() async {
+    final active = _activeHighlight;
+    if (active == null) return;
+    await _db.deleteHighlight(active.id);
+    _bookSync?.highlightsChanged();
+    if (mounted) setState(_clearSelection);
+  }
+
+  /// Заметка к выделению (новое выделение — жёлтым).
+  Future<void> _editNote() async {
+    final h = _activeHighlight ?? await _applyColor(0);
+    if (h == null || !mounted) return;
+    setState(_clearSelection);
+    final note = await showHighlightNoteDialog(context, quote: h.quote, note: h.note);
+    if (note == null) return;
+    await _db.updateHighlight(h.id, note: note);
+    _bookSync?.highlightsChanged();
+  }
+
+  // -------------------------------------------------------------------------
   // Жесты
   // -------------------------------------------------------------------------
 
@@ -717,6 +847,16 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       _showNote(note);
       return;
     }
+    final highlight = _highlightAt(e.position);
+    if (highlight != null) {
+      _openHighlight(highlight);
+      return;
+    }
+    final image = _imageAt(e.position);
+    if (image != null) {
+      unawaited(Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => _ImageViewer(image: image))));
+      return;
+    }
     final x = local.dx / area.width;
     if (x < 0.3) {
       _prev();
@@ -801,6 +941,23 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
           final rect = Rect.fromLTRB(box.left, box.top, box.right, box.bottom).inflate(12);
           if (rect.contains(v.p.globalToLocal(global))) return r.note;
         }
+      }
+    }
+    return null;
+  }
+
+  /// Картинка под точкой [global] — открыть во весь экран.
+  BookImage? _imageAt(Offset global) {
+    if (_content.images.isEmpty) return null;
+    final pages = _pagesOf(_chapter);
+    for (var page = _page; page < _page + _step && page < pages.length; page++) {
+      final frags = pages[page].fragments;
+      for (var i = 0; i < frags.length; i++) {
+        final block = _chapterText.blocks[frags[i].block];
+        if (block.kind != TextBlockKind.image) continue;
+        final box = _fragKeys[_keyId(page, i)]?.currentContext?.findRenderObject() as RenderBox?;
+        if (box == null || !box.attached) continue;
+        if ((box.localToGlobal(Offset.zero) & box.size).contains(global)) return _content.images[block.image];
       }
     }
     return null;
@@ -1063,7 +1220,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
         ),
       ),
       if (_selection != null && !_selecting && _selBoxes.isNotEmpty) ..._selectionOverlay(box.biggest, c),
-      if (_selection != null && _selBoxes.isNotEmpty) ..._handles(c),
+      if (_selection != null && _selBoxes.isNotEmpty && _activeHighlight == null) ..._handles(c),
       Positioned(
         left: 16,
         right: 16,
@@ -1195,6 +1352,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                   scaler: _scaler,
                   justify: _style.justify,
                   noteColor: c.ink,
+                  images: _content.images,
+                  pageSize: Size(_pageWidth, _pageHeight),
+                  marksOf: (block) => _marksOf(chapter, block, paper),
                   keyFor: live ? (frag) => _fragKey(i, frag) : null,
                   selection: live ? _selection : null,
                   highlight: c.bar.withValues(alpha: 0.32),
@@ -1282,7 +1442,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     final bottom = _selBoxes.map((r) => r.bottom).reduce(math.max);
     final left = _selBoxes.map((r) => r.left).reduce(math.min);
     final right = _selBoxes.map((r) => r.right).reduce(math.max);
-    const toolbarH = 44.0;
+    const toolbarH = 92.0;
     final y = top - toolbarH - 14 > 8 ? top - toolbarH - 14 : bottom + 22;
     final ax = (((left + right) / 2) / math.max(1.0, area.width) * 2 - 1).clamp(-1.0, 1.0);
     return [
@@ -1293,6 +1453,11 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
         child: Align(
           alignment: Alignment(ax, 0),
           child: _SelectionToolbar(
+            activeColor: _activeHighlight?.color,
+            hasNote: (_activeHighlight?.note ?? '').isNotEmpty,
+            onColor: (i) => unawaited(_applyColor(i)),
+            onNote: () => unawaited(_editNote()),
+            onDelete: _activeHighlight == null ? null : () => unawaited(_deleteHighlight()),
             onTranslate: () => _translate(),
             onDictionary: () => _translate(dictionary: true),
             onCopy: _copy,
@@ -1385,37 +1550,67 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     );
   }
 
+  /// Закладки и выделения с заметками — две вкладки одного листа.
   void _showBookmarks() {
     final db = _db;
+    String place(TextLocator? l, DateTime at) {
+      if (l == null || l.chapter >= _content.chapters.length) return formatAgo(at);
+      return '${_content.chapters[l.chapter].title} · стр. ${_pageNumber(l)} · ${formatAgo(at)}';
+    }
+
+    void open(BuildContext sheet, TextLocator? l) {
+      Navigator.pop(sheet);
+      setState(() => _menu = false);
+      if (l != null) _jump(l);
+    }
+
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      builder: (context) => DraggableScrollableSheet(
-        expand: false,
-        initialChildSize: 0.6,
-        maxChildSize: 0.95,
-        builder: (context, controller) => SingleChildScrollView(
-          controller: controller,
-          child: BookmarksList(
-            db: db,
-            bookId: widget.book.id,
-            meta: (b) {
-              final l = TextLocator.parse(b.locator);
-              if (l == null || l.chapter >= _content.chapters.length) return formatAgo(b.createdAt);
-              return '${_content.chapters[l.chapter].title} · стр. ${_pageNumber(l)} · ${formatAgo(b.createdAt)}';
-            },
-            onOpen: (b) {
-              Navigator.pop(context);
-              final l = TextLocator.parse(b.locator);
-              setState(() => _menu = false);
-              if (l != null) _jump(l);
-            },
-          ),
+      builder: (context) => DefaultTabController(
+        length: 2,
+        initialIndex: _bookmarks.isEmpty && _highlights.isNotEmpty ? 1 : 0,
+        child: DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.65,
+          maxChildSize: 0.95,
+          builder: (context, controller) => Column(children: [
+            TabBar(tabs: [
+              Tab(text: 'Закладки · ${_bookmarks.length}'),
+              Tab(text: 'Выделения · ${_highlights.length}'),
+            ]),
+            Expanded(
+              child: TabBarView(children: [
+                SingleChildScrollView(
+                  controller: controller,
+                  child: BookmarksList(
+                    db: db,
+                    bookId: widget.book.id,
+                    meta: (b) => place(TextLocator.parse(b.locator), b.createdAt),
+                    onOpen: (b) => open(context, TextLocator.parse(b.locator)),
+                  ),
+                ),
+                SingleChildScrollView(
+                  child: HighlightsList(
+                    db: db,
+                    bookKey: widget.book.key,
+                    place: (h) {
+                      final l = TextLocator.parse(h.startAt);
+                      if (l == null || l.chapter >= _content.chapters.length) return null;
+                      return '${_content.chapters[l.chapter].title} · стр. ${_pageNumber(l)}';
+                    },
+                    onOpen: (h) => open(context, TextLocator.parse(h.startAt)),
+                  ),
+                ),
+              ]),
+            ),
+          ]),
         ),
       ),
     );
   }
+
 
   void _showStyle() {
     showModalBottomSheet<void>(
@@ -1465,8 +1660,15 @@ class _PageView extends StatelessWidget {
     this.selection,
     this.justify = true,
     this.noteColor,
+    this.images = const {},
+    this.pageSize = Size.zero,
+    this.marksOf,
   });
 
+  final List<TextMark> Function(int block)? marksOf;
+
+  final Map<String, BookImage> images;
+  final Size pageSize;
   final bool justify;
   final Color? noteColor;
   final TextChapter chapter;
@@ -1488,6 +1690,8 @@ class _PageView extends StatelessWidget {
           for (final (i, f) in page.fragments.indexed)
             if (chapter.blocks[f.block].kind == TextBlockKind.empty)
               SizedBox(height: fs * (base.height ?? 1.5) * 0.6)
+            else if (chapter.blocks[f.block].kind == TextBlockKind.image)
+              _imageItem(context, chapter.blocks[f.block], first: i == 0, key: keyFor?.call(i))
             else
               Builder(builder: (context) {
                 final block = chapter.blocks[f.block];
@@ -1505,6 +1709,7 @@ class _PageView extends StatelessWidget {
                       highlight: selection?.rangeIn(f.block, block.length),
                       highlightColor: highlight,
                       noteColor: noteColor,
+                      marks: marksOf?.call(f.block) ?? const [],
                     ),
                     textAlign: look.align,
                     textScaler: scaler,
@@ -1547,6 +1752,70 @@ class _ReturnPill extends StatelessWidget {
           ]),
         ),
       ),
+    );
+  }
+}
+
+extension on _PageView {
+  /// Картинка по центру, с отступами; размер — как при разбивке на страницы.
+  Widget _imageItem(BuildContext context, TextBlock block, {required bool first, Key? key}) {
+    final img = images[block.image];
+    if (img == null) return const SizedBox.shrink();
+    final gap = imageGap(base);
+    final size = imageBoxSize(img, pageSize.width, pageSize.height - gap);
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+    return Padding(
+      padding: EdgeInsets.only(top: first ? 0 : gap, bottom: gap),
+      child: Center(
+        child: SizedBox.fromSize(
+          key: key,
+          size: size,
+          child: Image.memory(
+            img.bytes,
+            fit: BoxFit.contain,
+            // Декодируем под размер на экране, а не исходный — меньше памяти.
+            cacheWidth: math.min(img.width, (size.width * dpr).round()),
+            gaplessPlayback: true,
+            errorBuilder: (_, _, _) => const SizedBox.shrink(),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Картинка во весь экран: масштаб пальцами, закрыть — крестик или «назад».
+class _ImageViewer extends StatelessWidget {
+  const _ImageViewer({required this.image});
+
+  final BookImage image;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Stack(children: [
+        Positioned.fill(
+          child: InteractiveViewer(
+            maxScale: 6,
+            child: Center(child: Image.memory(image.bytes, fit: BoxFit.contain, gaplessPlayback: true)),
+          ),
+        ),
+        SafeArea(
+          child: Align(
+            alignment: Alignment.topRight,
+            child: Padding(
+              padding: const EdgeInsets.all(8),
+              child: IconButton(
+                tooltip: 'Закрыть',
+                style: IconButton.styleFrom(backgroundColor: Colors.black54),
+                icon: const Icon(Icons.close_rounded, color: Colors.white),
+                onPressed: () => Navigator.of(context).pop(),
+              ),
+            ),
+          ),
+        ),
+      ]),
     );
   }
 }
@@ -1615,18 +1884,33 @@ class _Toast extends StatelessWidget {
   }
 }
 
+/// Панель над выделением: цвета и заметка, перевод, словарь, копирование.
+/// Для сохранённого выделения — ещё «удалить», текущий цвет отмечен.
 class _SelectionToolbar extends StatelessWidget {
-  const _SelectionToolbar({required this.onTranslate, required this.onDictionary, required this.onCopy});
+  const _SelectionToolbar({
+    required this.onTranslate,
+    required this.onDictionary,
+    required this.onCopy,
+    required this.onColor,
+    required this.onNote,
+    this.onDelete,
+    this.activeColor,
+    this.hasNote = false,
+  });
 
   final VoidCallback onTranslate;
   final VoidCallback onDictionary;
   final VoidCallback onCopy;
+  final ValueChanged<int> onColor;
+  final VoidCallback onNote;
+  final VoidCallback? onDelete;
+  final int? activeColor;
+  final bool hasNote;
 
   @override
   Widget build(BuildContext context) {
     final c = BcColors.of(context);
-    // Кнопки по 36, вокруг по 4 со всех сторон: скругления внутренней
-    // «Перевести» и самой панели концентричны.
+    // Кнопки по 36, вокруг по 4: скругления кнопок и панели концентричны.
     final text = TextButton.styleFrom(
       foregroundColor: c.text,
       minimumSize: const Size(0, 36),
@@ -1636,29 +1920,61 @@ class _SelectionToolbar extends StatelessWidget {
       visualDensity: VisualDensity.standard,
       shape: const StadiumBorder(),
     );
+    Widget round(Widget child, String tooltip, VoidCallback onTap) => Tooltip(
+          message: tooltip,
+          child: InkResponse(
+            onTap: onTap,
+            radius: 20,
+            child: SizedBox.square(dimension: 36, child: Center(child: child)),
+          ),
+        );
     return Material(
       color: c.raised,
       elevation: 10,
       shadowColor: Colors.black54,
-      shape: StadiumBorder(side: BorderSide(color: c.glassBorder)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22), side: BorderSide(color: c.glassBorder)),
       child: Padding(
         padding: const EdgeInsets.all(4),
-        child: Row(mainAxisSize: MainAxisSize.min, children: [
-          FilledButton.icon(
-            style: FilledButton.styleFrom(
-              minimumSize: const Size(0, 36),
-              fixedSize: const Size.fromHeight(36),
-              padding: const EdgeInsets.symmetric(horizontal: 14),
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              visualDensity: VisualDensity.standard,
-              shape: const StadiumBorder(),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Row(mainAxisSize: MainAxisSize.min, children: [
+            for (var i = 0; i < highlightColors.length; i++)
+              round(
+                Container(
+                  width: 26,
+                  height: 26,
+                  decoration: BoxDecoration(
+                    color: highlightColors[i],
+                    shape: BoxShape.circle,
+                    border: Border.all(color: i == activeColor ? c.text : Colors.transparent, width: 2),
+                  ),
+                  child: i == activeColor ? const Icon(Icons.check_rounded, size: 16, color: Colors.black87) : null,
+                ),
+                activeColor == null ? 'Выделить цветом' : 'Сменить цвет',
+                () => onColor(i),
+              ),
+            Container(width: 1, height: 22, margin: const EdgeInsets.symmetric(horizontal: 6), color: c.divider),
+            round(Icon(hasNote ? Icons.sticky_note_2 : Icons.sticky_note_2_outlined, size: 21, color: c.text),
+                hasNote ? 'Изменить заметку' : 'Заметка', onNote),
+            if (onDelete != null) round(Icon(Icons.delete_outline_rounded, size: 21, color: c.text), 'Убрать выделение', onDelete!),
+          ]),
+          const SizedBox(height: 4),
+          Row(mainAxisSize: MainAxisSize.min, children: [
+            FilledButton.icon(
+              style: FilledButton.styleFrom(
+                minimumSize: const Size(0, 36),
+                fixedSize: const Size.fromHeight(36),
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                visualDensity: VisualDensity.standard,
+                shape: const StadiumBorder(),
+              ),
+              onPressed: onTranslate,
+              icon: const BcIcon(BcIcons.translate, size: 16),
+              label: const Text('Перевести', style: TextStyle(fontSize: 14)),
             ),
-            onPressed: onTranslate,
-            icon: const BcIcon(BcIcons.translate, size: 16),
-            label: const Text('Перевести', style: TextStyle(fontSize: 14)),
-          ),
-          TextButton(style: text, onPressed: onDictionary, child: const Text('Словарь')),
-          TextButton(style: text, onPressed: onCopy, child: const Text('Копировать')),
+            TextButton(style: text, onPressed: onDictionary, child: const Text('Словарь')),
+            TextButton(style: text, onPressed: onCopy, child: const Text('Копировать')),
+          ]),
         ]),
       ),
     );

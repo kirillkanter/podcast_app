@@ -5,6 +5,8 @@
 /// строки — продолжение начинается на следующей странице.
 library;
 
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../../books/locator.dart';
@@ -84,8 +86,12 @@ BlockLook blockLook(TextBlockKind kind, TextStyle base, {bool justify = true}) {
 /// Красная строка — широкий пробел в начале абзаца.
 const indentChar = ' ';
 
-/// Текст куска абзаца с начертаниями. [highlight] — выделенные символы
-/// абзаца (подсвечиваются фоном [highlightColor]).
+/// Выделение цветом внутри абзаца: символы [start, end), цвет фона и
+/// есть ли заметка (тогда текст подчёркнут).
+typedef TextMark = ({int start, int end, Color color, bool note});
+
+/// Текст куска абзаца с начертаниями. [highlight] — выделенные сейчас
+/// символы абзаца (фон [highlightColor]), [marks] — сохранённые выделения.
 TextSpan fragmentSpan(
   TextBlock block,
   int start,
@@ -95,14 +101,17 @@ TextSpan fragmentSpan(
   ({int start, int end})? highlight,
   Color? highlightColor,
   Color? noteColor,
+  List<TextMark> marks = const [],
 }) {
   final fs = look.style.fontSize ?? 18;
-  TextStyle? styleOf(TextRun r, bool lit) {
-    if (!r.bold && !r.italic && !lit && r.note == null) return null;
+  TextStyle? styleOf(TextRun r, Color? bg, bool underline) {
+    if (!r.bold && !r.italic && bg == null && !underline && r.note == null) return null;
     return TextStyle(
       fontWeight: r.bold ? FontWeight.w700 : (r.note != null ? FontWeight.w600 : null),
       fontStyle: r.italic ? FontStyle.italic : null,
-      backgroundColor: lit ? highlightColor : null,
+      backgroundColor: bg,
+      decoration: underline ? TextDecoration.underline : null,
+      decorationStyle: underline ? TextDecorationStyle.dotted : null,
       // Ссылка на сноску — мельче и цветом, как в бумажной книге.
       fontSize: r.note != null ? fs * 0.78 : null,
       color: r.note != null ? noteColor : null,
@@ -111,23 +120,44 @@ TextSpan fragmentSpan(
 
   final children = <InlineSpan>[if (indent) const TextSpan(text: indentChar)];
   final h = highlight;
-  if (h == null || h.end <= start || h.start >= end) {
-    for (final r in block.slice(start, end)) {
-      children.add(TextSpan(text: r.text, style: styleOf(r, false)));
+  // Границы участков: края куска, выделения и сохранённых отметок.
+  final cuts = <int>{start, end};
+  for (final m in marks) {
+    if (m.end > start && m.start < end) cuts.addAll([m.start.clamp(start, end), m.end.clamp(start, end)]);
+  }
+  if (h != null && h.end > start && h.start < end) cuts.addAll([h.start.clamp(start, end), h.end.clamp(start, end)]);
+  final points = cuts.toList()..sort();
+  for (var k = 0; k + 1 < points.length; k++) {
+    final a = points[k];
+    final b = points[k + 1];
+    if (b <= a) continue;
+    final lit = h != null && h.start <= a && h.end >= b;
+    TextMark? mark;
+    for (final m in marks) {
+      if (m.start <= a && m.end >= b) mark = m;
     }
-  } else {
-    // Три части: до выделения, выделение, после.
-    final a = h.start.clamp(start, end);
-    final b = h.end.clamp(start, end);
-    for (final (from, to, lit) in [(start, a, false), (a, b, true), (b, end, false)]) {
-      if (to <= from) continue;
-      for (final r in block.slice(from, to)) {
-        children.add(TextSpan(text: r.text, style: styleOf(r, lit)));
-      }
+    final bg = lit ? highlightColor : mark?.color;
+    for (final r in block.slice(a, b)) {
+      children.add(TextSpan(text: r.text, style: styleOf(r, bg, mark?.note ?? false)));
     }
   }
   return TextSpan(style: look.style, children: children);
 }
+
+/// Размер картинки на странице: не больше страницы и не крупнее самой
+/// картинки (мелкие украшения не растягиваются на всю ширину).
+Size imageBoxSize(BookImage img, double maxWidth, double maxHeight) {
+  var w = math.min(maxWidth, img.width.toDouble());
+  var h = w * img.height / img.width;
+  if (h > maxHeight) {
+    h = maxHeight;
+    w = h * img.width / img.height;
+  }
+  return Size(w, h);
+}
+
+/// Отступ над и под картинкой.
+double imageGap(TextStyle base) => (base.fontSize ?? 18) * 0.6;
 
 List<ReaderPage> paginateChapter(
   TextChapter chapter, {
@@ -136,6 +166,7 @@ List<ReaderPage> paginateChapter(
   required TextStyle base,
   required TextScaler scaler,
   bool justify = true,
+  Map<String, BookImage> images = const {},
 }) {
   final pages = <ReaderPage>[];
   var frags = <PageFragment>[];
@@ -152,6 +183,16 @@ List<ReaderPage> paginateChapter(
   for (var i = 0; i < chapter.blocks.length; i++) {
     final block = chapter.blocks[i];
     final look = blockLook(block.kind, base, justify: justify);
+    if (block.kind == TextBlockKind.image) {
+      final img = images[block.image];
+      if (img == null) continue;
+      final gap = imageGap(base);
+      final size = imageBoxSize(img, width, height - gap);
+      if (frags.isNotEmpty && y + gap + size.height > height) flush();
+      y += (frags.isEmpty ? 0 : gap) + size.height + gap;
+      frags.add(PageFragment(i, 0, 0, indent: false));
+      continue;
+    }
     if (block.kind == TextBlockKind.empty) {
       final h = lineHeight * 0.6;
       if (frags.isEmpty) continue; // пустая строка в начале страницы не нужна

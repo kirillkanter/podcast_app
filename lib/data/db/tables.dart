@@ -329,6 +329,34 @@ class BookBookmarks extends Table {
   DateTimeColumn get createdAt => dateTime().clientDefault(DateTime.now)();
 }
 
+/// Выделение цветом в текстовой книге и заметка к нему. Привязано к
+/// ключу книги (а не id): выделение может прийти с сервера раньше книги.
+@DataClassName('BookHighlight')
+class BookHighlights extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  TextColumn get bookKey => text()();
+
+  /// Общий для всех устройств идентификатор.
+  TextColumn get uid => text().unique()();
+
+  /// Начало и конец (не включая) — TextLocator.
+  TextColumn get startAt => text()();
+  TextColumn get endAt => text()();
+
+  /// Выделенный текст — для списка заметок.
+  TextColumn get quote => text()();
+  TextColumn get note => text().withDefault(const Constant(''))();
+
+  /// Индекс цвета.
+  IntColumn get color => integer().withDefault(const Constant(0))();
+  DateTimeColumn get createdAt => dateTime()();
+  DateTimeColumn get updatedAt => dateTime()();
+  BoolColumn get deleted => boolean().withDefault(const Constant(false))();
+
+  /// Изменено здесь и ещё не отправлено на сервер.
+  BoolColumn get dirty => boolean().withDefault(const Constant(true))();
+}
+
 /// Папки с аудиокнигами: каждая подпапка — отдельная книга.
 @DataClassName('BookSource')
 class BookSources extends Table {

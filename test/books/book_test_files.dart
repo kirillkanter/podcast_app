@@ -98,11 +98,13 @@ const fb2Sample = '''<?xml version="1.0" encoding="windows-1251"?>
     <section>
       <title><p>Ионыч</p></title>
       <p>Когда в губернском городе С.</p>
+      <image l:href="#pic.png"/>
       <poem><stanza><v>Строка один</v><v>Строка два</v></stanza></poem>
     </section>
   </section>
 </body>
 <body name="notes"><section id="n1"><p>Примечание</p></section></body>
+<binary id="pic.png" content-type="image/png">iVBORw0KGgoAAAANSUhEUgAAAZAAAAEsCAIAAABi1XKV</binary>
 <binary id="cover.jpg" content-type="image/jpeg">AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0+P0BBQkNERUZHSElKS0xNTk9Q</binary>
 </FictionBook>''';
 
@@ -137,6 +139,7 @@ Uint8List epubSample() {
   <li><a href="text/ch2.xhtml#start">Chapter Two</a></li>
 </ol></nav></body></html>'''))
     ..addFile(ArchiveFile.bytes('OEBPS/images/cover.jpg', List.generate(100, (i) => i)))
+    ..addFile(ArchiveFile.bytes('OEBPS/images/pic.png', base64.decode('iVBORw0KGgoAAAANSUhEUgAAAZAAAAEsCAIAAABi1XKV')))
     ..addFile(ArchiveFile.string('OEBPS/text/cover.xhtml',
         '<html xmlns="http://www.w3.org/1999/xhtml"><body><img src="../images/cover.jpg"/></body></html>'))
     ..addFile(ArchiveFile.string('OEBPS/text/ch 1.xhtml', '''<?xml version="1.0" encoding="UTF-8"?>
@@ -150,6 +153,7 @@ Uint8List epubSample() {
     ..addFile(ArchiveFile.string('OEBPS/text/ch2.xhtml',
         '<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><body>'
         '<p id="start">Second chapter.<sup><a epub:type="noteref" href="#fn1">1</a></sup></p>'
+        '<div class="illustration"><img src="../images/pic.png" alt=""/></div>'
         '<aside epub:type="footnote" id="fn1"><p>1. A short note.</p></aside></body></html>'));
   return ZipEncoder().encodeBytes(archive);
 }

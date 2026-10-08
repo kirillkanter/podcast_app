@@ -207,11 +207,27 @@ void main() {
 
     test('EPUB: сноска по ссылке, текст сноски не в главе', () {
       final book = parseTextBook(epubSample(), 'epub', fallbackTitle: 'файл');
-      final second = book.chapters[1].blocks;
+      final second = book.chapters[1].blocks.where((b) => b.kind != TextBlockKind.image).toList();
       expect(second.map((b) => b.text), ['Second chapter.1']);
       final ref = second.single.runs.firstWhere((r) => r.note != null);
       expect(ref.text, '1');
       expect(book.notes[ref.note], 'A short note.');
+    });
+
+    test('EPUB: картинка внутри главы — отдельный блок с размером', () {
+      final book = parseTextBook(epubSample(), 'epub', fallbackTitle: 'файл');
+      final img = book.chapters[1].blocks.singleWhere((b) => b.kind == TextBlockKind.image);
+      final image = book.images[img.image];
+      expect(image, isNotNull);
+      expect((image!.width, image.height), (400, 300));
+      // Страница с одной обложкой главой не становится.
+      expect(book.chapters.map((c) => c.title), ['Chapter One', 'Chapter Two']);
+    });
+
+    test('FB2: картинка из binary', () {
+      final book = parseTextBook(Uint8List.fromList(cp1251(fb2Sample)), 'fb2', fallbackTitle: 'файл');
+      final img = book.chapters[1].blocks.singleWhere((b) => b.kind == TextBlockKind.image);
+      expect(book.images[img.image]?.width, 400);
     });
 
     test('TXT: главы по строкам «Глава», windows-1251', () {

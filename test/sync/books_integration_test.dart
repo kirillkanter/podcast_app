@@ -176,4 +176,44 @@ void main() {
     skip: _server == null ? 'Нет OPODSYNC_URL: интеграционный тест только в CI' : false,
     timeout: const Timeout(Duration(minutes: 1)),
   );
+
+  test(
+    'выделения и заметки: переходят на другое устройство, правки и удаление тоже',
+    () async {
+      final root = await Directory.systemTemp.createTemp('highlights_sync');
+      final e = _Device('E', root);
+      final f = _Device('F', root);
+      addTearDown(() async {
+        await e.db.close();
+        await f.db.close();
+        await root.delete(recursive: true);
+      });
+      await e.sync.signIn(server: _server!, username: _user, password: _password);
+      await f.sync.signIn(server: _server!, username: _user, password: _password);
+
+      final key = 't:${DateTime.now().microsecondsSinceEpoch.toRadixString(16).padLeft(40, '0')}';
+      final id = await e.db.addHighlight(key, start: 'c0:b1:o0', end: 'c0:b1:o12', quote: 'Цитата', color: 1);
+      await e.books.syncHighlights();
+      await f.books.syncHighlights();
+      var onF = (await f.db.watchHighlights(key).first).single;
+      expect((onF.quote, onF.color, onF.startAt, onF.dirty), ('Цитата', 1, 'c0:b1:o0', false));
+
+      // Заметка на F — видна на E.
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      await f.db.updateHighlight(onF.id, note: 'Мысль');
+      await f.books.syncHighlights();
+      await e.books.syncHighlights();
+      expect((await e.db.highlightById(id))!.note, 'Мысль');
+
+      // Удаление на E — пропадает и на F.
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      await e.db.deleteHighlight(id);
+      await e.books.syncHighlights();
+      await f.books.syncHighlights();
+      expect(await f.db.watchHighlights(key).first, isEmpty);
+      expect(await f.db.dirtyHighlights(), isEmpty);
+    },
+    skip: _server == null ? 'Нет OPODSYNC_URL: интеграционный тест только в CI' : false,
+    timeout: const Timeout(Duration(minutes: 1)),
+  );
 }

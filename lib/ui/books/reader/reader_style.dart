@@ -36,6 +36,9 @@ const _marginKey = 'reader.margin';
 const _justifyKey = 'reader.justify';
 const _fullKey = 'reader.fullscreen';
 
+/// Цвета выделений текста: жёлтый, зелёный, голубой, розовый.
+const highlightColors = [Color(0xFFF5D547), Color(0xFF8FD694), Color(0xFF7FB8F0), Color(0xFFF29BC0)];
+
 /// Поля страницы: узкие, обычные, широкие (множитель к обычным).
 const readerMargins = [0.45, 1.0, 1.75];
 

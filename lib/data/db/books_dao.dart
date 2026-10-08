@@ -1,6 +1,8 @@
 /// Книги в базе: список, место в книге, закладки, папки-источники.
 library;
 
+import 'dart:math' show Random;
+
 import 'package:drift/drift.dart';
 
 import '../../books/book_models.dart';
@@ -23,6 +25,9 @@ abstract final class BookSettings {
   /// Отматывать назад после паузы в аудиокниге ('false' — нет).
   static const smartResume = 'books.smartResume';
 
+  /// Ревизия выделений на сервере, до которой всё получено.
+  static const highlightsSince = 'books.highlightsSince';
+
   /// Ревизия books.php, до которой всё получено.
   static const syncSince = 'books.since';
 
@@ -44,6 +49,12 @@ abstract final class BookSettings {
 
   /// На какой язык переводить.
   static const translateTo = 'reader.translateTo';
+}
+
+/// Случайный идентификатор (32 шестнадцатеричных знака).
+String newUid() {
+  final r = Random.secure();
+  return List.generate(16, (_) => r.nextInt(256).toRadixString(16).padLeft(2, '0')).join();
 }
 
 extension BooksDao on AppDatabase {
@@ -337,6 +348,99 @@ extension BooksDao on AppDatabase {
       ));
 
   Future<void> deleteBookmark(int id) => (delete(bookBookmarks)..where((b) => b.id.equals(id))).go();
+
+  // -------------------------------------------------------------------------
+  // Выделения и заметки
+  // -------------------------------------------------------------------------
+
+  /// Выделения книги (кроме удалённых).
+  Stream<List<BookHighlight>> watchHighlights(String bookKey) => (select(bookHighlights)
+        ..where((h) => h.bookKey.equals(bookKey) & h.deleted.equals(false))
+        ..orderBy([(h) => OrderingTerm.asc(h.createdAt)]))
+      .watch();
+
+  Future<int> addHighlight(
+    String bookKey, {
+    required String start,
+    required String end,
+    required String quote,
+    int color = 0,
+    String note = '',
+  }) {
+    final now = DateTime.now();
+    return into(bookHighlights).insert(BookHighlightsCompanion.insert(
+      bookKey: bookKey,
+      uid: newUid(),
+      startAt: start,
+      endAt: end,
+      quote: quote,
+      note: Value(note),
+      color: Value(color),
+      createdAt: now,
+      updatedAt: now,
+    ));
+  }
+
+  Future<void> updateHighlight(int id, {int? color, String? note}) =>
+      (update(bookHighlights)..where((h) => h.id.equals(id))).write(BookHighlightsCompanion(
+        color: color == null ? const Value.absent() : Value(color),
+        note: note == null ? const Value.absent() : Value(note),
+        updatedAt: Value(DateTime.now()),
+        dirty: const Value(true),
+      ));
+
+  /// Удалить везде: запись остаётся с пометкой, пока удаление не уйдёт на сервер.
+  Future<void> deleteHighlight(int id) =>
+      (update(bookHighlights)..where((h) => h.id.equals(id))).write(BookHighlightsCompanion(
+        deleted: const Value(true),
+        updatedAt: Value(DateTime.now()),
+        dirty: const Value(true),
+      ));
+
+  Future<BookHighlight?> highlightById(int id) =>
+      (select(bookHighlights)..where((h) => h.id.equals(id))).getSingleOrNull();
+
+  Future<List<BookHighlight>> dirtyHighlights() => (select(bookHighlights)..where((h) => h.dirty.equals(true))).get();
+
+  /// Отправлено: снять пометку, если с тех пор не меняли.
+  Future<void> markHighlightSynced(String uid, DateTime updatedAt) => (update(bookHighlights)
+        ..where((h) => h.uid.equals(uid) & h.updatedAt.equals(updatedAt)))
+      .write(const BookHighlightsCompanion(dirty: Value(false)));
+
+  /// Выделение с сервера: побеждает более позднее изменение.
+  Future<void> applyRemoteHighlight({
+    required String uid,
+    required String bookKey,
+    required String start,
+    required String end,
+    required String quote,
+    required String note,
+    required int color,
+    required bool deleted,
+    required DateTime createdAt,
+    required DateTime updatedAt,
+  }) async {
+    final local = await (select(bookHighlights)..where((h) => h.uid.equals(uid))).getSingleOrNull();
+    if (local != null && !local.updatedAt.isBefore(updatedAt)) return;
+    final row = BookHighlightsCompanion(
+      bookKey: Value(bookKey),
+      uid: Value(uid),
+      startAt: Value(start),
+      endAt: Value(end),
+      quote: Value(quote),
+      note: Value(note),
+      color: Value(color),
+      deleted: Value(deleted),
+      createdAt: Value(createdAt),
+      updatedAt: Value(updatedAt),
+      dirty: const Value(false),
+    );
+    if (local == null) {
+      await into(bookHighlights).insert(row);
+    } else {
+      await (update(bookHighlights)..where((h) => h.id.equals(local.id))).write(row);
+    }
+  }
 
   // -------------------------------------------------------------------------
   // Папки с аудиокнигами

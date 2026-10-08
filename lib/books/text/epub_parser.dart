@@ -375,6 +375,9 @@ class _Walker {
     final key = imageRef!(href);
     if (key == null) return;
     flush(kind);
+    // Издательства кладут одну картинку дважды (для разных читалок, лишнюю
+    // прячут стилями) — показываем один раз.
+    if (out.isNotEmpty && out.last.kind == TextBlockKind.image && out.last.image == key) return;
     out.add(TextBlock(TextBlockKind.image, const [], image: key));
   }
   final b = BlockBuilder();

@@ -960,7 +960,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     }
     final image = _imageAt(e.position);
     if (image != null) {
-      unawaited(Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => _ImageViewer(image: image))));
+      unawaited(Navigator.of(context).push(_ImageViewer.route(image)));
       return;
     }
     final x = local.dx / area.width;
@@ -1909,37 +1909,103 @@ extension on _PageView {
   }
 }
 
-/// Картинка во весь экран: масштаб пальцами, закрыть — крестик или «назад».
-class _ImageViewer extends StatelessWidget {
+/// Картинка во весь экран: масштаб пальцами; не увеличена — смахнуть вверх
+/// или вниз, чтобы закрыть (картинка тянется за пальцем, фон бледнеет).
+class _ImageViewer extends StatefulWidget {
   const _ImageViewer({required this.image});
 
   final BookImage image;
 
+  static Route<void> route(BookImage image) => PageRouteBuilder<void>(
+        opaque: false,
+        barrierColor: Colors.transparent,
+        transitionDuration: const Duration(milliseconds: 200),
+        reverseTransitionDuration: const Duration(milliseconds: 180),
+        pageBuilder: (_, _, _) => _ImageViewer(image: image),
+        transitionsBuilder: (_, animation, _, child) => FadeTransition(opacity: animation, child: child),
+      );
+
+  @override
+  State<_ImageViewer> createState() => _ImageViewerState();
+}
+
+class _ImageViewerState extends State<_ImageViewer> with SingleTickerProviderStateMixin {
+  final _zoom = TransformationController();
+  late final AnimationController _back = AnimationController(vsync: this, duration: const Duration(milliseconds: 220))
+    ..addListener(() => setState(() => _dy = _from * (1 - Curves.easeOutCubic.transform(_back.value))));
+
+  /// Сдвиг картинки пальцем (когда не увеличена).
+  double _dy = 0;
+  double _from = 0;
+  bool _zoomed = false;
+
+  @override
+  void dispose() {
+    _zoom.dispose();
+    _back.dispose();
+    super.dispose();
+  }
+
+  bool get _scaled => _zoom.value.getMaxScaleOnAxis() > 1.01;
+
+  void _end(ScaleEndDetails d) {
+    final zoomed = _scaled;
+    if (zoomed != _zoomed) setState(() => _zoomed = zoomed);
+    if (zoomed || _dy == 0) return;
+    final v = d.velocity.pixelsPerSecond.dy;
+    if (_dy.abs() > 120 || (v.abs() > 900 && v.sign == _dy.sign)) {
+      Navigator.of(context).pop();
+      return;
+    }
+    _from = _dy;
+    _back.forward(from: 0);
+  }
+
   @override
   Widget build(BuildContext context) {
+    final image = widget.image;
+    final fade = (1 - (_dy.abs() / 420)).clamp(0.0, 1.0);
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: Colors.black.withValues(alpha: fade),
       body: Stack(children: [
         Positioned.fill(
-          child: InteractiveViewer(
-            maxScale: 6,
-            child: Center(
-              child: image.svg
-                  ? ColoredBox(color: Colors.white, child: SvgPicture.memory(image.bytes, fit: BoxFit.contain))
-                  : Image.memory(image.bytes, fit: BoxFit.contain, gaplessPlayback: true),
+          child: Transform.translate(
+            offset: Offset(0, _dy),
+            child: InteractiveViewer(
+              transformationController: _zoom,
+              maxScale: 6,
+              // Не увеличена — палец тянет всю картинку (закрыть), а не двигает её.
+              panEnabled: _zoomed,
+              onInteractionStart: (_) => _back.stop(),
+              onInteractionUpdate: (d) {
+                if (_scaled) {
+                  if (!_zoomed) setState(() => _zoomed = true);
+                  return;
+                }
+                if (d.pointerCount == 1) setState(() => _dy += d.focalPointDelta.dy);
+              },
+              onInteractionEnd: _end,
+              child: Center(
+                child: image.svg
+                    ? ColoredBox(color: Colors.white, child: SvgPicture.memory(image.bytes, fit: BoxFit.contain))
+                    : Image.memory(image.bytes, fit: BoxFit.contain, gaplessPlayback: true),
+              ),
             ),
           ),
         ),
         SafeArea(
           child: Align(
             alignment: Alignment.topRight,
-            child: Padding(
-              padding: const EdgeInsets.all(8),
-              child: IconButton(
-                tooltip: 'Закрыть',
-                style: IconButton.styleFrom(backgroundColor: Colors.black54),
-                icon: const Icon(Icons.close_rounded, color: Colors.white),
-                onPressed: () => Navigator.of(context).pop(),
+            child: Opacity(
+              opacity: fade,
+              child: Padding(
+                padding: const EdgeInsets.all(8),
+                child: IconButton(
+                  tooltip: 'Закрыть',
+                  style: IconButton.styleFrom(backgroundColor: Colors.black54),
+                  icon: const Icon(Icons.close_rounded, color: Colors.white),
+                  onPressed: () => Navigator.of(context).pop(),
+                ),
               ),
             ),
           ),

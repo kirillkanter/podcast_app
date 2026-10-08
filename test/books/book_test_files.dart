@@ -153,7 +153,8 @@ Uint8List epubSample() {
     ..addFile(ArchiveFile.string('OEBPS/text/ch2.xhtml',
         '<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><body>'
         '<p id="start">Second chapter.<sup><a epub:type="noteref" href="#fn1">1</a></sup></p>'
-        '<div class="illustration"><img src="../images/pic.png" alt=""/></div>'
+        '<div class="illustration"><img class="squeeze-epub" src="../images/pic.png" alt=""/>'
+        '<img class="squeeze-amzn" src="../images/pic.png" alt=""/></div>'
         '<aside epub:type="footnote" id="fn1"><p>1. A short note.</p></aside></body></html>'));
   return ZipEncoder().encodeBytes(archive);
 }

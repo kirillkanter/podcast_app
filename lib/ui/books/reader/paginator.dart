@@ -78,7 +78,7 @@ BlockLook blockLook(TextBlockKind kind, TextStyle base, {bool justify = true}) {
         before: gap,
         after: gap,
       ),
-    TextBlockKind.empty => BlockLook(style: base),
+    TextBlockKind.empty || TextBlockKind.image => BlockLook(style: base),
     TextBlockKind.paragraph => BlockLook(style: base, after: gap, align: justify ? TextAlign.justify : TextAlign.left),
   };
 }

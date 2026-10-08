@@ -130,6 +130,9 @@ class GpodderClient {
   final String baseUrl;
   final String username;
   final String _auth;
+
+  /// Заголовок Authorization для своих запросов к серверу.
+  String get authorizationHeader => _auth;
   final http.Client _client;
 
   static const _timeout = Duration(seconds: 30);

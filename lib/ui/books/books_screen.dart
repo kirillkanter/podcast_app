@@ -2,6 +2,7 @@
 library;
 
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 
@@ -41,10 +42,25 @@ class BooksScreen extends StatefulWidget {
   State<BooksScreen> createState() => _BooksScreenState();
 }
 
-class _BooksScreenState extends State<BooksScreen> {
+class _BooksScreenState extends State<BooksScreen> with WidgetsBindingObserver {
   var _filter = _Filter.reading;
   Stream<List<BookItem>>? _books;
   bool _scanned = false;
+  bool _refreshing = false;
+
+  static bool get _desktop => Platform.isWindows || Platform.isMacOS || Platform.isLinux;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
 
   @override
   void didChangeDependencies() {
@@ -54,18 +70,37 @@ class _BooksScreenState extends State<BooksScreen> {
       _scanned = true;
       // Новые книги в папках-источниках появятся без нажатий.
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) unawaited(rescanBookSources(context));
+        if (!mounted) return;
+        unawaited(rescanBookSources(context));
+        // На компьютере ещё и следим за папками.
+        if (_desktop) unawaited(AppScope.of(context).books?.watchSources());
       });
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed || !mounted) return;
+    // Вернулись в приложение (например, после копирования книг в папку) —
+    // проверяем папки, но не чаще раза в минуту.
+    final last = AppScope.of(context).books?.lastScan;
+    if (last == null || DateTime.now().difference(last) > const Duration(minutes: 1)) {
+      unawaited(rescanBookSources(context));
     }
   }
 
   Future<void> _refresh() async {
     final scope = AppScope.of(context);
-    await rescanBookSources(context);
+    setState(() => _refreshing = true);
     try {
-      await scope.sync?.syncNow();
-    } catch (_) {
-      // Ошибка видна в настройках синхронизации.
+      await rescanBookSources(context);
+      try {
+        await scope.sync?.syncNow();
+      } catch (_) {
+        // Ошибка видна в настройках синхронизации.
+      }
+    } finally {
+      if (mounted) setState(() => _refreshing = false);
     }
   }
 
@@ -91,12 +126,20 @@ class _BooksScreenState extends State<BooksScreen> {
                 .firstOrNull;
             return RefreshIndicator(
               onRefresh: _refresh,
-              child: CustomScrollView(slivers: [
+              child: CustomScrollView(physics: const AlwaysScrollableScrollPhysics(), slivers: [
                 SliverToBoxAdapter(
                   child: Padding(
                     padding: EdgeInsets.fromLTRB(wide ? 32 : 20, 20, wide ? 24 : 12, 8),
                     child: Row(children: [
                       Expanded(child: Text('Книги', style: screenTitleStyle(context).copyWith(fontSize: wide ? 30 : 26))),
+                      IconButton(
+                        tooltip: 'Обновить: проверить папки с книгами и синхронизировать',
+                        onPressed: _refreshing ? null : _refresh,
+                        icon: _refreshing
+                            ? const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                            : Icon(Icons.refresh_rounded, color: c.text),
+                      ),
+                      const SizedBox(width: 4),
                       _AddButton(),
                     ]),
                   ),

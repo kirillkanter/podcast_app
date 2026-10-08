@@ -22,6 +22,9 @@
  *        (или POST с тем же адресом) → {"rev": M, "used": байт};
  *        507 — не хватает места, 422 — файл не совпал с id (оборвалась загрузка).
  * GET    /books.php?download=ID → файл книги.
+ * GET    /books.php?dict=СЛОВО&lang=ru|en
+ *        → ответ Викисловаря как есть (для читалки, когда телефон не может
+ *          достучаться до Викисловаря сам). Кэш на сервере — 30 дней.
  * DELETE /books.php?id=ID (или POST /books.php?delete=ID)
  *        → {"rev": M} — книга удаляется на всех устройствах.
  *
@@ -166,6 +169,10 @@ function books_get(DB $db, int $user): void
 
 	if (isset($_GET['download'])) {
 		books_download($db, $user, (string) $_GET['download']);
+	}
+
+	if (isset($_GET['dict'])) {
+		books_dict((string) $_GET['dict'], (string) ($_GET['lang'] ?? 'en'));
 	}
 
 	$since = (int) ($_GET['since'] ?? 0);
@@ -355,6 +362,63 @@ function books_download(DB $db, int $user, string $id): void
 	header('Content-Length: ' . filesize($path));
 	header('Cache-Control: no-store');
 	readfile($path);
+	exit;
+}
+
+/** Посредник к Викисловарю: статья слова, с кэшем на диске. */
+function books_dict(string $word, string $lang): void
+{
+	$word = trim($word);
+	if ($word === '' || mb_strlen($word) > 60 || !preg_match('/^[a-z]{2,3}$/', $lang)) {
+		books_reply(400, ['message' => 'Bad word or language']);
+	}
+
+	$url = $lang === 'ru'
+		? 'https://ru.wiktionary.org/w/api.php?' . http_build_query([
+			'action' => 'parse', 'page' => $word, 'prop' => 'wikitext',
+			'format' => 'json', 'formatversion' => '2', 'redirects' => '1',
+		])
+		: 'https://en.wiktionary.org/api/rest_v1/page/definition/' . rawurlencode($word);
+
+	$dir = DATA_ROOT . '/cache/dict';
+	$file = $dir . '/' . md5($lang . '|' . $word) . '.json';
+	if (is_file($file) && filemtime($file) > time() - 30 * 86400) {
+		http_response_code(200);
+		header('Content-Type: application/json; charset=utf-8');
+		readfile($file);
+		exit;
+	}
+
+	$ch = curl_init($url);
+	curl_setopt_array($ch, [
+		CURLOPT_RETURNTRANSFER => true,
+		CURLOPT_FOLLOWLOCATION => true,
+		CURLOPT_TIMEOUT => 12,
+		CURLOPT_CONNECTTIMEOUT => 6,
+		CURLOPT_USERAGENT => 'BasicCaster-sync/1.0 (+https://bcaster.ru)',
+		CURLOPT_HTTPHEADER => ['Accept: application/json'],
+	]);
+	$body = curl_exec($ch);
+	$code = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+	curl_close($ch);
+
+	if ($body === false || $code === 0) {
+		books_reply(502, ['message' => 'Dictionary is not reachable']);
+	}
+	if ($code === 404) {
+		books_reply(404, ['message' => 'Not found']);
+	}
+	if ($code !== 200) {
+		books_reply(502, ['message' => 'Dictionary error ' . $code]);
+	}
+
+	if (!is_dir($dir)) {
+		@mkdir($dir, 0700, true);
+	}
+	@file_put_contents($file, $body);
+	http_response_code(200);
+	header('Content-Type: application/json; charset=utf-8');
+	echo $body;
 	exit;
 }
 

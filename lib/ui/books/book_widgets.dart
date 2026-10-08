@@ -166,12 +166,15 @@ class ChapterTile extends StatelessWidget {
 
 /// Закладки книги: нажатие — перейти, значок — удалить.
 class BookmarksList extends StatelessWidget {
-  const BookmarksList({super.key, required this.db, required this.bookId, required this.onOpen, this.padding});
+  const BookmarksList({super.key, required this.db, required this.bookId, required this.onOpen, this.padding, this.meta});
 
   final AppDatabase db;
   final int bookId;
   final ValueChanged<BookBookmark> onOpen;
   final EdgeInsets? padding;
+
+  /// Подпись под закладкой («Глава 3 · стр. 12 · вчера»); по умолчанию — время.
+  final String Function(BookBookmark bookmark)? meta;
 
   @override
   Widget build(BuildContext context) {
@@ -196,8 +199,8 @@ class BookmarksList extends StatelessWidget {
             final b = list[i];
             return ListTile(
               leading: BcIcon(BcIcons.bookmark, size: 20, color: c.ink),
-              title: Text(b.label, maxLines: 2, overflow: TextOverflow.ellipsis),
-              subtitle: Text(formatAgo(b.createdAt), style: TextStyle(fontSize: 12, color: c.muted)),
+              title: Text(b.label.isEmpty ? 'Закладка' : b.label, maxLines: 2, overflow: TextOverflow.ellipsis),
+              subtitle: Text(meta?.call(b) ?? formatAgo(b.createdAt), style: TextStyle(fontSize: 12, color: c.muted)),
               trailing: IconButton(
                 tooltip: 'Удалить закладку',
                 icon: BcIcon(BcIcons.close, size: 18, color: c.muted),

@@ -198,6 +198,13 @@ extension BooksDao on AppDatabase {
 
   Future<void> setBookCover(int id, String? coverPath) => _updateBook(id, BooksCompanion(coverPath: Value(coverPath)));
 
+  Future<void> setBookDescription(int id, String? description) =>
+      _updateBook(id, BooksCompanion(description: Value(description)));
+
+  /// Книги без обложки (кроме удаляемых) — для поиска обложек в каталогах.
+  Future<List<Book>> booksWithoutCover() =>
+      (select(books)..where((b) => b.coverPath.isNull() & b.deletePending.equals(false))).get();
+
   /// Книга удалена здесь; сервер узнает при следующей синхронизации.
   Future<void> markBookDeletePending(int id) => _updateBook(id, const BooksCompanion(deletePending: Value(true)));
 

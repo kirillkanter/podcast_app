@@ -32,7 +32,7 @@ class _Device {
       deviceType: 'desktop',
     );
     final dir = Directory('${root.path}/$name');
-    library = BookLibrary(db: db, dataDirectory: () async => dir);
+    library = BookLibrary(db: db, dataDirectory: () async => dir, lookupCovers: false);
     books = BookSync(
       db: db,
       sync: sync,

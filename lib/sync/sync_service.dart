@@ -119,6 +119,14 @@ class SyncService {
     return GpodderClient(server: server, username: username, password: password, client: _clientFactory?.call());
   }
 
+  /// Адрес сервера и заголовок входа (для посредника к словарю в читалке).
+  Future<({String baseUrl, String authorization})?> serverAuth() async {
+    final client = await openClient();
+    if (client == null) return null;
+    client.close();
+    return (baseUrl: client.baseUrl, authorization: client.authorizationHeader);
+  }
+
   /// Постоянный идентификатор этого устройства.
   Future<String> deviceId() => _deviceId();
 

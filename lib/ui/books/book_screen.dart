@@ -19,6 +19,7 @@ import '../menu.dart';
 import '../theme.dart';
 import 'book_start.dart';
 import 'book_widgets.dart';
+import 'cover_picker.dart';
 import 'books_screen.dart' show BookActionButton;
 
 class BookScreen extends StatefulWidget {
@@ -30,7 +31,7 @@ class BookScreen extends StatefulWidget {
   State<BookScreen> createState() => _BookScreenState();
 }
 
-enum _Action { later, reading, done, restart, delete }
+enum _Action { later, reading, done, restart, cover, delete }
 
 class _BookScreenState extends State<BookScreen> {
   Stream<BookItem?>? _stream;
@@ -82,6 +83,9 @@ class _BookScreenState extends State<BookScreen> {
           percent: 0,
         );
         await db.setBookShelf(book.id, BookShelf.reading);
+      case _Action.cover:
+        final library = AppScope.of(context).books;
+        if (library != null) await showCoverPicker(context, library: library, book: book);
       case _Action.delete:
         await _delete(book);
     }
@@ -154,6 +158,7 @@ class _BookScreenState extends State<BookScreen> {
                   if (book.shelf != BookShelf.reading) const MenuOption(_Action.reading, 'Вернуть в «В процессе»'),
                   if (book.shelf != BookShelf.done) MenuOption(_Action.done, audio ? 'Отметить прослушанной' : 'Отметить прочитанной'),
                   if ((p?.percent ?? 0) > 0) const MenuOption(_Action.restart, 'Начать сначала'),
+                  if (AppScope.of(context).books != null) const MenuOption(_Action.cover, 'Найти обложку'),
                   const MenuOption(_Action.delete, 'Удалить книгу'),
                 ],
                 child: const Padding(padding: EdgeInsets.all(10), child: Icon(Icons.more_horiz)),
@@ -236,12 +241,16 @@ class _BookScreenState extends State<BookScreen> {
                 Divider(height: 1, color: c.divider),
                 switch (_tab) {
                   0 => audio ? _audioChaptersView(book, p) : _textChaptersView(book, p),
-                  1 => BookmarksList(
-                      db: AppScope.of(context).db,
-                      bookId: book.id,
-                      onOpen: (b) => audio
-                          ? startAudioBook(context, book, at: AudioLocator.parse(b.locator), openPlayer: true)
-                          : openTextBook(context, book, at: TextLocator.parse(b.locator)),
+                  1 => FutureBuilder<TextBookContent>(
+                      future: audio ? null : _text,
+                      builder: (context, text) => BookmarksList(
+                        db: AppScope.of(context).db,
+                        bookId: book.id,
+                        meta: audio ? null : (b) => _textBookmarkMeta(text.data, b),
+                        onOpen: (b) => audio
+                            ? startAudioBook(context, book, at: AudioLocator.parse(b.locator), openPlayer: true)
+                            : openTextBook(context, book, at: TextLocator.parse(b.locator)),
+                      ),
                     ),
                   _ => _about(book),
                 },
@@ -251,6 +260,15 @@ class _BookScreenState extends State<BookScreen> {
         );
       },
     );
+  }
+
+  /// «Глава · время» под закладкой текстовой книги.
+  String _textBookmarkMeta(TextBookContent? content, BookBookmark b) {
+    final l = TextLocator.parse(b.locator);
+    final ago = formatAgo(b.createdAt);
+    if (content == null || l == null || l.chapter >= content.chapters.length) return ago;
+    final percent = (content.charsBefore(l.chapter) * 100 / (content.length == 0 ? 1 : content.length)).round();
+    return '${content.chapters[l.chapter].title} · $percent % · $ago';
   }
 
   String _meta(Book b) {

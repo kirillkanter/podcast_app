@@ -84,21 +84,44 @@ BlockLook blockLook(TextBlockKind kind, TextStyle base) {
 /// Красная строка — широкий пробел в начале абзаца.
 const indentChar = ' ';
 
-/// Текст куска абзаца с начертаниями.
-TextSpan fragmentSpan(TextBlock block, int start, int end, BlockLook look, {required bool indent}) {
-  return TextSpan(style: look.style, children: [
-    if (indent) const TextSpan(text: indentChar),
-    for (final r in block.slice(start, end))
-      TextSpan(
-        text: r.text,
-        style: r.bold || r.italic
-            ? TextStyle(
-                fontWeight: r.bold ? FontWeight.w700 : null,
-                fontStyle: r.italic ? FontStyle.italic : null,
-              )
-            : null,
-      ),
-  ]);
+/// Текст куска абзаца с начертаниями. [highlight] — выделенные символы
+/// абзаца (подсвечиваются фоном [highlightColor]).
+TextSpan fragmentSpan(
+  TextBlock block,
+  int start,
+  int end,
+  BlockLook look, {
+  required bool indent,
+  ({int start, int end})? highlight,
+  Color? highlightColor,
+}) {
+  TextStyle? styleOf(TextRun r, bool lit) {
+    if (!r.bold && !r.italic && !lit) return null;
+    return TextStyle(
+      fontWeight: r.bold ? FontWeight.w700 : null,
+      fontStyle: r.italic ? FontStyle.italic : null,
+      backgroundColor: lit ? highlightColor : null,
+    );
+  }
+
+  final children = <InlineSpan>[if (indent) const TextSpan(text: indentChar)];
+  final h = highlight;
+  if (h == null || h.end <= start || h.start >= end) {
+    for (final r in block.slice(start, end)) {
+      children.add(TextSpan(text: r.text, style: styleOf(r, false)));
+    }
+  } else {
+    // Три части: до выделения, выделение, после.
+    final a = h.start.clamp(start, end);
+    final b = h.end.clamp(start, end);
+    for (final (from, to, lit) in [(start, a, false), (a, b, true), (b, end, false)]) {
+      if (to <= from) continue;
+      for (final r in block.slice(from, to)) {
+        children.add(TextSpan(text: r.text, style: styleOf(r, lit)));
+      }
+    }
+  }
+  return TextSpan(style: look.style, children: children);
 }
 
 List<ReaderPage> paginateChapter(

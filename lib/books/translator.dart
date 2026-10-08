@@ -15,9 +15,12 @@ import 'package:http/http.dart' as http;
 import '../ui/format.dart' show htmlToText;
 
 class TranslatorException implements Exception {
-  const TranslatorException(this.message);
+  const TranslatorException(this.message, {this.network = false});
 
   final String message;
+
+  /// Не удалось связаться (а не «сервис ответил ошибкой»).
+  final bool network;
 
   @override
   String toString() => message;
@@ -43,23 +46,37 @@ String guessLanguage(String text) {
 /// «en-US» → «en».
 String baseLanguage(String? code) => (code ?? '').split(RegExp('[-_]')).first.toLowerCase();
 
+/// Сервер синхронизации как посредник к словарю: адрес и заголовок входа.
+typedef DictionaryProxy = Future<({String baseUrl, String authorization})?> Function();
+
 class Translator {
-  Translator({http.Client? client}) : _client = client ?? http.Client();
+  Translator({http.Client? client, this.proxy}) : _client = client ?? http.Client();
 
   final http.Client _client;
+
+  /// Посредник для словаря (books.php на сервере синхронизации): если
+  /// Викисловарь напрямую не отвечает (так бывает в мобильных сетях),
+  /// статья берётся через сервер.
+  final DictionaryProxy? proxy;
+
+  /// Прямой доступ к Викисловарю не работал — сразу через сервер.
+  static bool _directFailed = false;
+
   static const _agent = 'BasicCaster/0.9 (+https://bcaster.ru)';
   static const _timeout = Duration(seconds: 12);
 
-  Future<Object?> _getJson(Uri uri) async {
+  Future<Object?> _getJson(Uri uri, {Duration? timeout, Map<String, String>? headers}) async {
     final http.Response r;
     try {
-      r = await _client.get(uri, headers: {'user-agent': _agent, 'accept': 'application/json'}).timeout(_timeout);
+      r = await _client
+          .get(uri, headers: {'user-agent': _agent, 'accept': 'application/json', ...?headers})
+          .timeout(timeout ?? _timeout);
     } on TimeoutException {
-      throw const TranslatorException('Сервис не ответил вовремя.');
+      throw const TranslatorException('Сервис не ответил вовремя.', network: true);
     } on SocketException {
-      throw const TranslatorException('Нет соединения с интернетом.');
+      throw const TranslatorException('Нет соединения с интернетом.', network: true);
     } on http.ClientException catch (e) {
-      throw TranslatorException('Ошибка соединения: ${e.message}');
+      throw TranslatorException('Ошибка соединения: ${e.message}', network: true);
     }
     if (r.statusCode == 404) return null;
     if (r.statusCode != 200) throw TranslatorException('Сервис вернул ошибку (код ${r.statusCode}).');
@@ -103,10 +120,34 @@ class Translator {
     return const [];
   }
 
+  /// Статья словаря: напрямую, а если Викисловарь не отвечает — через сервер.
+  Future<Object?> _article(String word, String lang) async {
+    final direct = lang == 'ru'
+        ? Uri.https('ru.wiktionary.org', '/w/api.php', {
+            'action': 'parse',
+            'page': word,
+            'prop': 'wikitext',
+            'format': 'json',
+            'formatversion': '2',
+            'redirects': '1',
+          })
+        : Uri.https('en.wiktionary.org', '/api/rest_v1/page/definition/${Uri.encodeComponent(word)}');
+    final via = await proxy?.call();
+    if (!_directFailed || via == null) {
+      try {
+        return await _getJson(direct, timeout: via == null ? _timeout : const Duration(seconds: 6));
+      } on TranslatorException catch (e) {
+        if (!e.network || via == null) rethrow;
+        _directFailed = true;
+      }
+    }
+    if (via == null) return null;
+    final uri = Uri.parse('${via.baseUrl}/books.php').replace(queryParameters: {'dict': word, 'lang': lang == 'ru' ? 'ru' : 'en'});
+    return _getJson(uri, headers: {'authorization': via.authorization});
+  }
+
   Future<List<WordSense>> _defineEn(String word, String lang) async {
-    final data = await _getJson(
-      Uri.https('en.wiktionary.org', '/api/rest_v1/page/definition/${Uri.encodeComponent(word)}'),
-    );
+    final data = await _article(word, lang);
     if (data is! Map) return const [];
     final entries = data[lang] ?? data['en'];
     if (entries is! List) return const [];
@@ -130,14 +171,7 @@ class Translator {
   }
 
   Future<List<WordSense>> _defineRu(String word) async {
-    final data = await _getJson(Uri.https('ru.wiktionary.org', '/w/api.php', {
-      'action': 'parse',
-      'page': word,
-      'prop': 'wikitext',
-      'format': 'json',
-      'formatversion': '2',
-      'redirects': '1',
-    }));
+    final data = await _article(word, 'ru');
     if (data is! Map) return const [];
     final parse = data['parse'];
     final wikitext = parse is Map ? parse['wikitext'] : null;

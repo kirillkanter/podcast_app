@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io' show SocketException;
 
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -131,6 +132,27 @@ void main() {
       expect(senses.single.definition, 'To move swiftly.');
       expect(senses.single.partOfSpeech, 'Verb');
       expect(senses.single.example, 'He runs');
+    });
+
+    test('Викисловарь недоступен напрямую — статья через сервер синхронизации', () async {
+      final hosts = <String>[];
+      final t = Translator(
+        client: MockClient((r) async {
+          hosts.add(r.url.host);
+          if (r.url.host.endsWith('wiktionary.org')) throw const SocketException('нет связи');
+          expect(r.url.path, '/books.php');
+          expect(r.url.queryParameters, {'dict': 'run', 'lang': 'en'});
+          expect(r.headers['authorization'], 'Basic eDp5');
+          return http.Response(jsonEncode({'en': [{'partOfSpeech': 'Verb', 'definitions': [{'definition': 'To move.'}]}]}), 200);
+        }),
+        proxy: () async => (baseUrl: 'https://sync.example', authorization: 'Basic eDp5'),
+      );
+      expect((await t.define('run', lang: 'en')).single.definition, 'To move.');
+      expect(hosts, ['en.wiktionary.org', 'sync.example']);
+      // Дальше — сразу через сервер.
+      hosts.clear();
+      await t.define('run', lang: 'en');
+      expect(hosts, ['sync.example']);
     });
 
     test('русский Викисловарь: раздел «Значение» без разметки', () {

@@ -13,6 +13,7 @@ import 'package:path/path.dart' as p;
 import '../data/db/books_dao.dart';
 import '../data/db/database.dart';
 import '../sync/book_sync.dart';
+import 'book_metadata.dart';
 import 'book_models.dart';
 import 'book_scanner.dart';
 import 'text/text_book.dart';
@@ -31,8 +32,12 @@ class BookLibrary {
     required Future<Directory> Function() dataDirectory,
     this.sync,
     this.requestSync,
+    this.lookupCovers = true,
   })  : _db = db,
         _dataDirectory = dataDirectory;
+
+  /// Искать обложки в Google Books и Open Library для книг без обложки.
+  final bool lookupCovers;
 
   final AppDatabase _db;
   final Future<Directory> Function() _dataDirectory;
@@ -63,17 +68,81 @@ class BookLibrary {
   /// сколько книг найдено.
   Future<int> addSource(String path) async {
     await _db.addBookSource(path);
-    return rescanSource(path);
+    final n = await rescanSource(path);
+    if (_watching) unawaited(watchSources());
+    return n;
   }
 
-  Future<void> removeSource(String path) => _db.removeBookSource(path);
+  Future<void> removeSource(String path) async {
+    await _db.removeBookSource(path);
+    await _watchers.remove(path)?.cancel();
+  }
+
+  /// Когда папки проверялись в последний раз.
+  DateTime? lastScan;
+  Future<void>? _scanAll;
 
   /// Проверить все папки-источники: новые книги добавляются, исчезнувшие
-  /// помечаются.
-  Future<void> rescanAll() async {
+  /// помечаются. Повторный вызов во время проверки ждёт текущую.
+  Future<void> rescanAll() => _scanAll ??= () async {
+        try {
+          for (final s in await _db.bookSourceList()) {
+            await rescanSource(s.path);
+          }
+          lastScan = DateTime.now();
+        } finally {
+          _scanAll = null;
+        }
+      }();
+
+  // Слежение за папками (Windows, macOS, Linux): положили книгу в папку —
+  // она появляется в приложении без нажатий.
+  final _watchers = <String, StreamSubscription<FileSystemEvent>>{};
+  final _pending = <String, Timer>{};
+  bool _watching = false;
+
+  Future<void> watchSources() async {
+    _watching = true;
     for (final s in await _db.bookSourceList()) {
-      await rescanSource(s.path);
+      if (_watchers.containsKey(s.path)) continue;
+      final dir = Directory(s.path);
+      if (!await dir.exists()) continue;
+      try {
+        final events = dir.watch(recursive: !Platform.isLinux);
+        _watchers[s.path] = events.listen(
+          (_) => _scheduleRescan(s.path),
+          onError: (Object _) => _watchers.remove(s.path),
+          cancelOnError: true,
+        );
+      } catch (_) {
+        // Папка на сетевом диске и т. п. — остаётся ручное обновление.
+      }
     }
+  }
+
+  void _scheduleRescan(String root) {
+    _pending[root]?.cancel();
+    // Копирование книги — много событий подряд: ждём, пока утихнет.
+    _pending[root] = Timer(const Duration(seconds: 4), () {
+      _pending.remove(root);
+      if (_scanAll != null) {
+        _scheduleRescan(root);
+        return;
+      }
+      unawaited(rescanSource(root).then((_) {}, onError: (Object _) {}));
+    });
+  }
+
+  void stopWatching() {
+    _watching = false;
+    for (final w in _watchers.values) {
+      unawaited(w.cancel());
+    }
+    _watchers.clear();
+    for (final t in _pending.values) {
+      t.cancel();
+    }
+    _pending.clear();
   }
 
   Future<int> rescanSource(String root) async {
@@ -92,6 +161,7 @@ class BookLibrary {
         await _db.saveAudioBook(b, sourceRoot: root, coverPath: cover);
       }
       if (await Directory(root).exists()) await _db.markMissingBooks(root, keys);
+      fillMissingCovers();
       return found.where((b) => !hidden.contains(b.key)).length;
     } finally {
       status.value = null;
@@ -132,7 +202,9 @@ class BookLibrary {
         return existing.id;
       }
       final cover = await _saveCover(book.key, book.cover, book.coverFile);
-      return _db.saveAudioBook(book, coverPath: cover);
+      final id = await _db.saveAudioBook(book, coverPath: cover);
+      fillMissingCovers();
+      return id;
     } finally {
       status.value = null;
     }
@@ -174,6 +246,7 @@ class BookLibrary {
         coverPath: cover,
       );
       requestSync?.call();
+      fillMissingCovers();
       return id;
     } finally {
       status.value = null;
@@ -220,6 +293,7 @@ class BookLibrary {
         ),
         coverPath: cover,
       );
+      fillMissingCovers();
     } catch (e) {
       debugPrint('Не удалось разобрать скачанную книгу: $e');
     }
@@ -268,6 +342,79 @@ class BookLibrary {
   Future<void> unhideAll() async {
     await _db.setSetting(_hiddenKey, '');
     await rescanAll();
+  }
+
+  // -------------------------------------------------------------------------
+
+  // -------------------------------------------------------------------------
+  // Обложки из каталогов
+  // -------------------------------------------------------------------------
+
+  bool _filling = false;
+
+  /// Найти обложки для книг, у которых их нет. Каждую книгу ищем один раз
+  /// (дальше — только вручную, «Найти обложку»).
+  void fillMissingCovers() {
+    if (!lookupCovers || _filling) return;
+    _filling = true;
+    unawaited(() async {
+      final meta = BookMetadata();
+      try {
+        for (final book in await _db.booksWithoutCover()) {
+          final tried = 'books.meta.${book.key}';
+          if ((await _db.setting(tried) ?? '').isNotEmpty) continue;
+          await _db.setSetting(tried, DateTime.now().toIso8601String());
+          try {
+            final found = await meta.search(book.title, author: book.author, limit: 1);
+            if (found.isEmpty) continue;
+            await _applyCover(meta, book, found.first);
+          } catch (_) {
+            // Нет сети — попробуем в другой раз.
+            await _db.setSetting(tried, '');
+            break;
+          }
+        }
+      } catch (_) {
+      } finally {
+        meta.close();
+        _filling = false;
+      }
+    }());
+  }
+
+  /// Варианты обложек для книги.
+  Future<List<CoverCandidate>> findCovers(Book book, {String? query}) async {
+    final meta = BookMetadata();
+    try {
+      return await meta.search(query ?? book.title, author: query == null ? book.author : null);
+    } finally {
+      meta.close();
+    }
+  }
+
+  /// Поставить выбранную обложку. `false` — картинку скачать не удалось.
+  Future<bool> setCoverFrom(Book book, CoverCandidate c) async {
+    final meta = BookMetadata();
+    try {
+      return await _applyCover(meta, book, c);
+    } finally {
+      meta.close();
+    }
+  }
+
+  Future<bool> _applyCover(BookMetadata meta, Book book, CoverCandidate c) async {
+    final bytes = await meta.download(c.imageUrl);
+    if (bytes == null) return false;
+    // Новое имя файла: иначе картинка со старым путём останется в кэше.
+    final path = await _saveCover('${book.key}-${DateTime.now().millisecondsSinceEpoch}', bytes, null);
+    if (path == null) return false;
+    final old = book.coverPath;
+    await _db.setBookCover(book.id, path);
+    if (old != null && old != path) await _deleteFile(old);
+    if ((book.description ?? '').trim().isEmpty && c.description != null) {
+      await _db.setBookDescription(book.id, c.description);
+    }
+    return true;
   }
 
   // -------------------------------------------------------------------------

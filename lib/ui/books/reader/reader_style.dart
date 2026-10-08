@@ -19,7 +19,8 @@ enum Paper {
 
 enum ReaderFont {
   serif('PT Serif', 'PTSerif', 'с засечками'),
-  sans('Golos', 'GolosText', 'без засечек');
+  sans('Golos', 'GolosText', 'без засечек'),
+  dyslexic('OpenDyslexic', 'OpenDyslexic', 'при дислексии');
 
   const ReaderFont(this.label, this.family, this.hint);
 
@@ -27,6 +28,8 @@ enum ReaderFont {
   final String family;
   final String hint;
 }
+
+const _spreadKey = 'reader.landscapeSpread';
 
 /// Размеры шрифта (шаги кнопок «A−» и «A+»).
 const readerSizes = [14.0, 15.0, 16.0, 17.0, 18.0, 20.0, 22.0, 24.0, 27.0];
@@ -36,7 +39,13 @@ const readerSpacings = [1.35, 1.55, 1.8];
 
 @immutable
 class ReaderStyle {
-  const ReaderStyle({this.size = 4, this.font = ReaderFont.serif, this.paper, this.spacing = 1});
+  const ReaderStyle({
+    this.size = 4,
+    this.font = ReaderFont.serif,
+    this.paper,
+    this.spacing = 1,
+    this.landscapeSpread = false,
+  });
 
   /// Индекс в [readerSizes].
   final int size;
@@ -48,6 +57,9 @@ class ReaderStyle {
   /// Индекс в [readerSpacings].
   final int spacing;
 
+  /// Две колонки, когда телефон повёрнут набок.
+  final bool landscapeSpread;
+
   double get fontSize => readerSizes[size.clamp(0, readerSizes.length - 1)];
   double get lineHeight => readerSpacings[spacing.clamp(0, readerSpacings.length - 1)];
 
@@ -56,11 +68,12 @@ class ReaderStyle {
   /// Ключ для кэша разбивки на страницы.
   String get layoutKey => '$size/${font.name}/$spacing';
 
-  ReaderStyle copyWith({int? size, ReaderFont? font, Paper? paper, int? spacing}) => ReaderStyle(
+  ReaderStyle copyWith({int? size, ReaderFont? font, Paper? paper, int? spacing, bool? landscapeSpread}) => ReaderStyle(
         size: size ?? this.size,
         font: font ?? this.font,
         paper: paper ?? this.paper,
         spacing: spacing ?? this.spacing,
+        landscapeSpread: landscapeSpread ?? this.landscapeSpread,
       );
 
   static Future<ReaderStyle> load(AppDatabase db) async {
@@ -68,7 +81,9 @@ class ReaderStyle {
     final font = await db.setting(BookSettings.readerFont);
     final paper = await db.setting(BookSettings.readerPaper);
     final spacing = int.tryParse(await db.setting(BookSettings.readerSpacing) ?? '');
+    final spread = await db.setting(_spreadKey);
     return ReaderStyle(
+      landscapeSpread: spread == 'true',
       size: size ?? 4,
       font: ReaderFont.values.where((f) => f.name == font).firstOrNull ?? ReaderFont.serif,
       paper: Paper.values.where((p) => p.name == paper).firstOrNull,
@@ -81,5 +96,6 @@ class ReaderStyle {
     await db.setSetting(BookSettings.readerFont, font.name);
     await db.setSetting(BookSettings.readerPaper, paper?.name ?? '');
     await db.setSetting(BookSettings.readerSpacing, '$spacing');
+    await db.setSetting(_spreadKey, '$landscapeSpread');
   }
 }

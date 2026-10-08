@@ -402,8 +402,8 @@ class _ChaptersCardState extends State<_ChaptersCard> {
     // Свёрнуто: всегда семь строк (предыдущая, текущая и следующие; у конца
     // книги — последние семь), чтобы высота не менялась и плеер не прыгал.
     const window = 7;
-    final from = _all ? 0 : (cur - 1).clamp(0, math.max(0, chapters.length - window));
-    final to = _all ? chapters.length : math.min(chapters.length, from + window);
+    final int from = _all ? 0 : (cur - 1).clamp(0, math.max<int>(0, chapters.length - window));
+    final int to = _all ? chapters.length : math.min<int>(chapters.length, from + window);
     final tabular = const [FontFeature.tabularFigures()];
     return Container(
       padding: const EdgeInsets.fromLTRB(6, 10, 6, 4),

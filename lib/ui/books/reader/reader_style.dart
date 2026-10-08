@@ -30,6 +30,28 @@ enum ReaderFont {
 }
 
 const _spreadKey = 'reader.landscapeSpread';
+const _turnKey = 'reader.pageTurn';
+const _ribbonKey = 'reader.bookmarkColor';
+
+/// Как листается страница.
+enum PageTurn {
+  none('Без анимации'),
+  slide('Сдвиг'),
+  fade('Плавно');
+
+  const PageTurn(this.label);
+  final String label;
+}
+
+/// Цвета ленточки закладки; `null` — акцентный цвет приложения.
+const bookmarkColors = <Color?>[
+  null,
+  Color(0xFFE0533D),
+  Color(0xFFF0A23B),
+  Color(0xFF3D7FE0),
+  Color(0xFF8E5BD6),
+  Color(0xFF2FA36B),
+];
 
 /// Размеры шрифта (шаги кнопок «A−» и «A+»).
 const readerSizes = [14.0, 15.0, 16.0, 17.0, 18.0, 20.0, 22.0, 24.0, 27.0];
@@ -45,6 +67,8 @@ class ReaderStyle {
     this.paper,
     this.spacing = 1,
     this.landscapeSpread = false,
+    this.pageTurn = PageTurn.slide,
+    this.bookmarkColor = 0,
   });
 
   /// Индекс в [readerSizes].
@@ -60,6 +84,14 @@ class ReaderStyle {
   /// Две колонки, когда телефон повёрнут набок.
   final bool landscapeSpread;
 
+  final PageTurn pageTurn;
+
+  /// Индекс в [bookmarkColors].
+  final int bookmarkColor;
+
+  /// Цвет ленточки; [accent] — если выбран цвет приложения.
+  Color ribbonColor(Color accent) => bookmarkColors[bookmarkColor.clamp(0, bookmarkColors.length - 1)] ?? accent;
+
   double get fontSize => readerSizes[size.clamp(0, readerSizes.length - 1)];
   double get lineHeight => readerSpacings[spacing.clamp(0, readerSpacings.length - 1)];
 
@@ -68,12 +100,23 @@ class ReaderStyle {
   /// Ключ для кэша разбивки на страницы.
   String get layoutKey => '$size/${font.name}/$spacing';
 
-  ReaderStyle copyWith({int? size, ReaderFont? font, Paper? paper, int? spacing, bool? landscapeSpread}) => ReaderStyle(
+  ReaderStyle copyWith({
+    int? size,
+    ReaderFont? font,
+    Paper? paper,
+    int? spacing,
+    bool? landscapeSpread,
+    PageTurn? pageTurn,
+    int? bookmarkColor,
+  }) =>
+      ReaderStyle(
         size: size ?? this.size,
         font: font ?? this.font,
         paper: paper ?? this.paper,
         spacing: spacing ?? this.spacing,
         landscapeSpread: landscapeSpread ?? this.landscapeSpread,
+        pageTurn: pageTurn ?? this.pageTurn,
+        bookmarkColor: bookmarkColor ?? this.bookmarkColor,
       );
 
   static Future<ReaderStyle> load(AppDatabase db) async {
@@ -82,8 +125,12 @@ class ReaderStyle {
     final paper = await db.setting(BookSettings.readerPaper);
     final spacing = int.tryParse(await db.setting(BookSettings.readerSpacing) ?? '');
     final spread = await db.setting(_spreadKey);
+    final turn = await db.setting(_turnKey);
+    final ribbon = int.tryParse(await db.setting(_ribbonKey) ?? '');
     return ReaderStyle(
       landscapeSpread: spread == 'true',
+      pageTurn: PageTurn.values.where((t) => t.name == turn).firstOrNull ?? PageTurn.slide,
+      bookmarkColor: ribbon ?? 0,
       size: size ?? 4,
       font: ReaderFont.values.where((f) => f.name == font).firstOrNull ?? ReaderFont.serif,
       paper: Paper.values.where((p) => p.name == paper).firstOrNull,
@@ -97,5 +144,7 @@ class ReaderStyle {
     await db.setSetting(BookSettings.readerPaper, paper?.name ?? '');
     await db.setSetting(BookSettings.readerSpacing, '$spacing');
     await db.setSetting(_spreadKey, '$landscapeSpread');
+    await db.setSetting(_turnKey, pageTurn.name);
+    await db.setSetting(_ribbonKey, '$bookmarkColor');
   }
 }

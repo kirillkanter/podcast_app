@@ -20,7 +20,15 @@ import 'reader_style.dart';
 /// Книга глазами меню: сколько глав и страниц, как нарисовать страницу.
 abstract class MenuBook {
   int get chapterCount;
+
+  /// Листов в главе (в развороте лист — две страницы).
   int pageCount(int chapter);
+
+  /// Страниц в главе.
+  int pagesInChapter(int chapter);
+
+  /// Номера страниц листа: «31» или «31–32».
+  String pageNumbers(int chapter, int sheet);
   String chapterTitle(int chapter);
   Widget page(int chapter, int page);
   double percentAt(int chapter, int page);
@@ -70,13 +78,16 @@ class ReaderMenu extends StatefulWidget {
   State<ReaderMenu> createState() => _ReaderMenuState();
 }
 
-/// Доля ширины экрана под одну уменьшенную страницу.
-const _fraction = 0.62;
 
 class _ReaderMenuState extends State<ReaderMenu> {
   /// Глава, страницы которой сейчас в ленте. По краям ленты — по странице
   /// соседних глав: долистали до неё — лента переходит на ту главу.
   late int _ch = widget.chapter;
+
+  /// Доля ширины ленты под один лист: столько, чтобы между листами были
+  /// небольшие зазоры (в альбомной ориентации листы шире).
+  double _fraction = 0.62;
+  bool _sized = false;
   late PageController _pages = PageController(initialPage: _pre + widget.page, viewportFraction: _fraction);
   late int _index = _pre + widget.page;
   double? _drag;
@@ -121,6 +132,15 @@ class _ReaderMenuState extends State<ReaderMenu> {
       _ch = chapter;
       _index = _pre + page;
       _pages = PageController(initialPage: _index, viewportFraction: _fraction);
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) => old.dispose());
+  }
+
+  void _setFraction(double f) {
+    final old = _pages;
+    setState(() {
+      _fraction = f;
+      _pages = PageController(initialPage: _index, viewportFraction: f);
     });
     WidgetsBinding.instance.addPostFrameCallback((_) => old.dispose());
   }
@@ -183,7 +203,8 @@ class _ReaderMenuState extends State<ReaderMenu> {
                 child: Text(widget.book.chapterTitle(shown.chapter),
                     maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
               ),
-              Text('стр. ${shown.page + 1} из ${widget.book.pageCount(shown.chapter)} · ${(percent * 100).floor()} %',
+              Text(
+                  'стр. ${widget.book.pageNumbers(shown.chapter, shown.page)} из ${widget.book.pagesInChapter(shown.chapter)} · ${(percent * 100).floor()} %',
                   style: TextStyle(fontSize: 12, color: c.muted, fontFeatures: const [FontFeature.tabularFigures()])),
             ]),
           ),
@@ -191,15 +212,30 @@ class _ReaderMenuState extends State<ReaderMenu> {
             child: LayoutBuilder(builder: (context, box) {
               // Уменьшенная страница: целиком по высоте, с полями вокруг.
               final h = box.maxHeight - 24;
-              final w = box.maxWidth * _fraction - 16;
-              final scale = math.min(h / widget.pageSize.height, w / widget.pageSize.width).clamp(0.1, 1.0);
+              final byHeight = h / widget.pageSize.height;
+              final wanted = ((widget.pageSize.width * byHeight + 20 + 28) / box.maxWidth).clamp(0.3, 0.86);
+              if (!_sized) {
+                // Первый показ: сразу нужная ширина, без перескока.
+                _sized = true;
+                if ((wanted - _fraction).abs() > 0.02) {
+                  _pages.dispose();
+                  _fraction = wanted;
+                  _pages = PageController(initialPage: _index, viewportFraction: wanted);
+                }
+              } else if ((wanted - _fraction).abs() > 0.02) {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (mounted) _setFraction(wanted);
+                });
+              }
+              final w = box.maxWidth * _fraction - 28;
+              final scale = math.min(byHeight, w / widget.pageSize.width).clamp(0.05, 1.0);
               return NotificationListener<ScrollNotification>(
                 onNotification: _onScrollEnd,
                 child: PageView.builder(
-                  key: ValueKey(_ch),
+                  key: ValueKey('$_ch/$_fraction'),
                   controller: _pages,
                   pageSnapping: false,
-                  physics: const _FlingPagePhysics(fraction: _fraction),
+                  physics: _FlingPagePhysics(fraction: _fraction),
                   itemCount: _pre + _count + _post,
                   onPageChanged: (i) => setState(() => _index = i),
                   itemBuilder: (context, i) {
@@ -251,7 +287,7 @@ class _ReaderMenuState extends State<ReaderMenu> {
                         style: FilledButton.styleFrom(minimumSize: const Size(0, 36), shape: const StadiumBorder()),
                         onPressed: () => _show(widget.chapter, widget.page, animate: true),
                         icon: const Icon(Icons.undo_rounded, size: 18),
-                        label: Text('Вернуться на стр. ${widget.page + 1}'),
+                        label: Text('Вернуться на стр. ${widget.book.pageNumbers(widget.chapter, widget.page)}'),
                       ),
               ),
             ),

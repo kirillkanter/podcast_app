@@ -104,6 +104,15 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   /// Растёт при каждой новой закладке — ленточка проигрывает появление.
   int _ribbonDrop = 0;
 
+  /// Открыт выбор цвета закладки (долгое нажатие на угол).
+  bool _ribbonColors = false;
+  bool _longFired = false;
+
+  /// Номер перелистывания (ключ анимации) и направление: 1 — вперёд.
+  int _turn = 0;
+  int _turnDir = 1;
+  double _gutter = 40;
+
   final _readerKey = GlobalKey();
   final _fragKeys = <String, GlobalKey>{};
 
@@ -257,8 +266,12 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   void _showPage(int chapter, int page) {
     final pages = _pagesOf(chapter);
     final p = _spread ? (page.clamp(0, pages.length - 1) ~/ 2) * 2 : page.clamp(0, pages.length - 1);
+    if (chapter == _chapter && p == _page) return;
     setState(() {
-      if (chapter != _chapter) _fragKeys.clear();
+      _turnDir = chapter > _chapter || (chapter == _chapter && p > _page) ? 1 : -1;
+      _turn++;
+      // Новые ключи: уходящая страница ещё видна во время анимации.
+      _fragKeys.clear();
       _chapter = chapter;
       _page = p;
       _anchor = pages[p].locator(chapter);
@@ -400,7 +413,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     _dragHandle = null;
   }
 
-  String _keyId(int page, int frag) => '$_chapter:$page:$frag';
+  String _keyId(int page, int frag) => '$_turn:$_chapter:$page:$frag';
 
   GlobalKey _fragKey(int page, int frag) => _fragKeys.putIfAbsent(_keyId(page, frag), GlobalKey.new);
 
@@ -476,6 +489,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
 
   /// После перерисовки — где на экране выделение (для панели и ручек).
   void _afterSelectionChange() {
+    WidgetsBinding.instance.scheduleFrame();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final sel = _selection;
@@ -531,7 +545,21 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     return null;
   }
 
+  bool _inCorner(Offset global) {
+    final box = _readerKey.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null) return false;
+    final local = box.globalToLocal(global);
+    return local.dx > box.size.width - _cornerSize.width && local.dy < _cornerSize.height;
+  }
+
   void _onPointerDown(PointerDownEvent e) {
+    _longFired = false;
+    if (_ribbonColors) {
+      // Касание мимо выбора цвета — закрыть его, и больше ничего.
+      setState(() => _ribbonColors = false);
+      _downAt = null;
+      return;
+    }
     _downAt = e.position;
     _downTime = DateTime.now();
     _downKind = e.kind;
@@ -545,6 +573,16 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       _selAnchor = handle == 0 ? _selection!.end : _selection!.start;
       _wordMode = true;
       _selecting = true;
+      return;
+    }
+    if (_selection == null && _inCorner(e.position)) {
+      // Долгое нажатие на угол — цвет закладки, как в Kindle.
+      _longPress = Timer(const Duration(milliseconds: 450), () async {
+        _longFired = true;
+        if (_bookmarksOn(_cornerPage).isEmpty) await _toggleBookmark();
+        unawaited(HapticFeedback.selectionClick());
+        if (mounted) setState(() => _ribbonColors = true);
+      });
       return;
     }
     if (e.kind == PointerDeviceKind.mouse) return;
@@ -579,13 +617,15 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     final start = _downAt;
     final time = _downTime;
     _downAt = null;
-    if (start == null || time == null) return;
+    if (start == null || time == null || _longFired) return;
     if (_selecting) {
       _selecting = false;
       _dragHandle = null;
       if (_selection?.isEmpty ?? true) {
         setState(_clearSelection);
       } else {
+        // Перерисовать: панель с переводом видна, только когда палец отпущен.
+        setState(() {});
         _afterSelectionChange();
       }
       return;
@@ -704,12 +744,14 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     final contentW = math.min(box.maxWidth - hPad * 2, _spread ? 1200.0 : 720.0);
     _pageWidth = _spread ? (contentW - gutter) / 2 : contentW;
     _pageHeight = box.maxHeight - statusH * 2 - 8;
+    _gutter = gutter;
 
     // Сменились размеры или шрифт — встаём на то же место.
     final key = _cacheKey(_chapter);
     final sizeKey = key.substring(key.indexOf('|'));
     if (sizeKey != _layoutKey) {
       _layoutKey = sizeKey;
+      _turn++;
       _fragKeys.clear();
       _selBoxes = const [];
       _selection = null;
@@ -721,8 +763,6 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     }
     final pages = _pagesOf(_chapter);
     _page = _page.clamp(0, pages.length - 1);
-
-    if (_menu) return _menuView(paper, pages);
 
     final faint = TextStyle(fontSize: 12, color: paper.faint, fontFamily: bodyFont);
     final pageLabel = _spread && _page + 1 < pages.length
@@ -759,14 +799,41 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
         ),
       ),
       Expanded(
-        child: Center(
-          child: Row(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-            pageAt(_page),
-            if (_spread) ...[
-              SizedBox(width: gutter, height: _pageHeight, child: Center(child: VerticalDivider(width: 1, color: paper.faint.withValues(alpha: 0.2)))),
-              pageAt(_page + 1),
-            ],
-          ]),
+        child: ClipRect(
+          child: AnimatedSwitcher(
+            duration: switch (_style.pageTurn) {
+              PageTurn.none => Duration.zero,
+              PageTurn.slide => const Duration(milliseconds: 180),
+              PageTurn.fade => const Duration(milliseconds: 220),
+            },
+            switchInCurve: Curves.easeOutCubic,
+            switchOutCurve: Curves.easeOutCubic,
+            layoutBuilder: (current, previous) => Stack(alignment: Alignment.center, children: [...previous, ?current]),
+            transitionBuilder: (child, animation) {
+              if (_style.pageTurn == PageTurn.fade) return FadeTransition(opacity: animation, child: child);
+              final incoming = child.key == ValueKey(_turn);
+              final from = Offset(incoming ? _turnDir.toDouble() : -_turnDir.toDouble(), 0);
+              return SlideTransition(position: Tween(begin: from, end: Offset.zero).animate(animation), child: child);
+            },
+            child: ColoredBox(
+              key: ValueKey(_turn),
+              color: paper.bg,
+              child: SizedBox.expand(
+                child: Center(
+                  child: Row(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    pageAt(_page),
+                    if (_spread) ...[
+                      SizedBox(
+                          width: gutter,
+                          height: _pageHeight,
+                          child: Center(child: VerticalDivider(width: 1, color: paper.faint.withValues(alpha: 0.2)))),
+                      pageAt(_page + 1),
+                    ],
+                  ]),
+                ),
+              ),
+            ),
+          ),
         ),
       ),
       SizedBox(
@@ -805,7 +872,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
             duration: const Duration(milliseconds: 520),
             curve: Curves.elasticOut,
             builder: (context, v, _) => cornerMarked
-                ? Transform.translate(offset: Offset(0, -44 * (1 - v)), child: _Ribbon(color: paper == Paper.sepia ? const Color(0xFF9A4B2E) : c.bar))
+                ? Transform.translate(offset: Offset(0, -44 * (1 - v)), child: _Ribbon(color: _style.ribbonColor(c.bar)))
                 : const SizedBox.shrink(),
           ),
         ),
@@ -820,7 +887,43 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
           duration: const Duration(milliseconds: 200),
           child: _toast == null
               ? const SizedBox.shrink()
-              : _Toast(key: ValueKey(_toast), text: _toast!, onUndo: _toastUndo, ribbon: c.bar),
+              : _Toast(key: ValueKey(_toast), text: _toast!, onUndo: _toastUndo, ribbon: _style.ribbonColor(c.bar)),
+        ),
+      ),
+      if (_ribbonColors)
+        Positioned(
+          top: 52,
+          right: 8,
+          child: _RibbonColors(
+            selected: _style.bookmarkColor,
+            accent: c.bar,
+            onSelect: (i) {
+              final s = _style.copyWith(bookmarkColor: i);
+              setState(() {
+                _style = s;
+                _ribbonColors = false;
+              });
+              unawaited(s.save(_db));
+            },
+          ),
+        ),
+      // Меню книги поверх страницы: появляется, будто страница уменьшается.
+      Positioned.fill(
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 220),
+          switchInCurve: Curves.easeOutCubic,
+          switchOutCurve: Curves.easeInCubic,
+          transitionBuilder: (child, animation) => FadeTransition(
+            opacity: animation,
+            child: ScaleTransition(scale: Tween(begin: 1.12, end: 1.0).animate(animation), child: child),
+          ),
+          child: _menu
+              ? Listener(
+                  key: const ValueKey('menu'),
+                  behavior: HitTestBehavior.opaque,
+                  child: _menuView(paper, pages),
+                )
+              : const SizedBox.shrink(key: ValueKey('page')),
         ),
       ),
     ]);
@@ -874,27 +977,29 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   }
 
   Widget _menuView(Paper paper, List<ReaderPage> pages) {
+    final book = _MenuBookView(this);
     return ReaderMenu(
       bookTitle: widget.book.title,
       author: widget.book.author,
-      book: _MenuBookView(this),
+      book: book,
       chapter: _chapter,
-      page: _page,
+      page: _page ~/ _step,
       paper: paper,
-      pageSize: Size(_pageWidth, _pageHeight),
-      onOpenPage: (chapter, page) {
+      pageSize: _spread ? Size(_pageWidth * 2 + _gutter, _pageHeight) : Size(_pageWidth, _pageHeight),
+      onOpenPage: (chapter, sheet) {
         setState(() => _menu = false);
-        _showPage(chapter, page);
+        _showPage(chapter, sheet * _step);
       },
       // Pop, а не maybePop: maybePop перехватывается и только закрывает меню.
       onExit: () => Navigator.of(context).pop(),
-      onToggleBookmark: (chapter, page) => unawaited(_toggleBookmarkAt(chapter, page)),
+      onToggleBookmark: book.toggle,
       onContents: _showContents,
       onBookmarks: _showBookmarks,
       onStyle: _showStyle,
       onSearch: _showSearch,
     );
   }
+
 
   int _charsLeftInChapter(List<ReaderPage> pages) {
     final chapter = _chapterText;
@@ -1304,51 +1409,148 @@ class _SearchDialogState extends State<_SearchDialog> {
 }
 
 /// Книга для меню: страницы любой главы при текущей разбивке.
+/// Книга для меню: листы любой главы при текущей разбивке. В развороте
+/// лист — две страницы рядом, иначе — одна.
 class _MenuBookView implements MenuBook {
-  _MenuBookView(this.s);
+  _MenuBookView(this.s) : step = s._step;
 
   final _ReaderScreenState s;
+  final int step;
+
+  int _first(int chapter, int sheet) => math.min(sheet * step, s._pagesOf(chapter).length - 1);
 
   @override
   int get chapterCount => s._content.chapters.length;
 
   @override
-  int pageCount(int chapter) => s._pagesOf(chapter).length;
+  int pageCount(int chapter) => (s._pagesOf(chapter).length + step - 1) ~/ step;
+
+  @override
+  int pagesInChapter(int chapter) => s._pagesOf(chapter).length;
+
+  @override
+  String pageNumbers(int chapter, int sheet) {
+    final a = _first(chapter, sheet) + 1;
+    return step == 2 && a < pagesInChapter(chapter) ? '$a–${a + 1}' : '$a';
+  }
 
   @override
   String chapterTitle(int chapter) => s._content.chapters[chapter].title;
 
-  @override
-  Widget page(int chapter, int page) {
+  Widget _one(int chapter, int page, Color ribbon) {
     final pages = s._pagesOf(chapter);
-    final c = BcColors.of(s.context);
-    return Stack(children: [
-      _PageView(
-        chapter: s._content.chapters[chapter],
-        page: pages[page.clamp(0, pages.length - 1)],
-        base: s._baseStyle,
-        scaler: s._scaler,
-        highlight: Colors.transparent,
-      ),
-      if (bookmarked(chapter, page)) Positioned(top: 0, right: 16, child: _Ribbon(color: c.bar)),
+    return SizedBox(
+      width: s._pageWidth,
+      height: s._pageHeight,
+      child: page >= pages.length
+          ? null
+          : Stack(children: [
+              _PageView(
+                chapter: s._content.chapters[chapter],
+                page: pages[page],
+                base: s._baseStyle,
+                scaler: s._scaler,
+                highlight: Colors.transparent,
+              ),
+              if (s._bookmarksAt(chapter, page).isNotEmpty) Positioned(top: 0, right: 16, child: _Ribbon(color: ribbon)),
+            ]),
+    );
+  }
+
+  @override
+  Widget page(int chapter, int sheet) {
+    final ribbon = s._style.ribbonColor(BcColors.of(s.context).bar);
+    final first = _first(chapter, sheet);
+    if (step == 1) return _one(chapter, first, ribbon);
+    return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      _one(chapter, first, ribbon),
+      SizedBox(width: s._gutter),
+      _one(chapter, first + 1, ribbon),
     ]);
   }
 
   @override
-  double percentAt(int chapter, int page) {
+  double percentAt(int chapter, int sheet) {
     if (s._content.length == 0) return 0;
     final pages = s._pagesOf(chapter);
-    if (chapter == chapterCount - 1 && page >= pages.length - 1) return 1;
-    final l = pages[page.clamp(0, pages.length - 1)].locator(chapter);
-    return (s._charsBefore(l) / s._content.length).clamp(0.0, 1.0);
+    final page = _first(chapter, sheet);
+    if (chapter == chapterCount - 1 && page + step >= pages.length) return 1;
+    return (s._charsBefore(pages[page].locator(chapter)) / s._content.length).clamp(0.0, 1.0);
   }
 
   @override
   ({int chapter, int page}) locate(double percent) {
     final l = s._locatorAt(percent);
-    return (chapter: l.chapter, page: pageOf(s._pagesOf(l.chapter), l.block, l.offset));
+    return (chapter: l.chapter, page: pageOf(s._pagesOf(l.chapter), l.block, l.offset) ~/ step);
   }
 
   @override
-  bool bookmarked(int chapter, int page) => s._bookmarksAt(chapter, page).isNotEmpty;
+  bool bookmarked(int chapter, int sheet) {
+    final first = _first(chapter, sheet);
+    for (var p = first; p < first + step; p++) {
+      if (s._bookmarksAt(chapter, p).isNotEmpty) return true;
+    }
+    return false;
+  }
+
+  /// Закладка листа: есть на какой-то из страниц — снять, нет — поставить
+  /// на правую (как угол в книге).
+  void toggle(int chapter, int sheet) {
+    final first = _first(chapter, sheet);
+    final last = math.min(first + step - 1, pagesInChapter(chapter) - 1);
+    for (var p = first; p <= last; p++) {
+      if (s._bookmarksAt(chapter, p).isNotEmpty) {
+        unawaited(s._toggleBookmarkAt(chapter, p));
+        return;
+      }
+    }
+    unawaited(s._toggleBookmarkAt(chapter, last));
+  }
+}
+
+/// Выбор цвета закладки.
+class _RibbonColors extends StatelessWidget {
+  const _RibbonColors({required this.selected, required this.accent, required this.onSelect});
+
+  final int selected;
+  final Color accent;
+  final ValueChanged<int> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = BcColors.of(context);
+    return Material(
+      color: c.raised,
+      elevation: 10,
+      shadowColor: Colors.black54,
+      shape: StadiumBorder(side: BorderSide(color: c.glassBorder)),
+      child: Padding(
+        padding: const EdgeInsets.all(6),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          for (var i = 0; i < bookmarkColors.length; i++)
+            Tooltip(
+              message: i == 0 ? 'Цвет приложения' : 'Цвет закладки',
+              child: InkResponse(
+                onTap: () => onSelect(i),
+                radius: 22,
+                child: Container(
+                  width: 36,
+                  height: 36,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(color: i == selected ? c.text : Colors.transparent, width: 2),
+                  ),
+                  child: Container(
+                    width: 24,
+                    height: 24,
+                    decoration: BoxDecoration(shape: BoxShape.circle, color: bookmarkColors[i] ?? accent),
+                  ),
+                ),
+              ),
+            ),
+        ]),
+      ),
+    );
+  }
 }

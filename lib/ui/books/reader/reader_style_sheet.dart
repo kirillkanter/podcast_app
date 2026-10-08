@@ -96,6 +96,20 @@ class ReaderStyleSheet extends StatelessWidget {
               if (i != readerSpacings.length - 1) const SizedBox(width: 8),
             ],
           ]),
+          const SizedBox(height: 16),
+          label('Перелистывание'),
+          Row(children: [
+            for (final t in PageTurn.values) ...[
+              Expanded(
+                child: _StyleButton(
+                  selected: style.pageTurn == t,
+                  onTap: () => onChanged(style.copyWith(pageTurn: t)),
+                  child: Text(t.label, style: TextStyle(fontSize: 14, color: c.text)),
+                ),
+              ),
+              if (t != PageTurn.values.last) const SizedBox(width: 8),
+            ],
+          ]),
           const SizedBox(height: 8),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,

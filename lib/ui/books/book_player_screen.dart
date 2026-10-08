@@ -222,9 +222,9 @@ class _PlayerColumn extends StatelessWidget {
               ]),
               const SizedBox(height: 14),
               _Controls(audio: audio, now: now),
-              if (showNext && chapters.length > idx + 1) ...[
+              if (showNext && chapters.length > 1) ...[
                 const SizedBox(height: 16),
-                _NextChapters(audio: audio, from: idx + 1),
+                _ChaptersCard(audio: audio, current: idx),
               ],
             ]),
           ),
@@ -378,37 +378,78 @@ class _Controls extends StatelessWidget {
   }
 }
 
-class _NextChapters extends StatelessWidget {
-  const _NextChapters({required this.audio, required this.from});
+/// Главы прямо в плеере: текущая и несколько следующих, по нажатию
+/// раскрывается весь список (как главы эпизода в плеере подкастов).
+class _ChaptersCard extends StatefulWidget {
+  const _ChaptersCard({required this.audio, required this.current});
 
   final PodcastAudioHandler audio;
-  final int from;
+  final int current;
+
+  @override
+  State<_ChaptersCard> createState() => _ChaptersCardState();
+}
+
+class _ChaptersCardState extends State<_ChaptersCard> {
+  var _all = false;
 
   @override
   Widget build(BuildContext context) {
     final c = BcColors.of(context);
-    final chapters = audio.bookChapters;
-    final t = audio.bookTimeline;
+    final chapters = widget.audio.bookChapters;
+    final t = widget.audio.bookTimeline;
+    final cur = widget.current;
+    // Свёрнуто: предыдущая, текущая и пять следующих.
+    final from = _all ? 0 : math.max(0, cur - 1);
+    final to = _all ? chapters.length : math.min(chapters.length, cur + 6);
+    final tabular = const [FontFeature.tabularFigures()];
     return Container(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
+      padding: const EdgeInsets.fromLTRB(6, 10, 6, 4),
       decoration: BoxDecoration(color: c.card, borderRadius: BorderRadius.circular(16)),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Text('Дальше', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: c.muted)),
-        const SizedBox(height: 4),
-        for (var i = from; i < chapters.length && i < from + 2; i++)
+        Padding(
+          padding: const EdgeInsets.fromLTRB(10, 0, 10, 4),
+          child: Text('Главы · ${chapters.length}', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: c.muted)),
+        ),
+        for (var i = from; i < to; i++)
           InkWell(
-            onTap: () => audio.seekToChapter(i),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
+            borderRadius: BorderRadius.circular(10),
+            onTap: () => widget.audio.seekToChapter(i),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+              decoration: BoxDecoration(
+                color: i == cur ? c.raised : null,
+                borderRadius: BorderRadius.circular(10),
+              ),
               child: Row(children: [
-                Expanded(
-                  child: Text('${i + 1}. ${chapters[i].title}',
-                      maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 14)),
+                SizedBox(
+                  width: 30,
+                  child: i == cur
+                      ? Icon(Icons.graphic_eq_rounded, size: 18, color: c.ink)
+                      : Text('${i + 1}', style: TextStyle(fontSize: 13, color: c.muted, fontFeatures: tabular)),
                 ),
+                Expanded(
+                  child: Text(
+                    chapters[i].title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: i == cur ? FontWeight.w600 : FontWeight.w400,
+                      color: i < cur ? c.muted : c.text,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
                 Text(chapterLength(t.chapterEnd(i) - t.chapterStart(i)),
-                    style: TextStyle(fontSize: 13, color: c.muted, fontFeatures: const [FontFeature.tabularFigures()])),
+                    style: TextStyle(fontSize: 13, color: c.muted, fontFeatures: tabular)),
               ]),
             ),
+          ),
+        if (chapters.length > to - from || _all)
+          TextButton(
+            onPressed: () => setState(() => _all = !_all),
+            child: Text(_all ? 'Свернуть' : 'Все главы'),
           ),
       ]),
     );

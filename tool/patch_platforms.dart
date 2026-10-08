@@ -24,7 +24,15 @@ const _permissions = [
   'android.permission.FOREGROUND_SERVICE_DATA_SYNC',
   // Запрос «не ограничивать батарею» для фоновых загрузок.
   'android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS',
+  // Папка с аудиокнигами: аудиофайлы на телефоне (Android 13+).
+  'android.permission.READ_MEDIA_AUDIO',
 ];
+
+/// Разрешения только для старых Android (до 12 включительно).
+const _legacyPermissions = {
+  // Папка с аудиокнигами на Android 12 и раньше.
+  'android.permission.READ_EXTERNAL_STORAGE': 32,
+};
 
 const _audioServiceComponents = '''
         <service android:name="com.ryanheise.audioservice.AudioService"
@@ -162,6 +170,15 @@ void _patchAndroid() {
       );
     }
   }
+
+  _legacyPermissions.forEach((permission, maxSdk) {
+    if (!xml.contains('"$permission"')) {
+      xml = xml.replaceFirst(
+        '<application',
+        '<uses-permission android:name="$permission" android:maxSdkVersion="$maxSdk"/>\n    <application',
+      );
+    }
+  });
 
   if (!xml.contains('usesCleartextTraffic')) {
     xml = xml.replaceFirst('<application', '<application\n        android:usesCleartextTraffic="true"');

@@ -16,6 +16,9 @@ class NowPlaying {
 
   int? get episodeId => item?.extras?['episodeId'] as int?;
 
+  /// Играет аудиокнига (а не эпизод).
+  int? get bookId => item?.extras?['bookId'] as int?;
+
   bool get active =>
       item != null && state != null && state!.processingState != AudioProcessingState.idle;
 

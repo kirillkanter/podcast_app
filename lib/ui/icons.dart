@@ -41,7 +41,14 @@ enum BcIcons {
   clock('<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>'),
   sync('<path d="M20 11a8 8 0 0 0-14.6-4.5L4 8"/><path d="M4 4v4h4"/><path d="M4 13a8 8 0 0 0 14.6 4.5L20 16"/><path d="M20 20v-4h-4"/>'),
   globe('<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z"/>'),
-  external('<path d="M7 17 17 7M9 7h8v8"/>');
+  external('<path d="M7 17 17 7M9 7h8v8"/>'),
+  book('<path d="M12 6.5C10 5 7 4.5 3.5 5v13.5c3.5-.5 6.5 0 8.5 1.5 2-1.5 5-2 8.5-1.5V5C17 4.5 14 5 12 6.5z"/><path d="M12 6.5V20"/>'),
+  headphones('<path d="M4 14v-2a8 8 0 0 1 16 0v2"/><rect x="3" y="14" width="4" height="6" rx="1.5"/><rect x="17" y="14" width="4" height="6" rx="1.5"/>'),
+  page('<path d="M6 3h9l4 4v14H6z"/><path d="M9 11h7M9 15h7"/>'),
+  bookmark('<path d="M6 3.5h12v17l-6-4-6 4z"/>'),
+  bookmarkAdd('<path d="M6 3.5h12v17l-6-4-6 4z"/><path d="M12 7v6M9 10h6"/>'),
+  folder('<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>'),
+  translate('<path d="M4 5h9M8.5 3v2M6 5c.5 3 2.5 5.5 5 7M11 5c-.5 3-3 6-6.5 8"/><path d="m12 21 4.5-10L21 21M13.5 17.5h6"/>');
 
   const BcIcons(this.body);
 

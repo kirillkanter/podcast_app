@@ -1,7 +1,7 @@
 name: podcast_app
 description: Basic Caster — подкаст-плеер для Android и Windows.
 publish_to: none
-version: 0.9.0+11
+version: 0.10.0+12
 
 environment:
   sdk: ^3.10.0
@@ -51,12 +51,6 @@ dependencies:
   # Книги: отпечатки файлов (sha1), EPUB и FBZ — zip-архивы.
   crypto: ^3.0.6
   archive: ^4.0.0
-  # Книги: выбор файлов и папки с аудиокнигами (Android и Windows).
-  file_picker: ^13.1.0
-  # Android: доступ к аудиофайлам в папке с аудиокнигами.
-  permission_handler: ">=12.0.0 <14.0.0"
-  # Читалка: экран не гаснет, пока открыта книга.
-  wakelock_plus: ">=1.6.1 <2.0.0"
 
 dev_dependencies:
   flutter_test:
@@ -91,3 +85,14 @@ flutter:
           weight: 500
         - asset: assets/fonts/GolosText-SemiBold.ttf
           weight: 600
+    # Читалка: шрифт с засечками (ParaType, лицензия OFL).
+    - family: PTSerif
+      fonts:
+        - asset: assets/fonts/PTSerif-Regular.ttf
+        - asset: assets/fonts/PTSerif-Italic.ttf
+          style: italic
+        - asset: assets/fonts/PTSerif-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/PTSerif-BoldItalic.ttf
+          weight: 700
+          style: italic

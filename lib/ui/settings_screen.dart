@@ -10,6 +10,8 @@ import '../platform/background.dart';
 import '../platform/desktop.dart';
 import '../sync/sync_service.dart';
 import 'app_scope.dart';
+import 'books/book_import.dart';
+import '../data/db/books_dao.dart';
 import 'diagnostics_dialog.dart';
 import 'episode_actions.dart';
 import 'format.dart';
@@ -20,7 +22,7 @@ import 'theme.dart';
 import 'menu.dart';
 
 /// Версия для экрана настроек; совпадает с pubspec.yaml.
-const appVersion = '0.9.0';
+const appVersion = '0.10.0';
 
 /// Настройки. На широком экране — в две колонки.
 class SettingsScreen extends StatelessWidget {
@@ -178,6 +180,64 @@ class SettingsScreen extends StatelessWidget {
       ]),
     ];
 
+    final books = [
+      if (scope.books != null) ...[
+        const _SectionTitle('КНИГИ'),
+        _Card(children: [
+          StreamBuilder<List<BookSource>>(
+            stream: scope.db.watchBookSources(),
+            builder: (context, snap) => Column(children: [
+              for (final s in snap.data ?? const <BookSource>[])
+                _Row(
+                  label: s.path,
+                  hint: 'Папка с аудиокнигами',
+                  trailing: IconButton(
+                    tooltip: 'Убрать папку',
+                    icon: BcIcon(BcIcons.close, size: 18, color: c.muted),
+                    onPressed: () => scope.books!.removeSource(s.path),
+                  ),
+                ),
+            ]),
+          ),
+          _Row(
+            label: 'Добавить папку с аудиокнигами',
+            hint: 'Каждая подпапка с аудиофайлами станет книгой',
+            onTap: () => pickBookFolder(context),
+            trailing: BcIcon(BcIcons.plus, size: 20, color: c.muted),
+          ),
+          _Row(
+            label: 'Вернуть убранные аудиокниги',
+            hint: 'Книги из папок, которые убирали из библиотеки',
+            onTap: () => scope.books!.unhideAll(),
+            trailing: BcIcon(BcIcons.refresh, size: 20, color: c.muted),
+          ),
+          StreamBuilder<String?>(
+            stream: scope.db.watchSetting(BookSettings.serverUsed),
+            builder: (context, used) => StreamBuilder<String?>(
+              stream: scope.db.watchSetting(BookSettings.lastError),
+              builder: (context, error) => StreamBuilder<String?>(
+                stream: scope.db.watchSetting(BookSettings.unsupported),
+                builder: (context, unsupported) {
+                  final bytes = int.tryParse(used.data ?? '');
+                  final err = error.data ?? '';
+                  return _Row(
+                    label: 'Текстовые книги на сервере',
+                    hint: unsupported.data == 'true'
+                        ? 'На сервере синхронизации нет books.php — книги остаются на устройстве'
+                        : err.isNotEmpty
+                            ? err
+                            : bytes == null
+                                ? 'Появится после синхронизации'
+                                : 'Занято ${(bytes / 1024 / 1024).toStringAsFixed(1)} МБ из 2 ГБ',
+                  );
+                },
+              ),
+            ),
+          ),
+        ]),
+      ],
+    ];
+
     final search = [
       if (scope.catalog != null) ...[
         const _SectionTitle('ПОИСК'),
@@ -255,6 +315,7 @@ class SettingsScreen extends StatelessWidget {
                 ...queue,
                 ...gestures,
                 ...subscriptions,
+                ...books,
                 ...downloadSection,
                 ...search,
                 ...look,
@@ -285,6 +346,7 @@ class SettingsScreen extends StatelessWidget {
                     const SizedBox(width: 24),
                     Expanded(
                       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                        ...books,
                         ...downloadSection,
                         ...search,
                         ...look,

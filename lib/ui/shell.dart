@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../data/db/database.dart';
 import '../sync/sync_service.dart';
 import 'app_scope.dart';
+import 'books/books_screen.dart';
 import 'downloads_screen.dart';
 import 'episode_actions.dart';
 import 'format.dart';
@@ -20,16 +21,21 @@ import 'theme.dart';
 
 /// Разделы приложения: нижние вкладки на телефоне, боковое меню на компьютере.
 enum ShellTab {
-  library('Библиотека', BcIcons.library),
+  library('Подкасты', BcIcons.library, sideLabel: 'Библиотека'),
   search('Поиск', BcIcons.search),
+  // Книги — отдельный раздел: свои полки, плеер с главами и читалка.
+  books('Книги', BcIcons.book),
   downloads('Загрузки', BcIcons.download),
   // На телефоне очередь — блок в библиотеке и отдельный экран оттуда.
   queue('Очередь', BcIcons.queue, phone: false),
   settings('Настройки', BcIcons.settings);
 
-  const ShellTab(this.label, this.icon, {this.phone = true});
+  const ShellTab(this.label, this.icon, {this.phone = true, this.sideLabel});
   final String label;
   final BcIcons icon;
+
+  /// Название в боковом меню компьютера (там подкасты — отдельная группа).
+  final String? sideLabel;
 
   /// Есть ли вкладка внизу на телефоне.
   final bool phone;
@@ -136,6 +142,7 @@ class _AppShellState extends State<AppShell> {
       ShellTab.downloads => scope.downloads == null
           ? const _Unavailable('Загрузки недоступны')
           : const DownloadsScreen(),
+      ShellTab.books => scope.books == null ? const _Unavailable('Книги недоступны') : const BooksScreen(),
       ShellTab.queue => const QueueScreen(showBack: false),
       ShellTab.settings => const SettingsScreen(),
     };
@@ -277,8 +284,10 @@ class _PhoneNav extends StatelessWidget {
                         Text(
                           tab.label,
                           maxLines: 1,
+                          softWrap: false,
+                          overflow: TextOverflow.fade,
                           style: TextStyle(
-                            fontSize: 12,
+                            fontSize: 11.5,
                             fontWeight: tab == selected ? FontWeight.w600 : FontWeight.w400,
                             color: tab == selected ? c.ink : c.muted,
                           ),
@@ -326,14 +335,24 @@ class _Sidebar extends StatelessWidget {
               ),
             ]),
           ),
-          for (final tab in ShellTab.values)
-            _SideItem(
-              key: Key('tab-${tab.name}'),
-              icon: tab.icon,
-              label: tab.label,
-              selected: tab == selected,
-              onTap: () => onSelect(tab),
+          for (final (group, tabs) in const [
+            ('Подкасты', [ShellTab.library, ShellTab.search, ShellTab.queue]),
+            ('Аудиокниги и книги', [ShellTab.books]),
+            ('Общее', [ShellTab.downloads, ShellTab.settings]),
+          ]) ...[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
+              child: Text(group, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: c.muted)),
             ),
+            for (final tab in tabs)
+              _SideItem(
+                key: Key('tab-${tab.name}'),
+                icon: tab.icon,
+                label: tab.sideLabel ?? tab.label,
+                selected: tab == selected,
+                onTap: () => onSelect(tab),
+              ),
+          ],
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 22, 12, 8),
             child: Text('Подписки', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: c.muted)),

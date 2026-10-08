@@ -5,8 +5,17 @@ import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.app.Activity
+import android.net.Uri
 import android.os.Build
+import android.os.Environment
+import android.os.Handler
+import android.os.Looper
+import android.provider.DocumentsContract
+import android.provider.OpenableColumns
 import android.provider.Settings
+import android.view.WindowManager
+import java.io.File
 import com.ryanheise.audioservice.AudioServiceActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -24,6 +33,8 @@ import io.flutter.plugin.common.MethodChannel
  */
 class MainActivity : AudioServiceActivity() {
     private var pendingPermissionResult: MethodChannel.Result? = null
+    private var pendingMediaResult: MethodChannel.Result? = null
+    private var pendingPickResult: MethodChannel.Result? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -65,9 +76,144 @@ class MainActivity : AudioServiceActivity() {
                         requestBatteryUnrestricted()
                         result.success(null)
                     }
+                    // Читалка: экран не гаснет, пока открыта книга.
+                    "keepScreenOn" -> {
+                        if (call.argument<Boolean>("on") == true) {
+                            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                        } else {
+                            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                        }
+                        result.success(null)
+                    }
+                    "mediaPermissionGranted" -> result.success(mediaPermissionGranted())
+                    "requestMediaPermission" -> requestMediaPermission(result)
+                    "openAppSettings" -> {
+                        startActivity(
+                            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                                .setData(Uri.parse("package:$packageName"))
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                        result.success(null)
+                    }
+                    "pickFiles" -> pickFiles(result)
+                    "pickFolder" -> pickFolder(result)
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    /** Разрешение читать аудиофайлы (папка с аудиокнигами). */
+    private fun mediaPermission(): String =
+        if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_AUDIO
+        else Manifest.permission.READ_EXTERNAL_STORAGE
+
+    private fun mediaPermissionGranted(): Boolean =
+        checkSelfPermission(mediaPermission()) == PackageManager.PERMISSION_GRANTED
+
+    private fun requestMediaPermission(result: MethodChannel.Result) {
+        if (mediaPermissionGranted()) {
+            result.success(true)
+            return
+        }
+        pendingMediaResult?.success(false)
+        pendingMediaResult = result
+        requestPermissions(arrayOf(mediaPermission()), MEDIA_REQUEST_CODE)
+    }
+
+    /** Выбор файлов книг: копии во временной папке приложения (пути к ним). */
+    private fun pickFiles(result: MethodChannel.Result) {
+        pendingPickResult?.success(null)
+        pendingPickResult = result
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT)
+            .addCategory(Intent.CATEGORY_OPENABLE)
+            .setType("*/*")
+            .putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+        try {
+            startActivityForResult(intent, PICK_FILES_CODE)
+        } catch (e: Exception) {
+            pendingPickResult = null
+            result.error("no_picker", e.message, null)
+        }
+    }
+
+    /** Выбор папки: путь в файловой системе (для доступа к аудиофайлам). */
+    private fun pickFolder(result: MethodChannel.Result) {
+        pendingPickResult?.success(null)
+        pendingPickResult = result
+        try {
+            startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE), PICK_FOLDER_CODE)
+        } catch (e: Exception) {
+            pendingPickResult = null
+            result.error("no_picker", e.message, null)
+        }
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != PICK_FILES_CODE && requestCode != PICK_FOLDER_CODE) return
+        val result = pendingPickResult ?: return
+        pendingPickResult = null
+        if (resultCode != Activity.RESULT_OK || data == null) {
+            result.success(null)
+            return
+        }
+        if (requestCode == PICK_FOLDER_CODE) {
+            result.success(data.data?.let { treeToPath(it) })
+            return
+        }
+        val uris = mutableListOf<Uri>()
+        val clip = data.clipData
+        if (clip != null) {
+            for (i in 0 until clip.itemCount) uris.add(clip.getItemAt(i).uri)
+        } else {
+            data.data?.let { uris.add(it) }
+        }
+        // Копирование может быть долгим (большие аудиофайлы) — не в главном потоке.
+        Thread {
+            val dir = File(cacheDir, "picked/${System.currentTimeMillis()}")
+            dir.mkdirs()
+            val paths = mutableListOf<String>()
+            for (uri in uris) {
+                try {
+                    val name = displayName(uri) ?: "file-${paths.size}"
+                    val target = File(dir, name.replace('/', '_'))
+                    contentResolver.openInputStream(uri)?.use { input ->
+                        target.outputStream().use { input.copyTo(it) }
+                    }
+                    paths.add(target.absolutePath)
+                } catch (e: Exception) {
+                    // Файл не читается — пропускаем, остальные важнее.
+                }
+            }
+            Handler(Looper.getMainLooper()).post { result.success(paths) }
+        }.start()
+    }
+
+    private fun displayName(uri: Uri): String? {
+        contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+            if (c.moveToFirst()) return c.getString(0)
+        }
+        return uri.lastPathSegment
+    }
+
+    /** content://…/tree/primary:Audiobooks → /storage/emulated/0/Audiobooks. */
+    private fun treeToPath(uri: Uri): String? {
+        val id = try {
+            DocumentsContract.getTreeDocumentId(uri)
+        } catch (e: Exception) {
+            return null
+        }
+        val parts = id.split(":", limit = 2)
+        val volume = parts[0]
+        val rel = if (parts.size > 1) parts[1] else ""
+        val base = when {
+            volume.equals("primary", ignoreCase = true) -> Environment.getExternalStorageDirectory().absolutePath
+            volume.equals("home", ignoreCase = true) -> Environment.getExternalStorageDirectory().absolutePath + "/Documents"
+            volume.startsWith("raw") -> return rel
+            else -> "/storage/$volume"
+        }
+        return if (rel.isEmpty()) base else "$base/$rel"
     }
 
     /** Снято ли с приложения ограничение батареи (фоновая работа без помех). */
@@ -140,6 +286,10 @@ class MainActivity : AudioServiceActivity() {
             pendingPermissionResult?.success(notificationsEnabled())
             pendingPermissionResult = null
         }
+        if (requestCode == MEDIA_REQUEST_CODE) {
+            pendingMediaResult?.success(mediaPermissionGranted())
+            pendingMediaResult = null
+        }
     }
 
     private fun openNotificationSettings() {
@@ -153,5 +303,8 @@ class MainActivity : AudioServiceActivity() {
         private const val CHANNEL = "podcast_app/notifications"
         private const val SYSTEM_CHANNEL = "basic_caster/system"
         private const val REQUEST_CODE = 4101
+        private const val MEDIA_REQUEST_CODE = 4102
+        private const val PICK_FILES_CODE = 4103
+        private const val PICK_FOLDER_CODE = 4104
     }
 }

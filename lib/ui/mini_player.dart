@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 
 import '../player/playback_logic.dart';
 import '../player/podcast_audio_handler.dart';
+import 'books/book_player_screen.dart';
+import 'books/book_start.dart';
 import 'now_playing.dart';
 import 'player_screen.dart';
 import 'podcast_cover.dart';
@@ -12,8 +14,8 @@ import 'theme.dart';
 import 'menu.dart';
 import 'marquee.dart';
 
-void _openPlayer(BuildContext context) =>
-    Navigator.of(context, rootNavigator: true).push(PlayerScreen.route());
+void _openPlayer(BuildContext context, NowPlaying now) => Navigator.of(context, rootNavigator: true)
+    .push(now.bookId != null ? BookPlayerScreen.route() : PlayerScreen.route());
 
 /// Мини-плеер телефона на матовом стекле поверх списка. Нажатие открывает плеер.
 class MiniPlayer extends StatelessWidget {
@@ -34,7 +36,7 @@ class MiniPlayer extends StatelessWidget {
             Material(
               type: MaterialType.transparency,
               child: InkWell(
-                onTap: () => _openPlayer(context),
+                onTap: () => _openPlayer(context, now),
                 child: Padding(
                   padding: const EdgeInsets.all(8),
                   child: Row(children: [
@@ -90,7 +92,7 @@ class DesktopPlayerBar extends StatelessWidget {
                   flex: 3,
                   child: InkWell(
                     borderRadius: BorderRadius.circular(12),
-                    onTap: () => _openPlayer(context),
+                    onTap: () => _openPlayer(context, now),
                     child: Padding(
                       padding: const EdgeInsets.all(4),
                       child: Row(children: [
@@ -126,12 +128,20 @@ class DesktopPlayerBar extends StatelessWidget {
                   child: Row(mainAxisAlignment: MainAxisAlignment.end, children: [
                     _SpeedButton(audio: audio, color: c.ink),
                     const SizedBox(width: 4),
-                    RoundIconButton(
-                      icon: BcIcons.queue,
-                      tooltip: 'Очередь воспроизведения',
-                      size: 40,
-                      onPressed: () => AppShell.openQueue(context),
-                    ),
+                    if (now.bookId != null)
+                      RoundIconButton(
+                        icon: BcIcons.chapters,
+                        tooltip: 'Главы и плеер книги',
+                        size: 40,
+                        onPressed: () => _openPlayer(context, now),
+                      )
+                    else
+                      RoundIconButton(
+                        icon: BcIcons.queue,
+                        tooltip: 'Очередь воспроизведения',
+                        size: 40,
+                        onPressed: () => AppShell.openQueue(context),
+                      ),
                   ]),
                 ),
               ]),
@@ -195,7 +205,8 @@ class _PlayPause extends StatelessWidget {
       style: RoundStyle.accent,
       size: size,
       iconSize: size * 0.55,
-      onPressed: now.playing ? audio.pause : audio.play,
+      // Книгу после паузы — со сверкой места на других устройствах.
+      onPressed: now.playing ? audio.pause : (now.bookId != null ? () => resumeAudioBook(context) : audio.play),
     );
   }
 }

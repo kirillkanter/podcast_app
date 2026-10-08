@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import 'cover_image.dart';
@@ -15,10 +17,12 @@ int decodeWidth(double pixels) {
 /// Обложка подкаста или эпизода с заглушкой, если картинки нет
 /// или она не загрузилась.
 class PodcastCover extends StatelessWidget {
-  const PodcastCover({super.key, required this.url, this.size = 56});
+  const PodcastCover({super.key, required this.url, this.size = 56, this.placeholderIcon = Icons.podcasts});
 
+  /// Адрес картинки или `file://` — файл на устройстве (обложки книг).
   final String? url;
   final double size;
+  final IconData placeholderIcon;
 
   @override
   Widget build(BuildContext context) {
@@ -28,7 +32,7 @@ class PodcastCover extends StatelessWidget {
       height: size,
       color: scheme.surfaceContainerHighest,
       alignment: Alignment.center,
-      child: Icon(Icons.podcasts, size: size * 0.5, color: scheme.onSurfaceVariant),
+      child: Icon(placeholderIcon, size: size * 0.5, color: scheme.onSurfaceVariant),
     );
 
     final imageUrl = url;
@@ -43,7 +47,9 @@ class PodcastCover extends StatelessWidget {
                 // лесенкой. Запас вдвое дальше сглаживает видеокарта.
                 decodeWidth(size * MediaQuery.devicePixelRatioOf(context)),
                 null,
-                CachedCoverImage(imageUrl),
+                imageUrl.startsWith('file:')
+                    ? FileImage(File(Uri.parse(imageUrl).toFilePath())) as ImageProvider<Object>
+                    : CachedCoverImage(imageUrl),
               ),
               width: size,
               height: size,

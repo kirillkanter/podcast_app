@@ -42,7 +42,11 @@ void main() {
       final first = make(() => http.Response.bytes(utf8.encode(_chart('Свежий')), 200));
       expect((await first.chart(genreId: 1533)).single.title, 'Свежий');
       expect(requests, 1);
-      // Запись на диск идёт в фоне.
+      // Запись на диск идёт в фоне: ждём, пока файл появится (на медленной
+      // машине сборки 50 мс бывает мало).
+      for (var i = 0; i < 100 && dir.listSync().whereType<File>().where((f) => f.path.endsWith('.json')).isEmpty; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
       await Future<void>.delayed(const Duration(milliseconds: 50));
 
       // «Перезапуск»: новый каталог, сеть не нужна.

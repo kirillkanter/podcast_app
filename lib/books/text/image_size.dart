@@ -72,7 +72,7 @@ import 'text_book.dart';
 
   var w = dim('width');
   var h = dim('height');
-  final vb = RegExp(r'viewBox\s*=\s*["\']\s*[-0-9.]+[\s,]+[-0-9.]+[\s,]+([0-9.]+)[\s,]+([0-9.]+)').firstMatch(tag);
+  final vb = RegExp('viewBox\\s*=\\s*["\']\\s*[-0-9.]+[\\s,]+[-0-9.]+[\\s,]+([0-9.]+)[\\s,]+([0-9.]+)').firstMatch(tag);
   if ((w == null || h == null) && vb != null) {
     final vw = double.tryParse(vb.group(1)!);
     final vh = double.tryParse(vb.group(2)!);

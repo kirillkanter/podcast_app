@@ -15,6 +15,7 @@ Future<void> showCoverPicker(BuildContext context, {required BookLibrary library
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
+      useRootNavigator: true,
       builder: (context) => DraggableScrollableSheet(
         expand: false,
         initialChildSize: 0.8,

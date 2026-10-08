@@ -74,9 +74,11 @@ class ReaderStyleSheet extends StatelessWidget {
               child: _StyleButton(
                 selected: style.paper == null,
                 onTap: () => onChanged(style.copyWith(autoPaper: true)),
-                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                // Как тема приложения: значок «половина тёмная, половина светлая».
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(Icons.brightness_6_outlined, size: 18, color: c.text),
+                  const SizedBox(width: 6),
                   Text('Авто', style: TextStyle(fontSize: 14, color: c.text)),
-                  Text('как приложение', style: TextStyle(fontSize: 11, color: c.muted)),
                 ]),
               ),
             ),

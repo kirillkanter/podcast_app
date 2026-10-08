@@ -88,6 +88,8 @@ Future<void> showReadingStats(BuildContext context) {
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
+    // Поверх мини-плеера и нижнего меню, а не под ними.
+    useRootNavigator: true,
     builder: (context) => StreamBuilder<List<DayStat>>(
       stream: stream,
       builder: (context, snap) {
@@ -121,7 +123,7 @@ Future<void> showReadingStats(BuildContext context) {
               ),
             );
         return SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
+          padding: EdgeInsets.fromLTRB(20, 8, 20, 28 + MediaQuery.paddingOf(context).bottom),
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             Center(
               child: Container(

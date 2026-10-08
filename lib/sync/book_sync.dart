@@ -226,8 +226,23 @@ class BookSync {
     });
   }
 
+  /// Обложка выбрана вручную или найдена в каталоге (у таких в имени файла
+  /// время), а не взята из самого файла книги.
+  static final _customCover = RegExp(r'-\d{13}\.(png|jpg)$');
+
   Future<void> syncCoversWith(GpodderClient client) async {
-    final pending = (await _db.setting(_coversPending) ?? '').split('\n').where((s) => s.isNotEmpty).toList();
+    var remote = await client.covers();
+    // Обложки, выбранные до появления синхронизации обложек: отправляем,
+    // если на сервере для этой книги ещё ничего нет (чужую не затираем).
+    final pendingSet = (await _db.setting(_coversPending) ?? '').split('\n').where((s) => s.isNotEmpty).toSet();
+    for (final book in await _db.allBooks()) {
+      final path = book.coverPath;
+      if (path == null || !_customCover.hasMatch(path) || remote.containsKey(book.key)) continue;
+      if ((await _db.setting(_coverApplied(book.key)) ?? '').isNotEmpty) continue;
+      pendingSet.add(book.key);
+    }
+    await _db.setSetting(_coversPending, pendingSet.join('\n'));
+    final pending = pendingSet.toList();
     for (final key in pending) {
       final book = await _db.bookByKey(key);
       final path = book?.coverPath;
@@ -240,7 +255,8 @@ class BookSync {
     }
     final save = saveCover;
     if (save == null) return;
-    for (final MapEntry(key: key, value: changed) in (await client.covers()).entries) {
+    if (pending.isNotEmpty) remote = await client.covers();
+    for (final MapEntry(key: key, value: changed) in remote.entries) {
       final applied = int.tryParse(await _db.setting(_coverApplied(key)) ?? '') ?? 0;
       if (changed <= applied) continue;
       final book = await _db.bookByKey(key);

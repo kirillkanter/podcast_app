@@ -92,6 +92,8 @@ extension BooksDao on AppDatabase {
         );
   }
 
+  Future<List<Book>> allBooks() => select(books).get();
+
   Future<Book?> bookById(int id) => (select(books)..where((b) => b.id.equals(id))).getSingleOrNull();
 
   Future<Book?> bookByKey(String key) => (select(books)..where((b) => b.key.equals(key))).getSingleOrNull();

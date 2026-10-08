@@ -224,6 +224,26 @@ void main() {
       expect(book.chapters.map((c) => c.title), ['Chapter One', 'Chapter Two']);
     });
 
+    test('FB2: обложка и титул с картинкой — в начале книги', () {
+      const fb2 = '''<?xml version="1.0" encoding="utf-8"?>
+<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:l="http://www.w3.org/1999/xlink">
+<description><title-info><book-title>Пир</book-title><coverpage><image l:href="#cover.png"/></coverpage></title-info></description>
+<body>
+  <title><p>Автор</p><p>Пир</p></title>
+  <section><empty-line/><image l:href="#title.png"/><empty-line/></section>
+  <section><title><p>ПРОЛОГ</p></title><p>Начало.</p></section>
+</body>
+<binary id="title.png" content-type="image/png">PNG</binary>
+<binary id="cover.png" content-type="image/png">PNG</binary>
+</FictionBook>''';
+      final book = parseTextBook(Uint8List.fromList(utf8.encode(fb2.replaceAll('PNG', 'iVBORw0KGgoAAAANSUhEUgAAAZAAAAEsCAIAAABi1XKV'))), 'fb2', fallbackTitle: 'x');
+      final first = book.chapters.first.blocks;
+      expect(first.first.kind, TextBlockKind.image, reason: 'обложка — самое начало');
+      expect(first.where((b) => b.kind == TextBlockKind.heading).map((b) => b.text), ['Автор', 'Пир']);
+      expect(first.where((b) => b.kind == TextBlockKind.image).map((b) => b.image), ['cover.png', 'title.png']);
+      expect(book.chapters.map((c) => c.title), ['Автор', 'ПРОЛОГ']);
+    });
+
     test('FB2: картинка из binary', () {
       final book = parseTextBook(Uint8List.fromList(cp1251(fb2Sample)), 'fb2', fallbackTitle: 'файл');
       final img = book.chapters[1].blocks.singleWhere((b) => b.kind == TextBlockKind.image);

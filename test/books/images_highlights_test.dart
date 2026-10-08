@@ -33,6 +33,16 @@ void main() {
       expect(imageSize(Uint8List.fromList(List.filled(40, 7))), isNull);
     });
 
+    test('SVG: размер из width/height или viewBox', () {
+      Uint8List svg(String attrs) => Uint8List.fromList('<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg" $attrs><path d="M0 0"/></svg>'.codeUnits);
+      expect(bookImageFrom(svg('width="300px" height="40"'))?.width, 300);
+      final vb = bookImageFrom(svg('viewBox="0 0 120 30"'))!;
+      expect((vb.width, vb.height, vb.svg), (120, 30, true));
+      final half = bookImageFrom(svg('width="60" viewBox="0 0 120 30"'))!;
+      expect((half.width, half.height), (60, 15));
+      expect(bookImageFrom(svg('')), isNull);
+    });
+
     test('картинка вписывается в страницу и не растягивается', () {
       final empty = Uint8List(0);
       final big = BookImage(empty, 2000, 1000);

@@ -12,6 +12,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../../books/locator.dart';
 import '../../../books/text/text_book.dart';
@@ -411,7 +412,77 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   /// Номер страницы места [l] в главе (с единицы) при текущей разбивке.
   int _pageNumber(TextLocator l) {
     if (l.chapter >= _content.chapters.length) return 1;
-    return pageOf(_pagesOf(l.chapter), l.block, l.offset) + 1;
+    return _globalPage(l.chapter, pageOf(_pagesOf(l.chapter), l.block, l.offset));
+  }
+
+  // -------------------------------------------------------------------------
+  // Сквозные номера страниц по всей книге
+  // -------------------------------------------------------------------------
+
+  /// Страниц в каждой главе при текущей разбивке. Считается в фоне после
+  /// открытия книги и смены шрифта; пока не досчитано — оценка по числу знаков.
+  final _counts = <int, int>{};
+  String? _countsKey;
+
+  int _countOf(int chapter) {
+    final known = _counts[chapter] ?? _cache[_cacheKey(chapter)]?.length;
+    if (known != null) return known;
+    // Оценка: сколько знаков в среднем на странице в уже посчитанных главах.
+    var chars = 0;
+    var pages = 0;
+    _counts.forEach((ch, n) {
+      chars += _content.chapters[ch].length;
+      pages += n;
+    });
+    if (pages == 0) {
+      final current = _pagesOf(_chapter).length;
+      chars = math.max(1, _chapterText.length);
+      pages = current;
+    }
+    final perPage = math.max(1.0, chars / math.max(1, pages));
+    return math.max(1, (_content.chapters[chapter].length / perPage).ceil());
+  }
+
+  /// Номер страницы [page] главы [chapter] от начала книги (с единицы).
+  int _globalPage(int chapter, int page) {
+    var n = 0;
+    for (var c = 0; c < chapter; c++) {
+      n += _countOf(c);
+    }
+    return n + page + 1;
+  }
+
+  int get _totalPages {
+    var n = 0;
+    for (var c = 0; c < _content.chapters.length; c++) {
+      n += _countOf(c);
+    }
+    return n;
+  }
+
+  /// Посчитать страницы всех глав — по главе за раз, не мешая листать.
+  void _countPagesLater(String key) {
+    if (_countsKey == key) return;
+    _countsKey = key;
+    _counts.clear();
+    unawaited(() async {
+      for (var c = 0; c < _content.chapters.length; c++) {
+        await Future<void>.delayed(const Duration(milliseconds: 16));
+        if (!mounted || _countsKey != key) return;
+        final cached = _cache[_cacheKey(c)];
+        _counts[c] = cached?.length ??
+            paginateChapter(
+              _content.chapters[c],
+              width: _pageWidth,
+              height: _pageHeight,
+              base: _baseStyle,
+              scaler: _scaler,
+              justify: _style.justify,
+              images: _content.images,
+            ).length;
+      }
+      if (mounted && _countsKey == key) setState(() {});
+    }());
   }
 
   // -------------------------------------------------------------------------
@@ -692,6 +763,41 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     }
     final sel = _selection;
     if (sel == null || sel.isEmpty) return null;
+    // Выделили поверх существующих заметок — объединяем в одну, а не
+    // создаём вторую поверх первой.
+    var from = sel.start;
+    var to = sel.end;
+    final overlapping = <BookHighlight>[];
+    for (final h in _highlights) {
+      final a = TextLocator.parse(h.startAt);
+      final b = TextLocator.parse(h.endAt);
+      if (a == null || b == null || a.chapter != _chapter) continue;
+      final hs = ChapterPos(a.block, a.offset);
+      final he = ChapterPos(b.block, b.offset);
+      if (he < from || to < hs || he == from || to == hs) continue;
+      overlapping.add(h);
+      if (hs < from) from = hs;
+      if (to < he) to = he;
+    }
+    if (overlapping.isNotEmpty) {
+      final keep = overlapping.first;
+      final merged = TextSelectionRange(from, to);
+      final quote = selectedText(_chapterText, merged);
+      await _db.updateHighlightRange(
+        keep.id,
+        start: TextLocator(_chapter, from.block, from.offset).encode(),
+        end: TextLocator(_chapter, to.block, to.offset).encode(),
+        quote: quote.length > 2000 ? '${quote.substring(0, 2000)}…' : quote,
+        color: color,
+        note: overlapping.map((h) => h.note).where((n) => n.isNotEmpty).join('\n\n'),
+      );
+      for (final h in overlapping.skip(1)) {
+        await _db.deleteHighlight(h.id);
+      }
+      _bookSync?.highlightsChanged();
+      if (mounted) setState(_clearSelection);
+      return _db.highlightById(keep.id);
+    }
     final quote = _selectedText;
     final id = await _db.addHighlight(
       widget.book.key,
@@ -1020,6 +1126,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
         value: _overlayStyle(paper),
         child: Scaffold(
           backgroundColor: paper.bg,
+          // Клавиатура (заметка, поиск) не сжимает страницу: иначе текст
+          // перестраивается под ней.
+          resizeToAvoidBottomInset: false,
           body: !_ready
               ? const SizedBox.shrink()
               : Focus(
@@ -1146,6 +1255,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     }
     final pages = _pagesOf(_chapter);
     _page = _page.clamp(0, pages.length - 1);
+    _countPagesLater(sizeKey);
 
     final cornerMarked = _bookmarksOn(_cornerPage).isNotEmpty;
     final c = BcColors.of(context);
@@ -1269,9 +1379,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
 
   String _returnLabel(TextLocator l) {
     if (l.chapter >= _content.chapters.length) return 'Вернуться';
-    final n = _pageNumber(l);
-    return l.chapter == _chapter ? 'Вернуться на стр. $n' : 'Вернуться: ${_content.chapters[l.chapter].title}, стр. $n';
+    return 'Вернуться на стр. ${_pageNumber(l)}';
   }
+
 
   void _goBack() {
     final to = _returnTo;
@@ -1316,9 +1426,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   Widget _statusBottom(int chapter, int page, Paper paper) {
     final pages = _pagesOf(chapter);
     final faint = TextStyle(fontSize: 12, color: paper.faint, fontFamily: bodyFont);
-    final label = _spread && page + 1 < pages.length
-        ? 'стр. ${page + 1}–${page + 2} из ${pages.length}'
-        : 'стр. ${page + 1} из ${pages.length}';
+    final g = _globalPage(chapter, page);
+    final label = _spread && page + 1 < pages.length ? 'стр. $g–${g + 1} из $_totalPages' : 'стр. $g из $_totalPages';
     final minutes = (_charsLeft(chapter, page) / _charsPerMinute).ceil();
     return SizedBox(
       height: _statusH,
@@ -1576,9 +1685,16 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
           initialChildSize: 0.65,
           maxChildSize: 0.95,
           builder: (context, controller) => Column(children: [
+            // Числа обновляются сразу, когда что-то удалили.
             TabBar(tabs: [
-              Tab(text: 'Закладки · ${_bookmarks.length}'),
-              Tab(text: 'Выделения · ${_highlights.length}'),
+              StreamBuilder<List<BookBookmark>>(
+                stream: db.watchBookmarks(widget.book.id),
+                builder: (context, snap) => Tab(text: 'Закладки · ${(snap.data ?? _bookmarks).length}'),
+              ),
+              StreamBuilder<List<BookHighlight>>(
+                stream: db.watchHighlights(widget.book.key),
+                builder: (context, snap) => Tab(text: 'Заметки · ${(snap.data ?? _highlights).length}'),
+              ),
             ]),
             Expanded(
               child: TabBarView(children: [
@@ -1757,6 +1873,13 @@ class _ReturnPill extends StatelessWidget {
 }
 
 extension on _PageView {
+  /// Узоры в SVG обычно чёрные: на тёмном фоне красим их цветом текста.
+  ColorFilter? _svgTint(BookImage img) {
+    final ink = base.color;
+    if (ink == null || ink.computeLuminance() < 0.5) return null;
+    return ColorFilter.mode(ink, BlendMode.srcIn);
+  }
+
   /// Картинка по центру, с отступами; размер — как при разбивке на страницы.
   Widget _imageItem(BuildContext context, TextBlock block, {required bool first, Key? key}) {
     final img = images[block.image];
@@ -1770,14 +1893,16 @@ extension on _PageView {
         child: SizedBox.fromSize(
           key: key,
           size: size,
-          child: Image.memory(
-            img.bytes,
-            fit: BoxFit.contain,
-            // Декодируем под размер на экране, а не исходный — меньше памяти.
-            cacheWidth: math.min(img.width, (size.width * dpr).round()),
-            gaplessPlayback: true,
-            errorBuilder: (_, _, _) => const SizedBox.shrink(),
-          ),
+          child: img.svg
+              ? SvgPicture.memory(img.bytes, fit: BoxFit.contain, colorFilter: _svgTint(img))
+              : Image.memory(
+                  img.bytes,
+                  fit: BoxFit.contain,
+                  // Декодируем под размер на экране, а не исходный — меньше памяти.
+                  cacheWidth: math.min(img.width, (size.width * dpr).round()),
+                  gaplessPlayback: true,
+                  errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                ),
         ),
       ),
     );
@@ -1798,7 +1923,11 @@ class _ImageViewer extends StatelessWidget {
         Positioned.fill(
           child: InteractiveViewer(
             maxScale: 6,
-            child: Center(child: Image.memory(image.bytes, fit: BoxFit.contain, gaplessPlayback: true)),
+            child: Center(
+              child: image.svg
+                  ? ColoredBox(color: Colors.white, child: SvgPicture.memory(image.bytes, fit: BoxFit.contain))
+                  : Image.memory(image.bytes, fit: BoxFit.contain, gaplessPlayback: true),
+            ),
           ),
         ),
         SafeArea(
@@ -1955,7 +2084,7 @@ class _SelectionToolbar extends StatelessWidget {
             Container(width: 1, height: 22, margin: const EdgeInsets.symmetric(horizontal: 6), color: c.divider),
             round(Icon(hasNote ? Icons.sticky_note_2 : Icons.sticky_note_2_outlined, size: 21, color: c.text),
                 hasNote ? 'Изменить заметку' : 'Заметка', onNote),
-            if (onDelete != null) round(Icon(Icons.delete_outline_rounded, size: 21, color: c.text), 'Убрать выделение', onDelete!),
+            if (onDelete != null) round(Icon(Icons.delete_outline_rounded, size: 21, color: c.text), 'Удалить заметку', onDelete!),
           ]),
           const SizedBox(height: 4),
           Row(mainAxisSize: MainAxisSize.min, children: [
@@ -2109,9 +2238,13 @@ class _MenuBookView implements MenuBook {
   int pagesInChapter(int chapter) => s._pagesOf(chapter).length;
 
   @override
+  int get totalPages => s._totalPages;
+
+  @override
   String pageNumbers(int chapter, int sheet) {
-    final a = _first(chapter, sheet) + 1;
-    return step == 2 && a < pagesInChapter(chapter) ? '$a–${a + 1}' : '$a';
+    final first = _first(chapter, sheet);
+    final a = s._globalPage(chapter, first);
+    return step == 2 && first + 1 < pagesInChapter(chapter) ? '$a–${a + 1}' : '$a';
   }
 
   @override

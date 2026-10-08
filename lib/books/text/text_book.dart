@@ -29,11 +29,14 @@ enum TextBlockKind {
 
 /// Картинка книги и её размер в пикселях (из заголовка файла).
 class BookImage {
-  const BookImage(this.bytes, this.width, this.height);
+  const BookImage(this.bytes, this.width, this.height, {this.svg = false});
 
   final Uint8List bytes;
   final int width;
   final int height;
+
+  /// Векторная картинка (SVG): рисуется иначе, чем растровая.
+  final bool svg;
 }
 
 class TextRun {

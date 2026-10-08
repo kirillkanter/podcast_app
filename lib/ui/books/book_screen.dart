@@ -230,7 +230,7 @@ class _BookScreenState extends State<BookScreen> {
                   scrollDirection: Axis.horizontal,
                   padding: const EdgeInsets.symmetric(horizontal: 20),
                   child: Row(children: [
-                    for (final (i, label) in [audio ? 'Главы' : 'Оглавление', 'Закладки', if (!audio) 'Выделения', 'О книге'].indexed) ...[
+                    for (final (i, label) in [audio ? 'Главы' : 'Оглавление', 'Закладки', if (!audio) 'Заметки', 'О книге'].indexed) ...[
                       _TabButton(label: label, selected: _tab == i, onTap: () => setState(() => _tab = i)),
                       const SizedBox(width: 22),
                     ],

@@ -389,6 +389,25 @@ extension BooksDao on AppDatabase {
         dirty: const Value(true),
       ));
 
+  /// Новые границы (объединение с соседним выделением).
+  Future<void> updateHighlightRange(
+    int id, {
+    required String start,
+    required String end,
+    required String quote,
+    required int color,
+    required String note,
+  }) =>
+      (update(bookHighlights)..where((h) => h.id.equals(id))).write(BookHighlightsCompanion(
+        startAt: Value(start),
+        endAt: Value(end),
+        quote: Value(quote),
+        color: Value(color),
+        note: Value(note),
+        updatedAt: Value(DateTime.now()),
+        dirty: const Value(true),
+      ));
+
   /// Удалить везде: запись остаётся с пометкой, пока удаление не уйдёт на сервер.
   Future<void> deleteHighlight(int id) =>
       (update(bookHighlights)..where((h) => h.id.equals(id))).write(BookHighlightsCompanion(

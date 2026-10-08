@@ -29,7 +29,10 @@ abstract class MenuBook {
   /// Страниц в главе.
   int pagesInChapter(int chapter);
 
-  /// Номера страниц листа: «31» или «31–32».
+  /// Страниц во всей книге.
+  int get totalPages;
+
+  /// Сквозные номера страниц листа: «231» или «231–232».
   String pageNumbers(int chapter, int sheet);
   String chapterTitle(int chapter);
 
@@ -267,7 +270,7 @@ class ReaderMenuState extends State<ReaderMenu> with SingleTickerProviderStateMi
                 maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
             Text(
               compact
-                  ? '${widget.book.chapterTitle(shown.chapter)} · стр. ${widget.book.pageNumbers(shown.chapter, shown.page)} из ${widget.book.pagesInChapter(shown.chapter)}'
+                  ? '${widget.book.chapterTitle(shown.chapter)} · стр. ${widget.book.pageNumbers(shown.chapter, shown.page)} из ${widget.book.totalPages}'
                   : (widget.author ?? ''),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
@@ -296,7 +299,7 @@ class ReaderMenuState extends State<ReaderMenu> with SingleTickerProviderStateMi
               maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
         ),
         Text(
-            'стр. ${widget.book.pageNumbers(shown.chapter, shown.page)} из ${widget.book.pagesInChapter(shown.chapter)} · ${(percent * 100).floor()} %',
+            'стр. ${widget.book.pageNumbers(shown.chapter, shown.page)} из ${widget.book.totalPages} · ${(percent * 100).floor()} %',
             style: TextStyle(fontSize: 12, color: c.muted, fontFeatures: const [FontFeature.tabularFigures()])),
       ]),
     );

@@ -56,8 +56,8 @@ Future<String?> showHighlightNoteDialog(BuildContext context, {required String q
   );
 }
 
-/// Список выделений книги: цвет, цитата, заметка, где и когда.
-class HighlightsList extends StatelessWidget {
+/// Список заметок книги: цвет, цитата, заметка, где и когда; фильтр по цвету.
+class HighlightsList extends StatefulWidget {
   const HighlightsList({super.key, required this.db, required this.bookKey, required this.onOpen, this.place});
 
   final AppDatabase db;
@@ -68,28 +68,85 @@ class HighlightsList extends StatelessWidget {
   final String? Function(BookHighlight h)? place;
 
   @override
+  State<HighlightsList> createState() => _HighlightsListState();
+}
+
+class _HighlightsListState extends State<HighlightsList> {
+  /// Показывать только этот цвет; `null` — все.
+  int? _color;
+  late Stream<List<BookHighlight>> _stream = widget.db.watchHighlights(widget.bookKey);
+
+  @override
+  void didUpdateWidget(HighlightsList old) {
+    super.didUpdateWidget(old);
+    if (old.bookKey != widget.bookKey) _stream = widget.db.watchHighlights(widget.bookKey);
+  }
+
+  @override
   Widget build(BuildContext context) {
     final c = BcColors.of(context);
+    final db = widget.db;
+    final place = widget.place;
+    final onOpen = widget.onOpen;
     return StreamBuilder<List<BookHighlight>>(
-      stream: db.watchHighlights(bookKey),
+      stream: _stream,
       builder: (context, snap) {
-        final list = [...?snap.data]..sort((a, b) {
+        final all = snap.data ?? const <BookHighlight>[];
+        final list = [...all.where((h) => _color == null || h.color == _color)]..sort((a, b) {
             final x = TextLocator.parse(a.startAt);
             final y = TextLocator.parse(b.startAt);
             if (x == null || y == null) return 0;
             return x.compareTo(y);
           });
+        final filter = all.isEmpty
+            ? const SizedBox.shrink()
+            : SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
+                child: Row(children: [
+                  ChoiceChip(
+                    label: Text('Все · ${all.length}'),
+                    selected: _color == null,
+                    onSelected: (_) => setState(() => _color = null),
+                  ),
+                  for (var i = 0; i < highlightColors.length; i++)
+                    if (all.any((h) => h.color == i)) ...[
+                      const SizedBox(width: 8),
+                      ChoiceChip(
+                        avatar: Container(
+                          width: 14,
+                          height: 14,
+                          decoration: BoxDecoration(color: highlightColors[i], shape: BoxShape.circle),
+                        ),
+                        label: Text('${all.where((h) => h.color == i).length}'),
+                        selected: _color == i,
+                        onSelected: (on) => setState(() => _color = on ? i : null),
+                      ),
+                    ],
+                ]),
+              );
+        if (list.isEmpty && all.isNotEmpty) {
+          return Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            filter,
+            Padding(
+              padding: const EdgeInsets.all(24),
+              child: Text('Заметок этого цвета нет.', style: TextStyle(color: c.muted)),
+            ),
+          ]);
+        }
         if (list.isEmpty) {
           return Padding(
             padding: const EdgeInsets.all(24),
             child: Text(
-              'Выделений пока нет. Выделите текст долгим нажатием и выберите цвет; '
-              'к выделению можно добавить заметку.',
+              'Заметок пока нет. Выделите текст долгим нажатием и выберите цвет, '
+              'а если нужно — допишите свою мысль.',
               style: TextStyle(color: c.muted, height: 1.4),
             ),
           );
         }
-        return ListView.separated(
+        return Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          filter,
+          ListView.separated(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           itemCount: list.length,
@@ -145,14 +202,15 @@ class HighlightsList extends StatelessWidget {
                     },
                     itemBuilder: (_) => [
                       PopupMenuItem(value: 'note', child: Text(h.note.isEmpty ? 'Добавить заметку' : 'Изменить заметку')),
-                      const PopupMenuItem(value: 'delete', child: Text('Удалить выделение')),
+                      const PopupMenuItem(value: 'delete', child: Text('Удалить заметку')),
                     ],
                   ),
                 ]),
               ),
             );
           },
-        );
+        ),
+        ]);
       },
     );
   }

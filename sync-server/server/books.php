@@ -129,7 +129,71 @@ function books_install(DB $db): void
 		rev INTEGER NOT NULL,
 		PRIMARY KEY (user, uid)
 	);
-	CREATE INDEX IF NOT EXISTS bcaster_highlights_rev ON bcaster_highlights (user, rev);');
+	CREATE INDEX IF NOT EXISTS bcaster_highlights_rev ON bcaster_highlights (user, rev);
+	CREATE TABLE IF NOT EXISTS bcaster_covers (
+		user INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+		id TEXT NOT NULL,
+		changed INTEGER NOT NULL,
+		PRIMARY KEY (user, id)
+	);');
+}
+
+/** Своя обложка книги (выбранная вручную) — одна на книгу, до 5 МБ. */
+const BOOKS_MAX_COVER = 5 * 1024 * 1024;
+
+function books_cover_file(int $user, string $id): string
+{
+	return DATA_ROOT . '/covers/' . $user . '/' . str_replace(':', '_', $id) . '.img';
+}
+
+/** Загрузить свою обложку: тело запроса — картинка. */
+function books_cover_put(DB $db, int $user, string $id): void
+{
+	if (!books_valid_key($id)) {
+		books_reply(400, ['message' => 'Bad book id']);
+	}
+
+	$data = file_get_contents('php://input', false, null, 0, BOOKS_MAX_COVER + 1);
+
+	if ($data === false || strlen($data) < 64 || strlen($data) > BOOKS_MAX_COVER) {
+		books_reply(413, ['message' => 'Cover must be 64 bytes to 5 MB']);
+	}
+
+	$jpeg = substr($data, 0, 2) === "\xFF\xD8";
+	$png = substr($data, 0, 4) === "\x89PNG";
+	$webp = substr($data, 0, 4) === 'RIFF' && substr($data, 8, 4) === 'WEBP';
+
+	if (!$jpeg && !$png && !$webp) {
+		books_reply(415, ['message' => 'Expected JPEG, PNG or WebP']);
+	}
+
+	$path = books_cover_file($user, $id);
+	$dir = dirname($path);
+	if (!is_dir($dir) && !mkdir($dir, 0700, true) && !is_dir($dir)) {
+		throw new \RuntimeException('Cannot create ' . $dir);
+	}
+
+	file_put_contents($path . '.tmp', $data);
+	rename($path . '.tmp', $path);
+	$changed = (int) (microtime(true) * 1000);
+	$db->simple('INSERT OR REPLACE INTO bcaster_covers (user, id, changed) VALUES (?, ?, ?);', $user, $id, $changed);
+	books_reply(200, ['changed' => $changed]);
+}
+
+function books_cover_get(int $user, string $id): void
+{
+	$path = books_cover_file($user, $id);
+
+	if (!books_valid_key($id) || !is_file($path)) {
+		books_reply(404, ['message' => 'Cover not found']);
+	}
+
+	http_response_code(200);
+	header('Content-Type: application/octet-stream');
+	header('Content-Length: ' . filesize($path));
+	header('Cache-Control: no-store');
+	readfile($path);
+	exit;
 }
 
 /**
@@ -330,6 +394,18 @@ function books_get(DB $db, int $user): void
 
 	if (isset($_GET['download'])) {
 		books_download($db, $user, (string) $_GET['download']);
+	}
+
+	if (isset($_GET['cover'])) {
+		books_cover_get($user, (string) $_GET['cover']);
+	}
+
+	if (isset($_GET['covers'])) {
+		$covers = [];
+		foreach ($db->iterate('SELECT id, changed FROM bcaster_covers WHERE user = ?;', $user) as $row) {
+			$covers[] = ['id' => $row->id, 'changed' => (int) $row->changed];
+		}
+		books_reply(200, ['covers' => $covers]);
 	}
 
 	if (isset($_GET['dict'])) {
@@ -642,6 +718,9 @@ try {
 			}
 			elseif (isset($_GET['highlights'])) {
 				books_highlights($db, $user);
+			}
+			elseif (isset($_GET['cover'])) {
+				books_cover_put($db, $user, (string) $_GET['cover']);
 			}
 			books_post($db, $user);
 			break;

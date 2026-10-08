@@ -2,7 +2,10 @@
 /// декодирования: нужен для разбивки на страницы.
 library;
 
+import 'dart:convert';
 import 'dart:typed_data';
+
+import 'text_book.dart';
 
 ({int width, int height})? imageSize(Uint8List b) {
   int be16(int i) => (b[i] << 8) | b[i + 1];
@@ -55,4 +58,45 @@ import 'dart:typed_data';
     }
   }
   return null;
+}
+
+/// Размер SVG по атрибутам width/height или viewBox корневого тега.
+({int width, int height})? svgSize(Uint8List b) {
+  final head = utf8.decode(b.length > 4000 ? b.sublist(0, 4000) : b, allowMalformed: true);
+  final tag = RegExp(r'<svg\b[^>]*>', caseSensitive: false).firstMatch(head)?.group(0);
+  if (tag == null) return null;
+  double? dim(String name) {
+    final m = RegExp('\\b$name\\s*=\\s*["\']\\s*([0-9.]+)\\s*(px)?\\s*["\']').firstMatch(tag);
+    return m == null ? null : double.tryParse(m.group(1)!);
+  }
+
+  var w = dim('width');
+  var h = dim('height');
+  final vb = RegExp(r'viewBox\s*=\s*["\']\s*[-0-9.]+[\s,]+[-0-9.]+[\s,]+([0-9.]+)[\s,]+([0-9.]+)').firstMatch(tag);
+  if ((w == null || h == null) && vb != null) {
+    final vw = double.tryParse(vb.group(1)!);
+    final vh = double.tryParse(vb.group(2)!);
+    if (vw != null && vh != null && vw > 0 && vh > 0) {
+      if (w != null) {
+        h = w * vh / vw;
+      } else if (h != null) {
+        w = h * vw / vh;
+      } else {
+        w = vw;
+        h = vh;
+      }
+    }
+  }
+  if (w == null || h == null || w < 1 || h < 1) return null;
+  return (width: w.round(), height: h.round());
+}
+
+/// Картинка книги из байтов: растровая или SVG; `null` — не картинка.
+BookImage? bookImageFrom(Uint8List bytes) {
+  final raster = imageSize(bytes);
+  if (raster != null) {
+    return raster.width < 1 || raster.height < 1 ? null : BookImage(bytes, raster.width, raster.height);
+  }
+  final svg = svgSize(bytes);
+  return svg == null ? null : BookImage(bytes, svg.width, svg.height, svg: true);
 }

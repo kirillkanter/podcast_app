@@ -342,6 +342,64 @@ class GpodderClient {
     }
   }
 
+  /// Загрузить свою обложку книги [key]. Возвращает время изменения на сервере.
+  Future<int> uploadCover(String key, List<int> bytes) async {
+    final uri = Uri.parse('$baseUrl/books.php').replace(queryParameters: {'cover': key});
+    final request = http.Request('POST', uri)
+      ..headers['authorization'] = _auth
+      ..headers['accept'] = 'application/json'
+      ..headers['content-type'] = 'application/octet-stream'
+      ..headers['user-agent'] = _userAgent
+      ..bodyBytes = bytes;
+    final http.Response response;
+    try {
+      response = await http.Response.fromStream(await _client.send(request).timeout(const Duration(minutes: 1)));
+    } on TimeoutException {
+      throw const SyncException('Сервер синхронизации не ответил вовремя.');
+    } on SocketException {
+      throw const SyncException('Нет соединения с сервером синхронизации.');
+    } on http.ClientException catch (e) {
+      throw SyncException('Ошибка соединения: ${e.message}');
+    }
+    _check(response);
+    final data = jsonDecode(utf8.decode(response.bodyBytes));
+    return data is Map && data['changed'] is num ? (data['changed'] as num).toInt() : 0;
+  }
+
+  /// Свои обложки на сервере: ключ книги → время изменения.
+  Future<Map<String, int>> covers() async {
+    final data = await _send('GET', '/books.php', query: {'covers': '1'});
+    final list = data is Map<String, Object?> ? data['covers'] : null;
+    return {
+      if (list is List)
+        for (final c in list.whereType<Map<String, Object?>>())
+          if (c['id'] is String && c['changed'] is num) c['id']! as String: (c['changed']! as num).toInt(),
+    };
+  }
+
+  /// Скачать свою обложку книги [key].
+  Future<List<int>> downloadCover(String key) async {
+    final uri = Uri.parse('$baseUrl/books.php').replace(queryParameters: {'cover': key});
+    final request = http.Request('GET', uri)
+      ..headers['authorization'] = _auth
+      ..headers['user-agent'] = _userAgent;
+    final http.Response response;
+    try {
+      response = await http.Response.fromStream(await _client.send(request).timeout(_timeout));
+    } on TimeoutException {
+      throw const SyncException('Сервер синхронизации не ответил вовремя.');
+    } on SocketException {
+      throw const SyncException('Нет соединения с сервером синхронизации.');
+    } on http.ClientException catch (e) {
+      throw SyncException('Ошибка соединения: ${e.message}');
+    }
+    if (response.statusCode != 200) {
+      _check(response);
+      throw SyncException('Не удалось скачать обложку (код ${response.statusCode}).', status: response.statusCode);
+    }
+    return response.bodyBytes;
+  }
+
   /// Удалить книгу с сервера (и со всех устройств).
   Future<void> deleteBook(String key) async {
     try {

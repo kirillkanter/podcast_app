@@ -583,6 +583,9 @@ class AppDatabase extends _$AppDatabase {
       'LEFT JOIN episode_states s ON s.episode_id = e.id '
       'LEFT JOIN episode_archives a ON a.episode_id = e.id AND a.archived = 1 '
       'WHERE julianday(e.first_seen_at) > julianday(p.created_at) + 0.001 '
+      // Вышедшие задолго до подписки — не новые, даже если лента загрузилась
+      // позже (не открывалась без VPN и т. п.).
+      "AND (e.pub_date IS NULL OR julianday(e.pub_date) > julianday(p.created_at) - 2) "
       'AND (s.episode_id IS NULL OR (s.played = 0 AND s.position_ms = 0)) '
       'AND a.episode_id IS NULL '
       'GROUP BY e.podcast_id',

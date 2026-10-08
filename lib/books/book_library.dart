@@ -396,10 +396,23 @@ class BookLibrary {
   Future<bool> setCoverFrom(Book book, CoverCandidate c) async {
     final meta = BookMetadata();
     try {
-      return await _applyCover(meta, book, c);
+      final ok = await _applyCover(meta, book, c);
+      // Выбрана вручную — и на другие устройства.
+      if (ok) unawaited(sync?.coverChanged(book.key));
+      return ok;
     } finally {
       meta.close();
     }
+  }
+
+  /// Обложка с сервера (выбрана на другом устройстве).
+  Future<void> setCoverBytes(Book book, List<int> bytes) async {
+    final path = await _saveCover('${book.key}-${DateTime.now().millisecondsSinceEpoch}', bytes, null);
+    if (path == null) return;
+    final fresh = await _db.bookById(book.id);
+    final old = fresh?.coverPath;
+    await _db.setBookCover(book.id, path);
+    if (old != null && old != path) await _deleteFile(old);
   }
 
   /// Своя обложка из файла (картинка с устройства). `false` — не картинка.
@@ -416,6 +429,7 @@ class BookLibrary {
     if (old != null && old != path) await _deleteFile(old);
     // Временная копия выбранного файла (Android) больше не нужна.
     if (file.contains('${Platform.pathSeparator}picked${Platform.pathSeparator}')) await _deleteFile(file);
+    unawaited(sync?.coverChanged(book.key));
     return true;
   }
 

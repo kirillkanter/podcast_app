@@ -39,6 +39,7 @@ class _Device {
       sync: sync,
       booksDirectory: () => library.textDirectory(),
       onFilesChanged: library.completeDownloaded,
+      saveCover: library.setCoverBytes,
     );
     library.sync = books;
     sync.books = books;
@@ -212,6 +213,60 @@ void main() {
       await f.books.syncHighlights();
       expect(await f.db.watchHighlights(key).first, isEmpty);
       expect(await f.db.dirtyHighlights(), isEmpty);
+    },
+    skip: _server == null ? 'Нет OPODSYNC_URL: интеграционный тест только в CI' : false,
+    timeout: const Timeout(Duration(minutes: 1)),
+  );
+
+  test(
+    'своя обложка переходит на другое устройство',
+    () async {
+      final root = await Directory.systemTemp.createTemp('covers_sync');
+      final g = _Device('G', root);
+      final h = _Device('H', root);
+      addTearDown(() async {
+        await g.db.close();
+        await h.db.close();
+        await root.delete(recursive: true);
+      });
+      await g.sync.signIn(server: _server!, username: _user, password: _password);
+      await h.sync.signIn(server: _server!, username: _user, password: _password);
+
+      final stamp = DateTime.now().microsecondsSinceEpoch;
+      final audio = ScannedAudioBook(
+        key: 'a:${stamp.toRadixString(16).padLeft(32, '0')}',
+        title: 'С обложкой',
+        path: '/нет',
+        format: 'mp3',
+        tracks: const [ScannedTrack(path: '/нет/1.mp3', durationMs: 60000, sizeBytes: 1)],
+        chapters: const [ScannedChapter(title: 'Глава', trackIdx: 0, startMs: 0)],
+      );
+      final onG = await g.db.saveAudioBook(audio);
+      final onH = await h.db.saveAudioBook(audio);
+      final png = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, ...List.generate(200, (i) => i % 256)];
+      final file = File('${root.path}/cover.png');
+      await file.writeAsBytes(png);
+      await g.db.setBookCover(onG, file.path);
+      await g.books.coverChanged(audio.key, schedule: false);
+
+      Future<void> covers(_Device d) async {
+        final client = await d.sync.openClient();
+        try {
+          await d.books.syncCoversWith(client!);
+        } finally {
+          client?.close();
+        }
+      }
+
+      await covers(g);
+      await covers(h);
+      final cover = (await h.db.bookById(onH))!.coverPath;
+      expect(cover, isNotNull);
+      expect(await File(cover!).readAsBytes(), png);
+
+      // Повторная синхронизация не скачивает ту же обложку заново.
+      await covers(h);
+      expect((await h.db.bookById(onH))!.coverPath, cover);
     },
     skip: _server == null ? 'Нет OPODSYNC_URL: интеграционный тест только в CI' : false,
     timeout: const Timeout(Duration(minutes: 1)),

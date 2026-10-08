@@ -47,6 +47,7 @@ class AppServices {
       sync: sync,
       booksDirectory: () => books.textDirectory(),
       onFilesChanged: (id) => books.completeDownloaded(id),
+      saveCover: (book, bytes) => books.setCoverBytes(book, bytes),
     );
     books = BookLibrary(
       db: db,

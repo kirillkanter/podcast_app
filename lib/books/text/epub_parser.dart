@@ -200,18 +200,34 @@ TextBookContent parseEpub(Uint8List bytes, {required String fallbackTitle}) {
     if (images.containsKey(path)) return path;
     final f = file(path);
     if (f == null) return null;
-    final bytes = Uint8List.fromList(f.content);
-    final size = imageSize(bytes);
-    if (size == null || size.width < 2 || size.height < 2) return null;
-    images[path] = BookImage(bytes, size.width, size.height);
+    final image = bookImageFrom(Uint8List.fromList(f.content));
+    if (image == null) return null;
+    images[path] = image;
     return path;
   }
 
-  // Главы по порядку spine.
+  // SVG прямо в тексте (узоры, виньетки): своя картинка на каждую.
+  String? inlineSvg(String xml) {
+    final image = bookImageFrom(Uint8List.fromList(utf8.encode(xml)));
+    if (image == null) return null;
+    final key = 'inline:${images.length}';
+    images[key] = image;
+    return key;
+  }
+
+  // Главы по порядку spine. Страницы только с картинками (обложка,
+  // титул, иллюстрация на всю страницу) отдельными главами не становятся —
+  // они идут в начало следующей главы: номера глав не сдвигаются, места в
+  // книге и закладки остаются на своих местах.
   final chapters = <TextChapter>[];
+  final coverPath = coverId == null ? null : manifest[coverId]?.path;
+  final front = <TextBlock>[];
   if (spineEl != null) {
     for (final ref in kids(spineEl, 'itemref')) {
-      if (attr(ref, 'linear') == 'no') continue;
+      final linear = attr(ref, 'linear') != 'no';
+      // Нелинейные страницы (сноски и т. п.) не читаются подряд; кроме
+      // обложки в самом начале.
+      if (!linear && chapters.isNotEmpty) continue;
       final item = manifest[attr(ref, 'idref') ?? ''];
       if (item == null) continue;
       final f = file(item.path);
@@ -221,15 +237,33 @@ TextBookContent parseEpub(Uint8List bytes, {required String fallbackTitle}) {
       final blocks = doc == null
           ? xhtmlToBlocks(_decode(f.content))
           : _docToBlocks(doc,
-              noteRef: (a) => _noteRef(a, item.path, dir, ids, notes), imageRef: (href) => imageRef(dir, href));
+              noteRef: (a) => _noteRef(a, item.path, dir, ids, notes),
+              imageRef: (href) => imageRef(dir, href),
+              inlineSvg: inlineSvg);
       if (blocks.isEmpty) continue;
-      // Страница только с обложкой — обложка и так видна в библиотеке.
-      final coverPath = coverId == null ? null : manifest[coverId]?.path;
-      if (blocks.every((b) => b.kind == TextBlockKind.image && b.image == coverPath)) continue;
+      if (blocks.every((b) => b.kind == TextBlockKind.image)) {
+        front.addAll(blocks);
+        continue;
+      }
+      if (!linear) continue;
       final title = toc[item.path] ??
           blocks.where((b) => b.kind == TextBlockKind.heading).map((b) => b.text).firstOrNull ??
           'Глава ${chapters.length + 1}';
-      chapters.add(TextChapter(title, blocks));
+      chapters.add(TextChapter(title, [...front, ...blocks]));
+      front.clear();
+    }
+  }
+  if (chapters.isNotEmpty && front.isNotEmpty) {
+    final last = chapters.removeLast();
+    chapters.add(TextChapter(last.title, [...last.blocks, ...front]));
+  }
+  // Обложки нет среди страниц книги — ставим её в самое начало, как в Kindle.
+  if (chapters.isNotEmpty && coverPath != null) {
+    final shown = chapters.any((c) => c.blocks.any((b) => b.image == coverPath));
+    final key = shown ? null : imageRef('', coverPath);
+    if (key != null) {
+      final first = chapters.removeAt(0);
+      chapters.insert(0, TextChapter(first.title, [TextBlock(TextBlockKind.image, const [], image: key), ...first.blocks]));
     }
   }
   if (chapters.isEmpty) throw const FormatException('В EPUB нет текста');
@@ -315,18 +349,21 @@ List<TextBlock> _docToBlocks(
   XmlDocument doc, {
   String? Function(XmlElement link)? noteRef,
   String? Function(String href)? imageRef,
+  String? Function(String xml)? inlineSvg,
 }) {
   final out = <TextBlock>[];
   final body = doc.descendants.whereType<XmlElement>().where((e) => e.name.local.toLowerCase() == 'body').firstOrNull ??
       doc.rootElement;
-  final w = _Walker(out, noteRef, imageRef);
+  final w = _Walker(out, noteRef, imageRef, inlineSvg);
   w.walk(body, TextBlockKind.paragraph, false, false);
   w.flush(TextBlockKind.paragraph);
   return out;
 }
 
 class _Walker {
-  _Walker(this.out, this.noteRef, this.imageRef);
+  _Walker(this.out, this.noteRef, this.imageRef, this.inlineSvg);
+
+  final String? Function(String xml)? inlineSvg;
 
   final List<TextBlock> out;
   final String? Function(XmlElement link)? noteRef;
@@ -365,7 +402,16 @@ class _Walker {
       if (n == 'svg' || n == 'image') {
         // Картинка в SVG-обёртке (так часто делают иллюстрации и обложки).
         final img = n == 'image' ? c : c.descendants.whereType<XmlElement>().where((e) => e.name.local == 'image').firstOrNull;
-        if (img != null) image(attr(img, 'href'), kind);
+        if (img != null) {
+          image(attr(img, 'href'), kind);
+        } else if (n == 'svg' && inlineSvg != null) {
+          // Рисунок прямо в разметке — узор, виньетка.
+          final key = inlineSvg!(c.toXmlString());
+          if (key != null) {
+            flush(kind);
+            out.add(TextBlock(TextBlockKind.image, const [], image: key));
+          }
+        }
         continue;
       }
       if (n == 'a' && note == null && noteRef != null) {

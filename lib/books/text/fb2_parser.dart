@@ -95,10 +95,9 @@ TextBookContent parseFb2(Uint8List bytes, {required String fallbackTitle}) {
     final bin = binaries[id];
     if (bin == null) return null;
     try {
-      final bytes = base64.decode(bin.innerText.replaceAll(RegExp(r'\s+'), ''));
-      final size = imageSize(bytes);
-      if (size == null || size.width < 2 || size.height < 2) return null;
-      images[id] = BookImage(bytes, size.width, size.height);
+      final image = bookImageFrom(base64.decode(bin.innerText.replaceAll(RegExp(r'\s+'), '')));
+      if (image == null) return null;
+      images[id] = image;
       return id;
     } catch (_) {
       return null;
@@ -128,6 +127,13 @@ TextBookContent parseFb2(Uint8List bytes, {required String fallbackTitle}) {
     }
   }
   if (chapters.isEmpty) chapters.add(TextChapter('Текст', [TextBlock(TextBlockKind.paragraph, const [TextRun('')])]));
+  // Обложка — в начало книги, как в Kindle (в первую главу: номера глав
+  // не сдвигаются).
+  final coverKey = href == null ? null : _imageRef!(href);
+  if (coverKey != null) {
+    final first = chapters.removeAt(0);
+    chapters.insert(0, TextChapter(first.title, [TextBlock(TextBlockKind.image, const [], image: coverKey), ...first.blocks]));
+  }
 
   return TextBookContent(
     title: title == null || textOf(title).isEmpty ? fallbackTitle : textOf(title),

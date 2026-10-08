@@ -75,6 +75,7 @@ class BookSync {
     required SyncService sync,
     required Future<Directory> Function() booksDirectory,
     this.onFilesChanged,
+    this.saveCover,
   })  : _db = db,
         _sync = sync,
         _booksDirectory = booksDirectory;
@@ -85,6 +86,9 @@ class BookSync {
 
   /// Скачана новая книга или удалена — разобрать обложку и т. п.
   final Future<void> Function(int bookId)? onFilesChanged;
+
+  /// Сохранить обложку, пришедшую с сервера.
+  final Future<void> Function(Book book, List<int> bytes)? saveCover;
 
   Timer? _pushTimer;
   Future<void>? _pushing;
@@ -195,6 +199,57 @@ class BookSync {
 
   /// Полный проход: удаления, места, список книг, загрузка и скачивание
   /// текстовых книг. Вызывается из [SyncService] после подкастов.
+  // -------------------------------------------------------------------------
+  // Свои обложки
+  // -------------------------------------------------------------------------
+
+  static const _coversPending = 'books.coversPending';
+  static String _coverApplied(String key) => 'books.coverApplied.$key';
+  Timer? _coversTimer;
+
+  /// Обложку книги [key] выбрали вручную — отправить на сервер.
+  Future<void> coverChanged(String key, {bool schedule = true}) async {
+    final pending = (await _db.setting(_coversPending) ?? '').split('\n').where((s) => s.isNotEmpty).toSet()..add(key);
+    await _db.setSetting(_coversPending, pending.join('\n'));
+    if (!schedule) return;
+    _coversTimer?.cancel();
+    _coversTimer = Timer(const Duration(seconds: 3), () async {
+      final client = await _sync.openClient();
+      if (client == null) return;
+      try {
+        await syncCoversWith(client);
+      } catch (e) {
+        debugPrint('Обложки не синхронизировались: $e');
+      } finally {
+        client.close();
+      }
+    });
+  }
+
+  Future<void> syncCoversWith(GpodderClient client) async {
+    final pending = (await _db.setting(_coversPending) ?? '').split('\n').where((s) => s.isNotEmpty).toList();
+    for (final key in pending) {
+      final book = await _db.bookByKey(key);
+      final path = book?.coverPath;
+      if (path != null && await File(path).exists()) {
+        final changed = await client.uploadCover(key, await File(path).readAsBytes());
+        await _db.setSetting(_coverApplied(key), '$changed');
+      }
+      final left = (await _db.setting(_coversPending) ?? '').split('\n').where((s) => s.isNotEmpty && s != key);
+      await _db.setSetting(_coversPending, left.join('\n'));
+    }
+    final save = saveCover;
+    if (save == null) return;
+    for (final MapEntry(key: key, value: changed) in (await client.covers()).entries) {
+      final applied = int.tryParse(await _db.setting(_coverApplied(key)) ?? '') ?? 0;
+      if (changed <= applied) continue;
+      final book = await _db.bookByKey(key);
+      if (book == null) continue; // книга появится позже — обложка придёт при следующей синхронизации
+      await save(book, await client.downloadCover(key));
+      await _db.setSetting(_coverApplied(key), '$changed');
+    }
+  }
+
   Timer? _highlightsTimer;
 
   /// Выделение изменили — отправить через несколько секунд (правки подряд
@@ -336,6 +391,11 @@ class BookSync {
         await syncHighlightsWith(client);
       } catch (e) {
         debugPrint('Выделения не синхронизировались: $e');
+      }
+      try {
+        await syncCoversWith(client);
+      } catch (e) {
+        debugPrint('Обложки не синхронизировались: $e');
       }
 
       // 4. Текстовые книги этого устройства — на сервер.

@@ -924,7 +924,8 @@ class _WideLayoutState extends State<_WideLayout> with SingleTickerProviderState
         frost: frost,
         title: podcast == null ? 'Сейчас играет' : 'Сейчас играет · ${podcast!.title}',
         wide: !compact,
-        trailing: Material(
+        trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+          Material(
           color: frost.tint,
           shape: const StadiumBorder(),
           child: InkWell(
@@ -940,6 +941,18 @@ class _WideLayoutState extends State<_WideLayout> with SingleTickerProviderState
             ),
           ),
         ),
+          const SizedBox(width: 8),
+          RoundIconButton(
+            icon: BcIcons.close,
+            tooltip: 'Остановить и закрыть плеер',
+            iconSize: 20,
+            color: c.text,
+            onPressed: () {
+              Navigator.of(context).pop();
+              audio.close();
+            },
+          ),
+        ]),
       ),
       Expanded(
         child: Padding(

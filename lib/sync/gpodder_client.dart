@@ -259,7 +259,9 @@ class GpodderClient {
         ..headers['user-agent'] = _userAgent
         ..contentLength = await file.length();
       final sending = _client.send(request);
-      unawaited(file.openRead().listen(request.sink.add, onDone: request.sink.close, onError: request.sink.addError).asFuture<void>().catchError((_) {}));
+      // Тело — потоком из файла; закрытие потока завершает запрос.
+      final sink = request.sink;
+      file.openRead().listen(sink.add, onError: sink.addError, onDone: sink.close);
       final http.Response response;
       try {
         response = await http.Response.fromStream(await sending.timeout(const Duration(minutes: 10)));

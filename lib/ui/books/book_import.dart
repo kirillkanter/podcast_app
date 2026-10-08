@@ -52,6 +52,12 @@ Future<void> pickBookFiles(BuildContext context) async {
       errors.add('Аудиофайлы: $e');
     }
   }
+  // Android отдал копии выбранных файлов во временной папке — они больше не нужны.
+  for (final path in paths.where((x) => x.contains('${Platform.pathSeparator}picked${Platform.pathSeparator}'))) {
+    try {
+      await File(path).delete();
+    } catch (_) {}
+  }
   if (!context.mounted) return;
   final parts = [
     if (added > 0) 'Добавлено: $added ${plural(added, 'книга', 'книги', 'книг')}',

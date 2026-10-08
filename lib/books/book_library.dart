@@ -108,7 +108,15 @@ class BookLibrary {
       final folder = Directory(p.join(base.path, '${DateTime.now().millisecondsSinceEpoch}'));
       await folder.create(recursive: true);
       for (final path in paths) {
-        await File(path).copy(p.join(folder.path, p.basename(path)));
+        final target = p.join(folder.path, p.basename(path));
+        // Временную копию (Android) переносим, остальное — копируем.
+        if (path.contains('${Platform.pathSeparator}picked${Platform.pathSeparator}')) {
+          try {
+            await File(path).rename(target);
+            continue;
+          } catch (_) {}
+        }
+        await File(path).copy(target);
       }
       final book = paths.length == 1
           ? await BookScanner.scanFile(p.join(folder.path, p.basename(paths.single)))

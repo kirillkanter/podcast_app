@@ -53,6 +53,11 @@ void main() {
     await db.close();
   });
 
+  /// Плеер считает позицию по часам, пока играет: допускаем погрешность.
+  Matcher near(Duration d) => isA<Duration>().having((x) => (x - d).inMilliseconds.abs(), 'отклонение, мс', lessThan(500));
+  Matcher at(int track, int ms) => isA<String>().having((s) => AudioLocator.parse(s)!.track, 'файл', track).having(
+      (s) => (AudioLocator.parse(s)!.ms - ms).abs(), 'отклонение, мс', lessThan(500));
+
   String loadedUri() {
     final playlist = platform.lastLoad!.audioSourceMessage as ConcatenatingAudioSourceMessage;
     return (playlist.children.single as UriAudioSourceMessage).uri;
@@ -71,8 +76,8 @@ void main() {
     await handler.pause();
     await pumpEventQueue();
     var p = await db.bookProgress(bookId);
-    expect(p?.locator, const AudioLocator(0, 2400000).encode());
-    expect(p?.positionMs, 2400000);
+    expect(p?.locator, at(0, 2400000));
+    expect(p?.positionMs, closeTo(2400000, 500));
     expect(p?.percent, closeTo(1 / 3, 0.001));
     expect(p?.dirty, isTrue);
     expect(handler.currentChapter, 1, reason: '40 минут — уже вторая глава');
@@ -83,7 +88,7 @@ void main() {
     await pumpEventQueue();
     expect(loadedUri(), endsWith('/books/mm/02.mp3'));
     p = await db.bookProgress(bookId);
-    expect(p?.locator, const AudioLocator(1, 0).encode());
+    expect(p?.locator, at(1, 0));
     expect(handler.currentChapter, 2);
 
     // Перемотка назад через границу файлов.
@@ -99,7 +104,7 @@ void main() {
     await handler.nextChapter();
     await pumpEventQueue();
     expect(handler.currentChapter, 1);
-    expect(handler.bookPosition, const Duration(minutes: 30));
+    expect(handler.bookPosition, near(const Duration(minutes: 30)));
     await handler.nextChapter();
     await pumpEventQueue();
     expect(handler.currentChapter, 2);
@@ -115,7 +120,7 @@ void main() {
     await handler.playBook(bookId);
     await pumpEventQueue();
     expect(loadedUri(), endsWith('/books/mm/02.mp3'));
-    expect(handler.bookPosition, const Duration(milliseconds: 3720000));
+    expect(handler.bookPosition, near(const Duration(milliseconds: 3720000)));
 
     platform.player!.complete();
     await pumpEventQueue();
@@ -130,6 +135,6 @@ void main() {
     await pumpEventQueue();
     await handler.stop();
     expect(handler.currentBookId, isNull);
-    expect((await db.bookProgress(bookId))?.locator, const AudioLocator(0, 600000).encode());
+    expect((await db.bookProgress(bookId))?.locator, at(0, 600000));
   });
 }

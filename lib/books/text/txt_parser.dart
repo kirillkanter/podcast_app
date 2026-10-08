@@ -9,7 +9,7 @@ import '../../feed/feed_decoder.dart' show decodeWindows1251;
 import 'text_book.dart';
 
 final _chapterLine = RegExp(
-  r'^\s*(глава|часть|книга|пролог|эпилог|предисловие|послесловие|chapter|part|book|prologue|epilogue)\b',
+  r'^\s*(глава|часть|книга|пролог|эпилог|предисловие|послесловие|chapter|part|book|prologue|epilogue)(?!\p{L})',
   caseSensitive: false,
   unicode: true,
 );

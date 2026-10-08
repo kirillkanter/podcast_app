@@ -40,11 +40,13 @@ class BookPlayerScreen extends StatelessWidget {
     return NowPlayingBuilder(builder: (context, now, audio) {
       final book = audio?.currentBook;
       if (audio == null || book == null || !now.active) {
-        // Книга закончилась или плеер закрыли.
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (context.mounted && ModalRoute.of(context)?.isCurrent == true) Navigator.of(context).maybePop();
-        });
-        return Scaffold(backgroundColor: c.bg);
+        // Книга закончилась или плеер закрыли — экран не закрывается сам,
+        // чтобы не исчезать от случайного пустого состояния.
+        return Scaffold(
+          backgroundColor: c.bg,
+          appBar: AppBar(),
+          body: Center(child: Text('Сейчас книга не играет', style: TextStyle(color: c.muted))),
+        );
       }
       final wide = MediaQuery.sizeOf(context).width >= 900;
       return Scaffold(

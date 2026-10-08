@@ -42,10 +42,14 @@ class NowPlayingBuilder extends StatelessWidget {
   Widget build(BuildContext context) {
     final audio = AppScope.of(context).audio;
     if (audio == null) return builder(context, NowPlaying.none, null);
+    // Начальные значения — сразу из плеера: иначе в первом кадре экран
+    // считает, что ничего не играет (плеер книги из-за этого закрывался).
     return StreamBuilder<MediaItem?>(
       stream: audio.mediaItem,
+      initialData: audio.mediaItem.value,
       builder: (context, item) => StreamBuilder<PlaybackState>(
         stream: audio.playbackState,
+        initialData: audio.playbackState.value,
         builder: (context, state) => builder(context, NowPlaying(item.data, state.data), audio),
       ),
     );

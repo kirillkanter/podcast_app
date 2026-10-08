@@ -3,8 +3,12 @@
 /// Внизу — мини-плеер (если что-то играет), ползунок по книге и кнопки.
 library;
 
+import 'dart:async';
+import 'dart:math' as math;
+
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/physics.dart';
 
 import '../../icons.dart';
 import '../../now_playing.dart';
@@ -13,60 +17,85 @@ import '../../theme.dart';
 import '../book_start.dart';
 import 'reader_style.dart';
 
+/// Книга глазами меню: сколько глав и страниц, как нарисовать страницу.
+abstract class MenuBook {
+  int get chapterCount;
+  int pageCount(int chapter);
+  String chapterTitle(int chapter);
+  Widget page(int chapter, int page);
+  double percentAt(int chapter, int page);
+  ({int chapter, int page}) locate(double percent);
+  bool bookmarked(int chapter, int page);
+}
+
 class ReaderMenu extends StatefulWidget {
   const ReaderMenu({
     super.key,
     required this.bookTitle,
     required this.author,
-    required this.chapterTitle,
-    required this.pageCount,
+    required this.book,
+    required this.chapter,
     required this.page,
-    required this.percent,
     required this.paper,
     required this.pageSize,
-    required this.pageBuilder,
-    required this.bookmarked,
     required this.onOpenPage,
-    required this.onClose,
     required this.onExit,
     required this.onToggleBookmark,
     required this.onContents,
     required this.onBookmarks,
     required this.onStyle,
     required this.onSearch,
-    required this.onSeekPercent,
   });
 
   final String bookTitle;
   final String? author;
-  final String chapterTitle;
-  final int pageCount;
+  final MenuBook book;
 
-  /// Страница, на которой читаем.
+  /// Где читаем.
+  final int chapter;
   final int page;
-  final double percent;
   final Paper paper;
   final Size pageSize;
-  final Widget Function(int page) pageBuilder;
-  final bool bookmarked;
-  final ValueChanged<int> onOpenPage;
-  final VoidCallback onClose;
+  final void Function(int chapter, int page) onOpenPage;
   final VoidCallback onExit;
-  final VoidCallback onToggleBookmark;
+
+  /// Поставить или убрать закладку на странице, которая сейчас в центре ленты.
+  final void Function(int chapter, int page) onToggleBookmark;
   final VoidCallback onContents;
   final VoidCallback onBookmarks;
   final VoidCallback onStyle;
   final VoidCallback onSearch;
-  final ValueChanged<double> onSeekPercent;
 
   @override
   State<ReaderMenu> createState() => _ReaderMenuState();
 }
 
+/// Доля ширины экрана под одну уменьшенную страницу.
+const _fraction = 0.62;
+
 class _ReaderMenuState extends State<ReaderMenu> {
-  late final PageController _pages = PageController(initialPage: widget.page, viewportFraction: 0.62);
-  late int _shown = widget.page;
+  /// Глава, страницы которой сейчас в ленте. По краям ленты — по странице
+  /// соседних глав: долистали до неё — лента переходит на ту главу.
+  late int _ch = widget.chapter;
+  late PageController _pages = PageController(initialPage: _pre + widget.page, viewportFraction: _fraction);
+  late int _index = _pre + widget.page;
   double? _drag;
+
+  int get _pre => _ch > 0 ? 1 : 0;
+  int get _count => widget.book.pageCount(_ch);
+  int get _post => _ch < widget.book.chapterCount - 1 ? 1 : 0;
+
+  /// Глава и страница элемента ленты [i].
+  ({int chapter, int page}) _at(int i) {
+    if (_pre == 1 && i == 0) return (chapter: _ch - 1, page: widget.book.pageCount(_ch - 1) - 1);
+    final p = i - _pre;
+    if (p >= _count) return (chapter: _ch + 1, page: 0);
+    return (chapter: _ch, page: p);
+  }
+
+  ({int chapter, int page}) get _shown => _at(_index);
+
+  bool get _away => _shown.chapter != widget.chapter || _shown.page != widget.page;
 
   @override
   void dispose() {
@@ -74,12 +103,48 @@ class _ReaderMenuState extends State<ReaderMenu> {
     super.dispose();
   }
 
+  /// Показать страницу [page] главы [chapter]: та же глава — листаем,
+  /// другая — перестраиваем ленту.
+  void _show(int chapter, int page, {bool animate = false}) {
+    if (chapter == _ch && _pages.hasClients) {
+      final i = _pre + page;
+      if (animate) {
+        unawaited(_pages.animateToPage(i, duration: const Duration(milliseconds: 320), curve: Curves.easeOutCubic));
+      } else {
+        _pages.jumpToPage(i);
+      }
+      setState(() => _index = i);
+      return;
+    }
+    final old = _pages;
+    setState(() {
+      _ch = chapter;
+      _index = _pre + page;
+      _pages = PageController(initialPage: _index, viewportFraction: _fraction);
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) => old.dispose());
+  }
+
+  bool _onScrollEnd(ScrollNotification n) {
+    if (n is ScrollEndNotification && n.depth == 0) {
+      final at = _shown;
+      // Остановились на странице соседней главы — переходим на неё.
+      if (at.chapter != _ch) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _show(at.chapter, at.page);
+        });
+      }
+    }
+    return false;
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = BcColors.of(context);
     final dark = Theme.of(context).brightness == Brightness.dark;
     final shade = dark ? const Color(0xFF0E0E0E) : const Color(0xFFE6E6E0);
-    final percent = _drag ?? widget.percent;
+    final shown = _shown;
+    final percent = _drag ?? widget.book.percentAt(shown.chapter, shown.page);
     return Material(
       color: shade,
       child: SafeArea(
@@ -101,21 +166,24 @@ class _ReaderMenuState extends State<ReaderMenu> {
                 ]),
               ),
               IconButton(tooltip: 'Поиск по книге', icon: BcIcon(BcIcons.search, color: c.text), onPressed: widget.onSearch),
-              IconButton(
-                tooltip: widget.bookmarked ? 'Убрать закладку' : 'Закладка на этой странице',
-                icon: Icon(widget.bookmarked ? Icons.bookmark : Icons.bookmark_outline, color: widget.bookmarked ? c.ink : c.text),
-                onPressed: widget.onToggleBookmark,
-              ),
+              Builder(builder: (context) {
+                final marked = widget.book.bookmarked(shown.chapter, shown.page);
+                return IconButton(
+                  tooltip: marked ? 'Убрать закладку' : 'Закладка на этой странице',
+                  icon: Icon(marked ? Icons.bookmark : Icons.bookmark_outline, color: marked ? c.ink : c.text),
+                  onPressed: () => widget.onToggleBookmark(shown.chapter, shown.page),
+                );
+              }),
             ]),
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
             child: Row(children: [
               Expanded(
-                child: Text(widget.chapterTitle,
+                child: Text(widget.book.chapterTitle(shown.chapter),
                     maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
               ),
-              Text('стр. ${_shown + 1} из ${widget.pageCount} · ${(percent * 100).floor()} %',
+              Text('стр. ${shown.page + 1} из ${widget.book.pageCount(shown.chapter)} · ${(percent * 100).floor()} %',
                   style: TextStyle(fontSize: 12, color: c.muted, fontFeatures: const [FontFeature.tabularFigures()])),
             ]),
           ),
@@ -123,43 +191,51 @@ class _ReaderMenuState extends State<ReaderMenu> {
             child: LayoutBuilder(builder: (context, box) {
               // Уменьшенная страница: целиком по высоте, с полями вокруг.
               final h = box.maxHeight - 24;
-              final scale = (h / widget.pageSize.height).clamp(0.2, 1.0);
-              return PageView.builder(
-                controller: _pages,
-                itemCount: widget.pageCount,
-                onPageChanged: (i) => setState(() => _shown = i),
-                itemBuilder: (context, i) {
-                  final current = i == widget.page;
-                  return Center(
-                    child: GestureDetector(
-                      onTap: () => widget.onOpenPage(i),
-                      child: AnimatedScale(
-                        duration: const Duration(milliseconds: 200),
-                        scale: i == _shown ? 1 : 0.9,
-                        child: Container(
-                          width: widget.pageSize.width * scale + 20,
-                          height: widget.pageSize.height * scale + 28,
-                          decoration: BoxDecoration(
-                            color: widget.paper.bg,
-                            borderRadius: BorderRadius.circular(10),
-                            border: current ? Border.all(color: c.bar, width: 2) : null,
-                            boxShadow: const [BoxShadow(color: Color(0x59000000), blurRadius: 24, offset: Offset(0, 8))],
-                          ),
-                          padding: const EdgeInsets.fromLTRB(10, 10, 10, 18),
-                          child: FittedBox(
-                            fit: BoxFit.contain,
-                            alignment: Alignment.topCenter,
-                            child: SizedBox(
-                              width: widget.pageSize.width,
-                              height: widget.pageSize.height,
-                              child: IgnorePointer(child: widget.pageBuilder(i)),
+              final w = box.maxWidth * _fraction - 16;
+              final scale = math.min(h / widget.pageSize.height, w / widget.pageSize.width).clamp(0.1, 1.0);
+              return NotificationListener<ScrollNotification>(
+                onNotification: _onScrollEnd,
+                child: PageView.builder(
+                  key: ValueKey(_ch),
+                  controller: _pages,
+                  pageSnapping: false,
+                  physics: const _FlingPagePhysics(fraction: _fraction),
+                  itemCount: _pre + _count + _post,
+                  onPageChanged: (i) => setState(() => _index = i),
+                  itemBuilder: (context, i) {
+                    final at = _at(i);
+                    final current = at.chapter == widget.chapter && at.page == widget.page;
+                    return Center(
+                      child: GestureDetector(
+                        onTap: () => widget.onOpenPage(at.chapter, at.page),
+                        child: AnimatedScale(
+                          duration: const Duration(milliseconds: 200),
+                          scale: i == _index ? 1 : 0.9,
+                          child: Container(
+                            width: widget.pageSize.width * scale + 20,
+                            height: widget.pageSize.height * scale + 28,
+                            decoration: BoxDecoration(
+                              color: widget.paper.bg,
+                              borderRadius: BorderRadius.circular(10),
+                              border: current ? Border.all(color: c.bar, width: 2) : null,
+                              boxShadow: const [BoxShadow(color: Color(0x59000000), blurRadius: 24, offset: Offset(0, 8))],
+                            ),
+                            padding: const EdgeInsets.fromLTRB(10, 10, 10, 18),
+                            child: FittedBox(
+                              fit: BoxFit.contain,
+                              alignment: Alignment.topCenter,
+                              child: SizedBox(
+                                width: widget.pageSize.width,
+                                height: widget.pageSize.height,
+                                child: IgnorePointer(child: widget.book.page(at.chapter, at.page)),
+                              ),
                             ),
                           ),
                         ),
                       ),
-                    ),
-                  );
-                },
+                    );
+                  },
+                ),
               );
             }),
           ),
@@ -168,13 +244,12 @@ class _ReaderMenuState extends State<ReaderMenu> {
             child: Center(
               child: AnimatedSwitcher(
                 duration: const Duration(milliseconds: 180),
-                child: _shown == widget.page
+                child: !_away
                     ? const SizedBox.shrink()
                     : FilledButton.icon(
                         key: const ValueKey('back'),
                         style: FilledButton.styleFrom(minimumSize: const Size(0, 36), shape: const StadiumBorder()),
-                        onPressed: () => _pages.animateToPage(widget.page,
-                            duration: const Duration(milliseconds: 300), curve: Curves.easeOutCubic),
+                        onPressed: () => _show(widget.chapter, widget.page, animate: true),
                         icon: const Icon(Icons.undo_rounded, size: 18),
                         label: Text('Вернуться на стр. ${widget.page + 1}'),
                       ),
@@ -190,11 +265,14 @@ class _ReaderMenuState extends State<ReaderMenu> {
                 Expanded(
                   child: Slider(
                     value: percent.clamp(0.0, 1.0),
-                    onChanged: (v) => setState(() => _drag = v),
-                    onChangeEnd: (v) {
-                      setState(() => _drag = null);
-                      widget.onSeekPercent(v);
+                    // Ползунок листает ленту на ходу; книга не открывается —
+                    // открыть страницу можно тапом по ней.
+                    onChanged: (v) {
+                      final at = widget.book.locate(v);
+                      setState(() => _drag = v);
+                      if (at.chapter != _shown.chapter || at.page != _shown.page) _show(at.chapter, at.page);
                     },
+                    onChangeEnd: (_) => setState(() => _drag = null),
                   ),
                 ),
                 SizedBox(
@@ -220,6 +298,46 @@ class _ReaderMenuState extends State<ReaderMenu> {
       ),
     );
   }
+}
+
+/// Лента страниц с инерцией: быстрый свайп пролистывает несколько страниц,
+/// остановка — ровно на странице.
+class _FlingPagePhysics extends ScrollPhysics {
+  const _FlingPagePhysics({required this.fraction, super.parent});
+
+  final double fraction;
+
+  @override
+  _FlingPagePhysics applyTo(ScrollPhysics? ancestor) => _FlingPagePhysics(fraction: fraction, parent: buildParent(ancestor));
+
+  @override
+  Simulation? createBallisticSimulation(ScrollMetrics position, double velocity) {
+    if ((velocity <= 0 && position.pixels <= position.minScrollExtent) ||
+        (velocity >= 0 && position.pixels >= position.maxScrollExtent)) {
+      return super.createBallisticSimulation(position, velocity);
+    }
+    final extent = position.viewportDimension * fraction;
+    if (extent <= 0) return super.createBallisticSimulation(position, velocity);
+    final tol = toleranceFor(position);
+    final current = position.pixels / extent;
+    double page;
+    if (velocity.abs() < tol.velocity) {
+      page = current.roundToDouble();
+    } else {
+      // Куда докатилась бы лента сама, с трением.
+      final end = FrictionSimulation(0.12, position.pixels, velocity).finalX / extent;
+      page = end.roundToDouble();
+      // Короткий быстрый свайп — хотя бы на страницу.
+      if (velocity > 0 && page <= current) page = current.floorToDouble() + 1;
+      if (velocity < 0 && page >= current) page = current.ceilToDouble() - 1;
+    }
+    final target = (page * extent).clamp(position.minScrollExtent, position.maxScrollExtent);
+    if ((target - position.pixels).abs() < tol.distance) return null;
+    return ScrollSpringSimulation(spring, position.pixels, target, velocity, tolerance: tol);
+  }
+
+  @override
+  bool get allowImplicitScrolling => false;
 }
 
 class _Action extends StatelessWidget {

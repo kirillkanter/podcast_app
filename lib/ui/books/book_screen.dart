@@ -16,11 +16,11 @@ import '../app_scope.dart';
 import '../format.dart';
 import '../icons.dart';
 import '../menu.dart';
+import '../now_playing.dart';
 import '../theme.dart';
 import 'book_start.dart';
 import 'book_widgets.dart';
 import 'cover_picker.dart';
-import 'books_screen.dart' show BookActionButton;
 
 class BookScreen extends StatefulWidget {
   const BookScreen({super.key, required this.bookId});
@@ -158,7 +158,7 @@ class _BookScreenState extends State<BookScreen> {
                   if (book.shelf != BookShelf.reading) const MenuOption(_Action.reading, 'Вернуть в «В процессе»'),
                   if (book.shelf != BookShelf.done) MenuOption(_Action.done, audio ? 'Отметить прослушанной' : 'Отметить прочитанной'),
                   if ((p?.percent ?? 0) > 0) const MenuOption(_Action.restart, 'Начать сначала'),
-                  if (AppScope.of(context).books != null) const MenuOption(_Action.cover, 'Найти обложку'),
+                  if (AppScope.of(context).books != null) const MenuOption(_Action.cover, 'Сменить обложку'),
                   const MenuOption(_Action.delete, 'Удалить книгу'),
                 ],
                 child: const Padding(padding: EdgeInsets.all(10), child: Icon(Icons.more_horiz)),
@@ -222,10 +222,6 @@ class _BookScreenState extends State<BookScreen> {
                   padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
                   child: Row(children: [
                     Expanded(child: _MainButton(book: book, progress: p)),
-                    if (audio && !book.missing) ...[
-                      const SizedBox(width: 10),
-                      BookActionButton(book: book, size: 48),
-                    ],
                   ]),
                 ),
                 const SizedBox(height: 14),
@@ -419,11 +415,19 @@ class _MainButton extends StatelessWidget {
         label: Text(!ready ? 'Скачивается…' : (started ? 'Продолжить чтение' : 'Читать')),
       );
     }
-    return FilledButton.icon(
-      style: FilledButton.styleFrom(minimumSize: const Size(0, 48), shape: const StadiumBorder()),
-      onPressed: book.missing ? null : () => unawaited(startAudioBook(context, book, openPlayer: true)),
-      icon: const Icon(Icons.play_arrow_rounded),
-      label: Text(started ? 'Продолжить' : 'Слушать'),
-    );
+    // Одна кнопка: играет эта книга — «Пауза», иначе — слушать с открытым плеером.
+    return NowPlayingBuilder(builder: (context, now, audio) {
+      final playing = audio?.currentBookId == book.id && now.playing;
+      return FilledButton.icon(
+        style: FilledButton.styleFrom(minimumSize: const Size(0, 48), shape: const StadiumBorder()),
+        onPressed: book.missing
+            ? null
+            : playing
+                ? audio!.pause
+                : () => unawaited(startAudioBook(context, book, openPlayer: true)),
+        icon: Icon(playing ? Icons.pause_rounded : Icons.play_arrow_rounded),
+        label: Text(playing ? 'Пауза' : (started ? 'Продолжить' : 'Слушать')),
+      );
+    });
   }
 }

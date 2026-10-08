@@ -323,48 +323,47 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   // Закладки
   // -------------------------------------------------------------------------
 
-  /// Закладки на странице [page] текущей главы.
-  List<BookBookmark> _bookmarksOn(int page) {
-    final pages = _pagesOf(_chapter);
+  /// Закладки на странице [page] главы [chapter].
+  List<BookBookmark> _bookmarksAt(int chapter, int page) {
+    final pages = _pagesOf(chapter);
     if (page < 0 || page >= pages.length) return const [];
-    final from = pages[page].locator(_chapter);
-    final to = page + 1 < pages.length ? pages[page + 1].locator(_chapter) : TextLocator(_chapter + 1, 0, 0);
+    final from = pages[page].locator(chapter);
+    final to = page + 1 < pages.length ? pages[page + 1].locator(chapter) : TextLocator(chapter + 1, 0, 0);
     return [
       for (final b in _bookmarks)
         if (TextLocator.parse(b.locator) case final l? when l.compareTo(from) >= 0 && l.compareTo(to) < 0) b,
     ];
   }
 
+  List<BookBookmark> _bookmarksOn(int page) => _bookmarksAt(_chapter, page);
+
   /// Страница, к которой относится угол с закладкой (правая в развороте).
   int get _cornerPage => math.min(_page + _step - 1, _pagesOf(_chapter).length - 1);
 
-  Future<void> _toggleBookmark() async {
-    final page = _cornerPage;
-    final existing = _bookmarksOn(page);
+  Future<void> _toggleBookmark() => _toggleBookmarkAt(_chapter, _cornerPage);
+
+  /// Поставить или убрать закладку на странице [page] главы [chapter].
+  Future<void> _toggleBookmarkAt(int chapter, int page) async {
+    final existing = _bookmarksAt(chapter, page);
     unawaited(HapticFeedback.lightImpact());
     if (existing.isNotEmpty) {
       for (final b in existing) {
         await _db.deleteBookmark(b.id);
       }
-      _showToast('Закладка убрана', undo: () async {
-        for (final b in existing) {
-          await _db.addBookmark(widget.book.id, locator: b.locator, positionMs: b.positionMs, label: b.label);
-        }
-      });
       return;
     }
-    final pages = _pagesOf(_chapter);
-    final at = pages[page].locator(_chapter);
+    final pages = _pagesOf(chapter);
+    if (page < 0 || page >= pages.length) return;
+    final at = pages[page].locator(chapter);
     final first = pages[page].fragments.where((f) => f.end > f.start).firstOrNull;
     var snippet = '';
     if (first != null) {
-      snippet = _chapterText.blocks[first.block].text.substring(first.start, first.end);
+      snippet = _content.chapters[chapter].blocks[first.block].text.substring(first.start, first.end);
       if (snippet.length > 120) snippet = '${snippet.substring(0, 120).trimRight()}…';
     }
-    final id = await _db.addBookmark(widget.book.id, locator: at.encode(), label: snippet);
+    await _db.addBookmark(widget.book.id, locator: at.encode(), label: snippet);
     if (!mounted) return;
     setState(() => _ribbonDrop++);
-    _showToast('Закладка на стр. ${page + 1}', undo: () => _db.deleteBookmark(id));
   }
 
   void _showToast(String text, {FutureOr<void> Function()? undo}) {
@@ -875,36 +874,25 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   }
 
   Widget _menuView(Paper paper, List<ReaderPage> pages) {
-    final c = BcColors.of(context);
     return ReaderMenu(
       bookTitle: widget.book.title,
       author: widget.book.author,
-      chapterTitle: _chapterText.title,
-      pageCount: pages.length,
+      book: _MenuBookView(this),
+      chapter: _chapter,
       page: _page,
-      percent: _percent,
       paper: paper,
       pageSize: Size(_pageWidth, _pageHeight),
-      bookmarked: _bookmarksOn(_cornerPage).isNotEmpty,
-      pageBuilder: (i) => Stack(children: [
-        _PageView(chapter: _chapterText, page: pages[i], base: _baseStyle, scaler: _scaler, highlight: Colors.transparent),
-        if (_bookmarksOn(i).isNotEmpty) Positioned(top: 0, right: 16, child: _Ribbon(color: c.bar)),
-      ]),
-      onOpenPage: (i) {
+      onOpenPage: (chapter, page) {
         setState(() => _menu = false);
-        _showPage(_chapter, i);
+        _showPage(chapter, page);
       },
-      onClose: () => setState(() => _menu = false),
-      onExit: () => Navigator.of(context).maybePop(),
-      onToggleBookmark: () => unawaited(_toggleBookmark()),
+      // Pop, а не maybePop: maybePop перехватывается и только закрывает меню.
+      onExit: () => Navigator.of(context).pop(),
+      onToggleBookmark: (chapter, page) => unawaited(_toggleBookmarkAt(chapter, page)),
       onContents: _showContents,
       onBookmarks: _showBookmarks,
       onStyle: _showStyle,
       onSearch: _showSearch,
-      onSeekPercent: (v) {
-        setState(() => _menu = false);
-        _jumpToPercent(v);
-      },
     );
   }
 
@@ -918,26 +906,26 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     return math.max(0, chapter.length - before);
   }
 
-  void _jumpToPercent(double v) {
-    final target = (v * _content.length).round();
+  /// Место в книге на [v] (0..1) её длины.
+  TextLocator _locatorAt(double v) {
+    final target = (v.clamp(0.0, 1.0) * _content.length).round();
     var acc = 0;
     for (var ch = 0; ch < _content.chapters.length; ch++) {
       final chapter = _content.chapters[ch];
       if (acc + chapter.length >= target || ch == _content.chapters.length - 1) {
         var inside = target - acc;
         for (var b = 0; b < chapter.blocks.length; b++) {
-          if (inside <= chapter.blocks[b].length) {
-            _goTo(TextLocator(ch, b, math.max(0, inside)));
-            return;
-          }
+          if (inside <= chapter.blocks[b].length) return TextLocator(ch, b, math.max(0, inside));
           inside -= chapter.blocks[b].length;
         }
-        _goTo(TextLocator(ch, 0, 0));
-        return;
+        return TextLocator(ch, 0, 0);
       }
       acc += chapter.length;
     }
+    return TextLocator.start;
   }
+
+
 
   void _showContents() {
     showModalBottomSheet<void>(
@@ -1169,6 +1157,17 @@ class _SelectionToolbar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = BcColors.of(context);
+    // Кнопки по 36, вокруг по 4 со всех сторон: скругления внутренней
+    // «Перевести» и самой панели концентричны.
+    final text = TextButton.styleFrom(
+      foregroundColor: c.text,
+      minimumSize: const Size(0, 36),
+      fixedSize: const Size.fromHeight(36),
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      visualDensity: VisualDensity.standard,
+      shape: const StadiumBorder(),
+    );
     return Material(
       color: c.raised,
       elevation: 10,
@@ -1178,13 +1177,20 @@ class _SelectionToolbar extends StatelessWidget {
         padding: const EdgeInsets.all(4),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
           FilledButton.icon(
-            style: FilledButton.styleFrom(minimumSize: const Size(0, 36), padding: const EdgeInsets.symmetric(horizontal: 12), shape: const StadiumBorder()),
+            style: FilledButton.styleFrom(
+              minimumSize: const Size(0, 36),
+              fixedSize: const Size.fromHeight(36),
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              visualDensity: VisualDensity.standard,
+              shape: const StadiumBorder(),
+            ),
             onPressed: onTranslate,
             icon: const BcIcon(BcIcons.translate, size: 16),
             label: const Text('Перевести', style: TextStyle(fontSize: 14)),
           ),
-          TextButton(onPressed: onDictionary, child: Text('Словарь', style: TextStyle(color: c.text))),
-          TextButton(onPressed: onCopy, child: Text('Копировать', style: TextStyle(color: c.text))),
+          TextButton(style: text, onPressed: onDictionary, child: const Text('Словарь')),
+          TextButton(style: text, onPressed: onCopy, child: const Text('Копировать')),
         ]),
       ),
     );
@@ -1295,4 +1301,54 @@ class _SearchDialogState extends State<_SearchDialog> {
       ),
     );
   }
+}
+
+/// Книга для меню: страницы любой главы при текущей разбивке.
+class _MenuBookView implements MenuBook {
+  _MenuBookView(this.s);
+
+  final _ReaderScreenState s;
+
+  @override
+  int get chapterCount => s._content.chapters.length;
+
+  @override
+  int pageCount(int chapter) => s._pagesOf(chapter).length;
+
+  @override
+  String chapterTitle(int chapter) => s._content.chapters[chapter].title;
+
+  @override
+  Widget page(int chapter, int page) {
+    final pages = s._pagesOf(chapter);
+    final c = BcColors.of(s.context);
+    return Stack(children: [
+      _PageView(
+        chapter: s._content.chapters[chapter],
+        page: pages[page.clamp(0, pages.length - 1)],
+        base: s._baseStyle,
+        scaler: s._scaler,
+        highlight: Colors.transparent,
+      ),
+      if (bookmarked(chapter, page)) Positioned(top: 0, right: 16, child: _Ribbon(color: c.bar)),
+    ]);
+  }
+
+  @override
+  double percentAt(int chapter, int page) {
+    if (s._content.length == 0) return 0;
+    final pages = s._pagesOf(chapter);
+    if (chapter == chapterCount - 1 && page >= pages.length - 1) return 1;
+    final l = pages[page.clamp(0, pages.length - 1)].locator(chapter);
+    return (s._charsBefore(l) / s._content.length).clamp(0.0, 1.0);
+  }
+
+  @override
+  ({int chapter, int page}) locate(double percent) {
+    final l = s._locatorAt(percent);
+    return (chapter: l.chapter, page: pageOf(s._pagesOf(l.chapter), l.block, l.offset));
+  }
+
+  @override
+  bool bookmarked(int chapter, int page) => s._bookmarksAt(chapter, page).isNotEmpty;
 }

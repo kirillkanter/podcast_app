@@ -3,6 +3,7 @@
 library;
 
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
@@ -22,20 +23,79 @@ import '../theme.dart';
 import 'book_start.dart';
 import 'book_widgets.dart';
 
-class BookPlayerScreen extends StatelessWidget {
+class BookPlayerScreen extends StatefulWidget {
   const BookPlayerScreen({super.key});
 
   static Route<void> route() => PageRouteBuilder<void>(
+        opaque: false,
+        barrierColor: Colors.transparent,
+        transitionDuration: const Duration(milliseconds: 340),
+        reverseTransitionDuration: const Duration(milliseconds: 260),
         pageBuilder: (_, _, _) => const BookPlayerScreen(),
         transitionsBuilder: (_, animation, _, child) => SlideTransition(
-          position: Tween(begin: const Offset(0, 1), end: Offset.zero)
-              .animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic)),
+          position: Tween(begin: const Offset(0, 1), end: Offset.zero).animate(
+            CurvedAnimation(parent: animation, curve: Curves.easeOutCubic, reverseCurve: Curves.easeInCubic),
+          ),
           child: child,
         ),
       );
 
   @override
-  Widget build(BuildContext context) {
+  State<BookPlayerScreen> createState() => _BookPlayerScreenState();
+}
+
+class _BookPlayerScreenState extends State<BookPlayerScreen> with SingleTickerProviderStateMixin {
+  /// Сдвиг вниз, пока плеер тянут пальцем.
+  double _drag = 0;
+  double _dragFrom = 0;
+  late final AnimationController _back = AnimationController(vsync: this, duration: const Duration(milliseconds: 200))
+    ..addListener(() => setState(() => _drag = _dragFrom * (1 - Curves.easeOut.transform(_back.value))));
+
+  @override
+  void dispose() {
+    _back.dispose();
+    super.dispose();
+  }
+
+  void _pull(double dy) => setState(() => _drag = math.max(0, _drag + dy));
+
+  /// Отпустили: далеко или быстро — свернуть, иначе вернуть на место.
+  void _release(double velocity) {
+    if (_drag <= 0) return;
+    final height = MediaQuery.sizeOf(context).height;
+    if (_drag > height * 0.18 || velocity > 700) {
+      Navigator.of(context).pop();
+    } else {
+      _dragFrom = _drag;
+      _back.forward(from: 0);
+    }
+  }
+
+  /// Список прокручен до верха и его тянут дальше вниз — тянем весь плеер.
+  bool _onScroll(ScrollNotification n) {
+    if (n.metrics.axis != Axis.vertical) return false;
+    if (n is OverscrollNotification && n.overscroll < 0 && n.dragDetails != null) {
+      _pull(-n.overscroll);
+    } else if (n is ScrollUpdateNotification && _drag > 0 && (n.scrollDelta ?? 0) > 0 && n.dragDetails != null) {
+      _pull(-(n.scrollDelta ?? 0));
+    } else if (n is ScrollEndNotification && _drag > 0) {
+      _release(n.dragDetails?.primaryVelocity ?? 0);
+    }
+    return false;
+  }
+
+  @override
+  Widget build(BuildContext context) => Transform.translate(
+        offset: Offset(0, _drag),
+        child: GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onVerticalDragUpdate: (d) => _pull(d.delta.dy),
+          onVerticalDragEnd: (d) => _release(d.primaryVelocity ?? 0),
+          child: NotificationListener<ScrollNotification>(onNotification: _onScroll, child: _content(context)),
+        ),
+      );
+
+  Widget _content(BuildContext context) {
     final c = BcColors.of(context);
     return NowPlayingBuilder(builder: (context, now, audio) {
       final book = audio?.currentBook;
@@ -113,8 +173,10 @@ class _PlayerColumn extends StatelessWidget {
               tooltip: 'Закрыть плеер',
               icon: BcIcon(BcIcons.close, size: 22, color: c.text),
               onPressed: () async {
+                // Навигатор — заранее: после остановки этот экран перестраивается.
+                final nav = Navigator.of(context);
+                nav.pop();
                 await audio.close();
-                if (context.mounted) Navigator.of(context).maybePop();
               },
             ),
           ]),

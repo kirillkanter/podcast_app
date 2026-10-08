@@ -402,6 +402,23 @@ class BookLibrary {
     }
   }
 
+  /// Своя обложка из файла (картинка с устройства). `false` — не картинка.
+  Future<bool> setCoverFromFile(Book book, String file) async {
+    final bytes = await File(file).readAsBytes();
+    final jpeg = bytes.length > 2 && bytes[0] == 0xFF && bytes[1] == 0xD8;
+    final png = bytes.length > 2 && bytes[0] == 0x89 && bytes[1] == 0x50;
+    final webp = bytes.length > 12 && bytes[8] == 0x57 && bytes[9] == 0x45 && bytes[10] == 0x42 && bytes[11] == 0x50;
+    if (!jpeg && !png && !webp) return false;
+    final path = await _saveCover('${book.key}-${DateTime.now().millisecondsSinceEpoch}', bytes, null);
+    if (path == null) return false;
+    final old = book.coverPath;
+    await _db.setBookCover(book.id, path);
+    if (old != null && old != path) await _deleteFile(old);
+    // Временная копия выбранного файла (Android) больше не нужна.
+    if (file.contains('${Platform.pathSeparator}picked${Platform.pathSeparator}')) await _deleteFile(file);
+    return true;
+  }
+
   Future<bool> _applyCover(BookMetadata meta, Book book, CoverCandidate c) async {
     final bytes = await meta.download(c.imageUrl);
     if (bytes == null) return false;

@@ -95,7 +95,11 @@ class MainActivity : AudioServiceActivity() {
                         )
                         result.success(null)
                     }
-                    "pickFiles" -> pickFiles(result)
+                    "pickFiles" -> pickFiles(
+                        call.argument<String>("mime") ?: "*/*",
+                        call.argument<Boolean>("multiple") ?: true,
+                        result,
+                    )
                     "pickFolder" -> pickFolder(result)
                     else -> result.notImplemented()
                 }
@@ -121,13 +125,13 @@ class MainActivity : AudioServiceActivity() {
     }
 
     /** Выбор файлов книг: копии во временной папке приложения (пути к ним). */
-    private fun pickFiles(result: MethodChannel.Result) {
+    private fun pickFiles(mime: String, multiple: Boolean, result: MethodChannel.Result) {
         pendingPickResult?.success(null)
         pendingPickResult = result
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT)
             .addCategory(Intent.CATEGORY_OPENABLE)
-            .setType("*/*")
-            .putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+            .setType(mime)
+            .putExtra(Intent.EXTRA_ALLOW_MULTIPLE, multiple)
         try {
             startActivityForResult(intent, PICK_FILES_CODE)
         } catch (e: Exception) {

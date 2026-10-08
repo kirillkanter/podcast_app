@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../../books/book_library.dart';
 import '../../books/book_metadata.dart';
 import '../../data/db/database.dart';
+import '../../platform/books_platform.dart';
 import '../icons.dart';
 import '../theme.dart';
 
@@ -57,6 +58,20 @@ class _CoverPickerState extends State<_CoverPicker> {
     }
   }
 
+  Future<void> _own() async {
+    final file = await pickImage();
+    if (file == null || !mounted) return;
+    setState(() => _saving = file);
+    final ok = await widget.library.setCoverFromFile(widget.book, file).catchError((_) => false);
+    if (!mounted) return;
+    setState(() => _saving = null);
+    if (ok) {
+      Navigator.pop(context);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Это не картинка. Подойдут JPG, PNG или WebP.')));
+    }
+  }
+
   @override
   void dispose() {
     _query.dispose();
@@ -79,7 +94,17 @@ class _CoverPickerState extends State<_CoverPicker> {
                 decoration: BoxDecoration(color: c.line, borderRadius: BorderRadius.circular(3)),
               ),
             ),
-            Text('Обложка', style: TextStyle(fontFamily: displayFont, fontWeight: FontWeight.w600, fontSize: 19, color: c.text)),
+            Row(children: [
+              Expanded(
+                child: Text('Обложка', style: TextStyle(fontFamily: displayFont, fontWeight: FontWeight.w600, fontSize: 19, color: c.text)),
+              ),
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(shape: const StadiumBorder()),
+                onPressed: _saving == null ? _own : null,
+                icon: const Icon(Icons.image_outlined, size: 18),
+                label: const Text('Своя картинка'),
+              ),
+            ]),
             const SizedBox(height: 12),
             TextField(
               controller: _query,

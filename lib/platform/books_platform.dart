@@ -27,6 +27,18 @@ Future<List<String>> pickFilesForBooks() async {
   return [for (final f in files) f.path];
 }
 
+/// Выбрать картинку (своя обложка). `null` — не выбрали.
+Future<String?> pickImage() async {
+  if (Platform.isAndroid) {
+    final list = await _system.invokeListMethod<String>('pickFiles', {'mime': 'image/*', 'multiple': false});
+    return list == null || list.isEmpty ? null : list.first;
+  }
+  final f = await openFile(acceptedTypeGroups: const [
+    XTypeGroup(label: 'Картинки', extensions: ['jpg', 'jpeg', 'png', 'webp']),
+  ]);
+  return f?.path;
+}
+
 /// Выбрать папку. `null` — не выбрали.
 Future<String?> pickFolderForBooks() async {
   if (Platform.isAndroid) return _system.invokeMethod<String>('pickFolder');

@@ -11,6 +11,7 @@ import 'package:http/testing.dart';
 import 'package:podcast_app/books/book_library.dart';
 import 'package:podcast_app/books/book_models.dart';
 import 'package:podcast_app/books/locator.dart';
+import 'package:podcast_app/books/reading_log.dart';
 import 'package:podcast_app/data/db/books_dao.dart';
 import 'package:podcast_app/data/db/database.dart';
 import 'package:podcast_app/data/podcast_repository.dart';
@@ -136,5 +137,43 @@ void main() {
     },
     skip: _server == null ? 'Нет OPODSYNC_URL: интеграционный тест только в CI' : false,
     timeout: const Timeout(Duration(minutes: 2)),
+  );
+
+  test(
+    'статистика чтения: итоги складываются по устройствам',
+    () async {
+      final root = await Directory.systemTemp.createTemp('stats_sync');
+      final c = _Device('C', root);
+      final d = _Device('D', root);
+      addTearDown(() async {
+        await c.db.close();
+        await d.db.close();
+        await root.delete(recursive: true);
+      });
+      await c.sync.signIn(server: _server!, username: _user, password: _password);
+      await d.sync.signIn(server: _server!, username: _user, password: _password);
+
+      await addToToday(c.db, seconds: 120, pages: 3);
+      await addToToday(d.db, seconds: 60, pages: 1);
+      await c.books.syncStats();
+      await d.books.syncStats();
+      await c.books.syncStats();
+
+      final own = (await loadDays(c.db, days: 1, others: false)).single;
+      expect(own.seconds, 120);
+      final all = (await loadDays(c.db, days: 1)).single;
+      final onD = (await loadDays(d.db, days: 1)).single;
+      // На сервере могут быть и другие устройства этого аккаунта — сумма не меньше.
+      expect(all.seconds, greaterThanOrEqualTo(180));
+      expect(all.pages, greaterThanOrEqualTo(4));
+      expect(onD.seconds, all.seconds);
+
+      // Повторная отправка не удваивает: уходит итог дня, а не прибавка.
+      await c.books.syncStats();
+      await d.books.syncStats();
+      expect((await loadDays(d.db, days: 1)).single.seconds, all.seconds);
+    },
+    skip: _server == null ? 'Нет OPODSYNC_URL: интеграционный тест только в CI' : false,
+    timeout: const Timeout(Duration(minutes: 1)),
   );
 }

@@ -104,7 +104,70 @@ function books_install(DB $db): void
 		rev INTEGER NOT NULL,
 		PRIMARY KEY (user, id)
 	);
-	CREATE INDEX IF NOT EXISTS bcaster_book_progress_rev ON bcaster_book_progress (user, rev);');
+	CREATE INDEX IF NOT EXISTS bcaster_book_progress_rev ON bcaster_book_progress (user, rev);
+	CREATE TABLE IF NOT EXISTS bcaster_reading_stats (
+		user INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+		device TEXT NOT NULL,
+		day TEXT NOT NULL,
+		seconds INTEGER NOT NULL DEFAULT 0,
+		pages INTEGER NOT NULL DEFAULT 0,
+		changed INTEGER NOT NULL,
+		PRIMARY KEY (user, device, day)
+	);');
+}
+
+/**
+ * Статистика чтения: каждое устройство присылает свои итоги по дням
+ * (минуты и страницы), в ответ получает итоги остальных устройств.
+ * Тело: {"device": "...", "since": "2026-09-01", "days": [{"day": "2026-10-08", "seconds": 600, "pages": 12}]}.
+ */
+function books_stats(DB $db, int $user): void
+{
+	$body = json_decode(file_get_contents('php://input'), true);
+
+	if (!is_array($body) || !is_string($body['device'] ?? null) || $body['device'] === '') {
+		books_reply(400, ['message' => 'Expected {"device": "...", "days": [...]}']);
+	}
+
+	$device = mb_substr($body['device'], 0, 100);
+	$days = is_array($body['days'] ?? null) ? $body['days'] : [];
+
+	if (count($days) > 400) {
+		books_reply(413, ['message' => 'Too many days, max 400']);
+	}
+
+	$valid_day = fn ($d) => is_string($d) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $d);
+	$since = $valid_day($body['since'] ?? null) ? $body['since'] : date('Y-m-d', time() - 400 * 86400);
+	$now = (int) (microtime(true) * 1000);
+
+	$db->exec('BEGIN IMMEDIATE;');
+
+	foreach ($days as $item) {
+		if (!is_array($item) || !$valid_day($item['day'] ?? null)) {
+			continue;
+		}
+
+		$db->simple('INSERT OR REPLACE INTO bcaster_reading_stats (user, device, day, seconds, pages, changed)
+			VALUES (?, ?, ?, ?, ?, ?);',
+			$user,
+			$device,
+			$item['day'],
+			is_numeric($item['seconds'] ?? null) ? min(86400, max(0, (int) $item['seconds'])) : 0,
+			is_numeric($item['pages'] ?? null) ? min(100000, max(0, (int) $item['pages'])) : 0,
+			$now
+		);
+	}
+
+	$db->exec('COMMIT;');
+
+	$others = [];
+
+	foreach ($db->iterate('SELECT day, SUM(seconds) AS seconds, SUM(pages) AS pages FROM bcaster_reading_stats
+		WHERE user = ? AND device != ? AND day >= ? GROUP BY day ORDER BY day;', $user, $device, $since) as $row) {
+		$others[] = ['day' => $row->day, 'seconds' => (int) $row->seconds, 'pages' => (int) $row->pages];
+	}
+
+	books_reply(200, ['others' => $others]);
 }
 
 /** Общая ревизия книг и мест: одна последовательность на пользователя. */
@@ -475,6 +538,9 @@ try {
 			elseif (isset($_GET['delete'])) {
 				$_GET['id'] = $_GET['delete'];
 				books_delete($db, $user);
+			}
+			elseif (isset($_GET['stats'])) {
+				books_stats($db, $user);
 			}
 			books_post($db, $user);
 			break;

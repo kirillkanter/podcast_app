@@ -191,7 +191,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
       _saveNow(push: true);
-      if (_started) _stats.pause();
+      if (_started) unawaited(_stats.pause(sync: _bookSync));
     } else if (state == AppLifecycleState.resumed && _ready) {
       _stats.resume();
       // После возврата в приложение системные строки могли появиться.
@@ -209,7 +209,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     _longPress?.cancel();
     _toastTimer?.cancel();
     unawaited(_bookmarksSub?.cancel());
-    if (_started) _stats.pause();
+    if (_started) unawaited(_stats.pause(sync: _bookSync));
     _saveNow(push: true);
     _focus.dispose();
     super.dispose();

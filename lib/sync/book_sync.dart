@@ -18,6 +18,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 
 import '../books/book_models.dart';
+import '../books/reading_log.dart';
 import '../data/db/books_dao.dart';
 import '../data/db/database.dart';
 import 'gpodder_client.dart';
@@ -194,6 +195,38 @@ class BookSync {
 
   /// Полный проход: удаления, места, список книг, загрузка и скачивание
   /// текстовых книг. Вызывается из [SyncService] после подкастов.
+  /// Статистика чтения: свои дни за [days] дней — на сервер, итоги других
+  /// устройств — сюда. Без синхронизации ничего не делает.
+  Future<void> syncStats({int days = 60}) async {
+    final client = await _sync.openClient();
+    if (client == null) return;
+    try {
+      await syncStatsWith(client, days: days);
+    } finally {
+      client.close();
+    }
+  }
+
+  Future<void> syncStatsWith(GpodderClient client, {int days = 60}) async {
+    final own = await loadDays(_db, days: days, others: false);
+    final since = own.first.day;
+    final others = await client.syncReadingStats(
+      device: await _sync.deviceId(),
+      since: dayId(since),
+      days: [
+        for (final d in own)
+          if (d.seconds > 0 || d.pages > 0) {'day': dayId(d.day), 'seconds': d.seconds, 'pages': d.pages},
+      ],
+    );
+    final byDay = <String, DayStat>{};
+    for (final o in others) {
+      final day = o['day'];
+      if (day is! String) continue;
+      byDay[day] = DayStat(since, (o['seconds'] as num?)?.toInt() ?? 0, (o['pages'] as num?)?.toInt() ?? 0);
+    }
+    await saveOthers(_db, since, byDay);
+  }
+
   Future<void> syncWith(GpodderClient client) async {
     try {
       final device = await _deviceTag();
@@ -222,6 +255,13 @@ class BookSync {
       if (changes['rev'] is int) await _db.setSetting(BookSettings.syncSince, '${changes['rev']}');
       if (changes['used'] is int) await _db.setSetting(BookSettings.serverUsed, '${changes['used']}');
       if (changes['limit'] is int) await _db.setSetting(BookSettings.serverLimit, '${changes['limit']}');
+
+      // Статистика чтения — не главное: сбой не мешает остальному.
+      try {
+        await syncStatsWith(client);
+      } catch (e) {
+        debugPrint('Статистика чтения не синхронизировалась: $e');
+      }
 
       // 4. Текстовые книги этого устройства — на сервер.
       String? quotaError;

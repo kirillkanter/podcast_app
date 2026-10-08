@@ -1,36 +1,22 @@
 /// Статистика чтения: сколько минут в день и сколько страниц перелистано
-/// вперёд. Хранится на устройстве (по ключу на день), не синхронизируется.
+/// вперёд. Хранится на устройстве по дням и обменивается с сервером
+/// (итоги других устройств прибавляются).
 library;
 
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../../books/reading_log.dart';
 import '../../../data/db/database.dart';
+import '../../../sync/book_sync.dart';
 import '../../app_scope.dart';
 import '../../format.dart';
 import '../../theme.dart';
 
-const _prefix = 'reader.stats.';
-
 /// Страница открыта дольше — значит, отошли от книги: считаем не больше.
 const _maxPerPage = Duration(minutes: 3);
-
-String _dayKey(DateTime d) =>
-    '$_prefix${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
-
-class DayStat {
-  const DayStat(this.day, this.seconds, this.pages);
-
-  final DateTime day;
-  final int seconds;
-  final int pages;
-
-  static DayStat parse(DateTime day, String? value) {
-    final parts = (value ?? '').split('|');
-    return DayStat(day, int.tryParse(parts.first) ?? 0, parts.length > 1 ? int.tryParse(parts[1]) ?? 0 : 0);
-  }
-}
 
 /// Счётчик в открытой книге.
 class ReadingStats {
@@ -44,11 +30,12 @@ class ReadingStats {
   /// Читаем (книга на экране, приложение не свёрнуто).
   void resume() => _since ??= DateTime.now();
 
-  /// Свернули приложение или закрыли книгу.
-  void pause() {
+  /// Свернули приложение или закрыли книгу: записать и отправить на сервер.
+  Future<void> pause({BookSync? sync}) async {
     _addTime();
     _since = null;
-    flush();
+    await flush();
+    if (sync != null) unawaited(sync.syncStats().catchError((Object _) {}));
   }
 
   /// Перелистнули страницу ([forward] — вперёд, она считается прочитанной).
@@ -73,21 +60,8 @@ class ReadingStats {
     _seconds = 0;
     _pages = 0;
     try {
-      final key = _dayKey(DateTime.now());
-      final old = DayStat.parse(DateTime.now(), await _db.setting(key));
-      await _db.setSetting(key, '${old.seconds + seconds}|${old.pages + pages}');
+      await addToToday(_db, seconds: seconds, pages: pages);
     } catch (_) {}
-  }
-
-  /// Последние [days] дней, начиная с сегодняшнего (сегодня — последний).
-  static Future<List<DayStat>> load(AppDatabase db, {int days = 30}) async {
-    final today = DateTime.now();
-    final out = <DayStat>[];
-    for (var i = days - 1; i >= 0; i--) {
-      final d = DateTime(today.year, today.month, today.day - i);
-      out.add(DayStat.parse(d, await db.setting(_dayKey(d))));
-    }
-    return out;
   }
 }
 
@@ -98,13 +72,24 @@ String _minutes(int seconds) {
 }
 
 Future<void> showReadingStats(BuildContext context) {
-  final db = AppScope.of(context).db;
+  final scope = AppScope.of(context);
+  final db = scope.db;
+  // Сразу — что есть; заодно обмен с сервером, после него — общие итоги.
+  final synced = scope.bookSync?.syncStats().catchError((Object _) {});
+  final stream = () async* {
+    yield await loadDays(db);
+    if (synced != null) {
+      await synced;
+      yield await loadDays(db);
+    }
+  }()
+      .asBroadcastStream();
   return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
-    builder: (context) => FutureBuilder<List<DayStat>>(
-      future: ReadingStats.load(db),
+    builder: (context) => StreamBuilder<List<DayStat>>(
+      stream: stream,
       builder: (context, snap) {
         final c = BcColors.of(context);
         final days = snap.data;
@@ -190,7 +175,8 @@ Future<void> showReadingStats(BuildContext context) {
             ),
             const SizedBox(height: 16),
             Text('За 30 дней — ${_minutes(monthSeconds)}. Считается время, пока книга открыта на экране; '
-                'страница дольше трёх минут засчитывается как три минуты.',
+                'страница дольше трёх минут засчитывается как три минуты. Итоги общие для всех устройств '
+                'с синхронизацией.',
                 style: TextStyle(fontSize: 12, height: 1.4, color: c.muted)),
           ]),
         );

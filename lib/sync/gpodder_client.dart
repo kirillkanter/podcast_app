@@ -243,6 +243,19 @@ class GpodderClient {
     return newer;
   }
 
+  /// Обмен статистикой чтения: свои дни уходят, приходят итоги других
+  /// устройств по дням с [since] («2026-09-01»).
+  Future<List<Map<String, Object?>>> syncReadingStats({
+    required String device,
+    required String since,
+    required List<Map<String, Object?>> days,
+  }) async {
+    final data = await _send('POST', '/books.php',
+        query: {'stats': '1'}, body: {'device': device, 'since': since, 'days': days}, timeout: const Duration(seconds: 15));
+    final list = data is Map<String, Object?> ? data['others'] : null;
+    return list is List ? list.whereType<Map<String, Object?>>().toList() : const [];
+  }
+
   /// Загрузить файл книги. Сначала PUT (на него не действует лимит размера
   /// POST в PHP), если хостинг его не пропускает — POST.
   Future<void> uploadBookFile(

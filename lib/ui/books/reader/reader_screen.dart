@@ -5,6 +5,7 @@
 library;
 
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart';
@@ -145,6 +146,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     unawaited(keepScreenOn(true));
+    _startClock();
   }
 
   @override
@@ -192,6 +194,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       if (_started) _stats.pause();
     } else if (state == AppLifecycleState.resumed && _ready) {
       _stats.resume();
+      // После возврата в приложение системные строки могли появиться.
+      setState(() => _immersive = null);
     }
   }
 
@@ -199,6 +203,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     unawaited(keepScreenOn(false));
+    _clockTimer?.cancel();
+    if (_immersive == true) unawaited(setImmersive(false));
     _saveTimer?.cancel();
     _longPress?.cancel();
     _toastTimer?.cancel();
@@ -841,20 +847,102 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
           _closeMenu();
         }
       },
-      child: Scaffold(
-        backgroundColor: paper.bg,
-        body: !_ready
-            ? const SizedBox.shrink()
-            : SafeArea(
-                child: Focus(
+      child: AnnotatedRegion<SystemUiOverlayStyle>(
+        value: _overlayStyle(paper),
+        child: Scaffold(
+          backgroundColor: paper.bg,
+          body: !_ready
+              ? const SizedBox.shrink()
+              : Focus(
                   focusNode: _focus,
                   autofocus: true,
                   onKeyEvent: _onKey,
-                  child: LayoutBuilder(builder: (context, box) => _layout(context, box, paper)),
+                  child: LayoutBuilder(builder: (context, full) {
+                    final insets = _stableInsets(context, full.biggest);
+                    _screenSize = full.biggest;
+                    _syncSystemUi();
+                    return Stack(children: [
+                      Positioned.fill(
+                        child: Padding(
+                          padding: insets,
+                          child: LayoutBuilder(builder: (context, box) => _layout(context, box, paper)),
+                        ),
+                      ),
+                      // Меню книги: страница уменьшается и становится листом в ленте.
+                      if (_menu) Positioned.fill(child: _menuView(paper)),
+                    ]);
+                  }),
                 ),
-              ),
+        ),
       ),
     );
+  }
+
+  // -------------------------------------------------------------------------
+  // Весь экран
+  // -------------------------------------------------------------------------
+
+  EdgeInsets _insets = EdgeInsets.zero;
+  bool? _insetsLandscape;
+  bool? _immersive;
+
+  /// Отступы от краёв экрана (вырез камеры, системные строки) — только
+  /// растут: когда строки прячутся или появляются (меню), текст не
+  /// перестраивается. Сбрасываются при повороте.
+  EdgeInsets _stableInsets(BuildContext context, Size size) {
+    final landscape = size.width > size.height;
+    final p = MediaQuery.viewPaddingOf(context);
+    if (landscape != _insetsLandscape) {
+      _insetsLandscape = landscape;
+      _insets = p;
+    } else {
+      _insets = EdgeInsets.fromLTRB(
+        math.max(_insets.left, p.left),
+        math.max(_insets.top, p.top),
+        math.max(_insets.right, p.right),
+        math.max(_insets.bottom, p.bottom),
+      );
+    }
+    return _insets;
+  }
+
+  /// Системные строки: спрятаны во время чтения, видны в меню.
+  void _syncSystemUi() {
+    final want = _style.fullscreen && !_menu;
+    if (want == _immersive) return;
+    _immersive = want;
+    unawaited(setImmersive(want));
+  }
+
+  /// Цвет значков в системной строке: под меню и под страницу.
+  SystemUiOverlayStyle _overlayStyle(Paper paper) {
+    final darkBg = _menu ? Theme.of(context).brightness == Brightness.dark : paper == Paper.dark;
+    return (darkBg ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark).copyWith(
+      statusBarColor: Colors.transparent,
+      systemNavigationBarColor: Colors.transparent,
+    );
+  }
+
+  // Часы и заряд в строке над текстом (системные значки спрятаны).
+  String _clock = '';
+  int? _battery;
+  Timer? _clockTimer;
+  int _clockTicks = 0;
+
+  void _startClock() {
+    void tick() {
+      final now = DateTime.now();
+      final t = '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+      if (t != _clock && mounted) setState(() => _clock = t);
+      if (_clockTicks++ % 8 == 0) {
+        unawaited(batteryLevel().then((b) {
+          if (mounted && b != _battery) setState(() => _battery = b);
+        }));
+      }
+    }
+
+    tick();
+    _clockTimer = Timer.periodic(const Duration(seconds: 15), (_) => tick());
   }
 
   Widget _layout(BuildContext context, BoxConstraints box, Paper paper) {
@@ -871,7 +959,6 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     _gutter = gutter;
     _statusH = statusH;
     _hPad = hPad;
-    _screenSize = box.biggest;
 
     // Сменились размеры или шрифт — встаём на то же место.
     final key = _cacheKey(_chapter);
@@ -1001,8 +1088,6 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
           bottom: _statusH + 4,
           child: Center(child: _ReturnPill(label: _returnLabel(_returnTo!), onTap: _goBack)),
         ),
-      // Меню книги: страница уменьшается и становится листом в ленте.
-      if (_menu) Positioned.fill(child: _menuView(paper, pages)),
     ]);
   }
 
@@ -1019,20 +1104,36 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     _goTo(to);
   }
 
-  /// Строка над страницей: название главы.
-  Widget _statusTop(int chapter, Paper paper) => SizedBox(
-        height: _statusH,
-        child: Center(
+  /// Строка над страницей: название главы; во весь экран — ещё время
+  /// и заряд слева (системные значки спрятаны).
+  Widget _statusTop(int chapter, Paper paper) {
+    final faint = TextStyle(fontSize: 12, color: paper.faint, fontFamily: bodyFont);
+    final showClock = _style.fullscreen && Platform.isAndroid && _clock.isNotEmpty;
+    return SizedBox(
+      height: _statusH,
+      child: Stack(children: [
+        Center(
           child: Padding(
-            padding: EdgeInsets.symmetric(horizontal: _cornerSize.width),
+            padding: EdgeInsets.symmetric(horizontal: showClock ? 96 : _cornerSize.width),
             child: Text(_content.chapters[chapter].title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 12, color: paper.faint, fontFamily: bodyFont)),
+                maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center, style: faint),
           ),
         ),
-      );
+        if (showClock)
+          Positioned(
+            left: _hPad,
+            top: 0,
+            bottom: 0,
+            child: Center(
+              child: Text(
+                [_clock, if (_battery != null) '$_battery %'].join(' · '),
+                style: faint.copyWith(fontFeatures: const [FontFeature.tabularFigures()]),
+              ),
+            ),
+          ),
+      ]),
+    );
+  }
 
   /// Строка под страницей: номер страницы и сколько читать до конца главы.
   Widget _statusBottom(int chapter, int page, Paper paper) {
@@ -1099,7 +1200,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     final last = math.min(page + _step - 1, _pagesOf(chapter).length - 1);
     return ColoredBox(
       color: paper.bg,
-      child: Stack(children: [
+      child: Padding(
+        padding: _insets,
+        child: Stack(children: [
         Column(children: [
           _statusTop(chapter, paper),
           Expanded(
@@ -1115,7 +1218,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
         ]),
         if (_bookmarksAt(chapter, last).isNotEmpty)
           Positioned(top: 0, right: 24, child: _Ribbon(color: _style.ribbonColor(c.bar))),
-      ]),
+        ]),
+      ),
     );
   }
 
@@ -1178,7 +1282,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     ];
   }
 
-  Widget _menuView(Paper paper, List<ReaderPage> pages) {
+  Widget _menuView(Paper paper) {
     final book = _MenuBookView(this, paper);
     return ReaderMenu(
       key: _menuKey,

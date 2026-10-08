@@ -1,6 +1,8 @@
 /// Настройки текста читалки: размер, шрифт, фон, интервал, две колонки.
 library;
 
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import '../../theme.dart';
@@ -15,8 +17,6 @@ class ReaderStyleSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = BcColors.of(context);
-    final brightness = Theme.of(context).brightness;
-    final paper = style.paperFor(brightness);
     Widget label(String t) => Padding(
           padding: const EdgeInsets.only(bottom: 8),
           child: Text(t, style: TextStyle(fontSize: 13, color: c.muted)),
@@ -70,10 +70,21 @@ class ReaderStyleSheet extends StatelessWidget {
           const SizedBox(height: 16),
           label('Фон'),
           Row(children: [
+            Expanded(
+              child: _StyleButton(
+                selected: style.paper == null,
+                onTap: () => onChanged(style.copyWith(autoPaper: true)),
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  Text('Авто', style: TextStyle(fontSize: 14, color: c.text)),
+                  Text('как приложение', style: TextStyle(fontSize: 11, color: c.muted)),
+                ]),
+              ),
+            ),
+            const SizedBox(width: 8),
             for (final p in Paper.values) ...[
               Expanded(
                 child: _StyleButton(
-                  selected: paper == p,
+                  selected: style.paper == p,
                   background: p.bg,
                   onTap: () => onChanged(style.copyWith(paper: p)),
                   child: Text(p.label, style: TextStyle(fontSize: 14, color: p.ink)),
@@ -151,6 +162,15 @@ class ReaderStyleSheet extends StatelessWidget {
             subtitle: Text('Когда телефон повёрнут набок — разворот, как у бумажной книги',
                 style: TextStyle(fontSize: 12, color: c.muted)),
           ),
+          if (Platform.isAndroid)
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              value: style.fullscreen,
+              onChanged: (v) => onChanged(style.copyWith(fullscreen: v)),
+              title: Text('Во весь экран', style: TextStyle(fontSize: 15, color: c.text)),
+              subtitle: Text('Системные значки прячутся, время и заряд — в строке над текстом',
+                  style: TextStyle(fontSize: 12, color: c.muted)),
+            ),
         ]),
       ),
     );

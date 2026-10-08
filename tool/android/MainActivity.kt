@@ -38,6 +38,12 @@ class MainActivity : AudioServiceActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        // Полноэкранная читалка: содержимое и под вырезом камеры, без чёрной полосы.
+        if (Build.VERSION.SDK_INT >= 28) {
+            window.attributes = window.attributes.apply {
+                layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
+        }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
             .setMethodCallHandler { call, result ->
                 when (call.method) {
@@ -84,6 +90,10 @@ class MainActivity : AudioServiceActivity() {
                             window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                         }
                         result.success(null)
+                    }
+                    "batteryLevel" -> {
+                        val bm = getSystemService(Context.BATTERY_SERVICE) as android.os.BatteryManager
+                        result.success(bm.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY))
                     }
                     "mediaPermissionGranted" -> result.success(mediaPermissionGranted())
                     "requestMediaPermission" -> requestMediaPermission(result)

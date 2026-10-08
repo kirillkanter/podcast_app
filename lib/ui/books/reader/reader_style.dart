@@ -34,6 +34,7 @@ const _turnKey = 'reader.pageTurn';
 const _ribbonKey = 'reader.bookmarkColor';
 const _marginKey = 'reader.margin';
 const _justifyKey = 'reader.justify';
+const _fullKey = 'reader.fullscreen';
 
 /// Поля страницы: узкие, обычные, широкие (множитель к обычным).
 const readerMargins = [0.45, 1.0, 1.75];
@@ -76,6 +77,7 @@ class ReaderStyle {
     this.bookmarkColor = 0,
     this.margin = 1,
     this.justify = true,
+    this.fullscreen = true,
   });
 
   /// Индекс в [readerSizes].
@@ -98,6 +100,9 @@ class ReaderStyle {
 
   /// Выравнивание абзацев по ширине (иначе — по левому краю).
   final bool justify;
+
+  /// Прятать системные строки (время, значки) во время чтения.
+  final bool fullscreen;
 
   double get marginFactor => readerMargins[margin.clamp(0, readerMargins.length - 1)];
 
@@ -125,17 +130,20 @@ class ReaderStyle {
     int? bookmarkColor,
     int? margin,
     bool? justify,
+    bool? fullscreen,
+    bool autoPaper = false,
   }) =>
       ReaderStyle(
         size: size ?? this.size,
         font: font ?? this.font,
-        paper: paper ?? this.paper,
+        paper: autoPaper ? null : (paper ?? this.paper),
         spacing: spacing ?? this.spacing,
         landscapeSpread: landscapeSpread ?? this.landscapeSpread,
         pageTurn: pageTurn ?? this.pageTurn,
         bookmarkColor: bookmarkColor ?? this.bookmarkColor,
         margin: margin ?? this.margin,
         justify: justify ?? this.justify,
+        fullscreen: fullscreen ?? this.fullscreen,
       );
 
   static Future<ReaderStyle> load(AppDatabase db) async {
@@ -148,7 +156,9 @@ class ReaderStyle {
     final ribbon = int.tryParse(await db.setting(_ribbonKey) ?? '');
     final margin = int.tryParse(await db.setting(_marginKey) ?? '');
     final justify = await db.setting(_justifyKey);
+    final full = await db.setting(_fullKey);
     return ReaderStyle(
+      fullscreen: full != 'false',
       margin: margin ?? 1,
       justify: justify != 'false',
       landscapeSpread: spread == 'true',
@@ -171,5 +181,6 @@ class ReaderStyle {
     await db.setSetting(_ribbonKey, '$bookmarkColor');
     await db.setSetting(_marginKey, '$margin');
     await db.setSetting(_justifyKey, '$justify');
+    await db.setSetting(_fullKey, '$fullscreen');
   }
 }

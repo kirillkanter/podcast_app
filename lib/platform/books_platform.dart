@@ -98,3 +98,20 @@ void _windowsKeepAwake(bool on) {
       .lookupFunction<_SetStateNative, _SetStateDart>('SetThreadExecutionState');
   _setThreadExecutionState!(on ? esContinuous | esSystemRequired | esDisplayRequired : esContinuous);
 }
+
+/// Заряд батареи в процентах (Android); `null` — неизвестно.
+Future<int?> batteryLevel() async {
+  if (!Platform.isAndroid) return null;
+  try {
+    return await _system.invokeMethod<int>('batteryLevel');
+  } catch (_) {
+    return null;
+  }
+}
+
+/// Полноэкранный режим читалки: системные строки прячутся (Android),
+/// смахивание от края показывает их на время.
+Future<void> setImmersive(bool on) async {
+  if (!Platform.isAndroid) return;
+  await SystemChrome.setEnabledSystemUIMode(on ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge);
+}

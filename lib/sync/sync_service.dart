@@ -20,9 +20,11 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
+import '../data/db/books_dao.dart' show BookSettings;
 import '../data/db/database.dart';
 import '../data/podcast_repository.dart';
 import '../feed/feed_url.dart';
+import 'book_sync.dart';
 import 'credentials.dart';
 import 'gpodder_client.dart';
 
@@ -84,6 +86,7 @@ class SyncService {
         _repository = repository,
         _clientFactory = clientFactory,
         _caption = deviceCaption ?? _defaultCaption(),
+        _explicitCaption = deviceCaption,
         _type = deviceType ?? _defaultType();
 
   final AppDatabase _db;
@@ -93,10 +96,31 @@ class SyncService {
   final PodcastRepository _repository;
   final http.Client Function()? _clientFactory;
   final String _caption;
+  final String? _explicitCaption;
   final String _type;
 
   /// Идёт ли синхронизация (для индикатора в интерфейсе).
   final syncing = ValueNotifier<bool>(false);
+
+  /// Книги: синхронизируются в том же проходе, после подкастов.
+  BookSync? books;
+
+  /// Имя устройства для людей: показывается на других устройствах
+  /// («продолжить с места на …»).
+  String get deviceName => _explicitCaption ?? _deviceName();
+
+  /// Клиент с сохранёнными логином и паролем или `null`, если
+  /// синхронизация не настроена. Закрыть после использования.
+  Future<GpodderClient?> openClient() async {
+    final username = await _db.setting(SyncSettings.username);
+    final password = await _password.read();
+    if (username == null || username.isEmpty || password == null || password.isEmpty) return null;
+    final server = await _db.setting(SyncSettings.server) ?? SyncSettings.defaultServer;
+    return GpodderClient(server: server, username: username, password: password, client: _clientFactory?.call());
+  }
+
+  /// Постоянный идентификатор этого устройства.
+  Future<String> deviceId() => _deviceId();
 
   Future<SyncResult>? _running;
   Timer? _scheduled;
@@ -190,6 +214,8 @@ class SyncService {
       final subs = await _syncSubscriptions(client, deviceId);
       final episodes = await _syncEpisodes(client, deviceId);
       final state = await _syncState(client);
+      // Книги — отдельно: их сбой не мешает подкастам.
+      await books?.syncWith(client);
 
       await _db.setSetting(SyncSettings.lastSync, DateTime.now().toIso8601String());
       await _db.setSetting(SyncSettings.lastError, '');
@@ -483,6 +509,7 @@ class SyncService {
       SyncSettings.stateSince,
       SyncSettings.deviceRegistered,
       SyncSettings.lastSync,
+      BookSettings.syncSince,
     ]) {
       await _db.setSetting(key, '');
     }
@@ -491,6 +518,8 @@ class SyncService {
     await _db.customStatement('UPDATE episode_states SET dirty = 1');
     await _db.customStatement('UPDATE queue_entries SET dirty = 1');
     await _db.customStatement('UPDATE episode_archives SET dirty = 1');
+    await _db.customStatement('UPDATE book_progresses SET dirty = 1');
+    await _db.customStatement('UPDATE books SET uploaded = 0');
   }
 
   static String _defaultCaption() {
@@ -498,6 +527,16 @@ class SyncService {
     if (Platform.isAndroid) return 'Basic Caster (Android)';
     if (Platform.isWindows) return 'Basic Caster (Windows)';
     return 'Basic Caster';
+  }
+
+  static String _deviceName() {
+    if (kIsWeb) return 'браузер';
+    if (Platform.isWindows) {
+      final host = Platform.localHostname;
+      return host.isEmpty ? 'компьютер' : 'компьютер $host';
+    }
+    if (Platform.isAndroid) return 'телефон Android';
+    return 'другое устройство';
   }
 
   static String _defaultType() {

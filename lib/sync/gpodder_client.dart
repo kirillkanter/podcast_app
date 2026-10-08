@@ -10,12 +10,12 @@ library;
 
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io' show SocketException;
+import 'dart:io' show File, SocketException;
 
 import 'package:http/http.dart' as http;
 
 class SyncException implements Exception {
-  const SyncException(this.message, {this.unauthorized = false, this.notFound = false});
+  const SyncException(this.message, {this.unauthorized = false, this.notFound = false, this.quota = false, this.status});
 
   final String message;
 
@@ -24,6 +24,12 @@ class SyncException implements Exception {
 
   /// Адреса нет на сервере (код 404).
   final bool notFound;
+
+  /// На сервере не хватает места для книг.
+  final bool quota;
+
+  /// Код ответа сервера, если ответ был.
+  final int? status;
 
   @override
   String toString() => message;
@@ -202,9 +208,145 @@ class GpodderClient {
     }
   }
 
+  // -------------------------------------------------------------------------
+  // Книги (books.php рядом с oPodSync)
+  // -------------------------------------------------------------------------
+
+  /// Изменения книг и мест в книгах после ревизии [since].
+  /// Нет books.php на сервере — [SyncException.notFound].
+  Future<Map<String, Object?>> bookChanges(int since) async {
+    final data = await _send('GET', '/books.php', query: {'since': '$since'});
+    if (data is! Map<String, Object?>) throw const SyncException('Сервер вернул неожиданный ответ на запрос книг.');
+    return data;
+  }
+
+  /// Место в одной книге на сервере (или `null`, если его там нет).
+  Future<Map<String, Object?>?> bookProgress(String key, {Duration? timeout}) async {
+    final data = await _send('GET', '/books.php', query: {'progress': key}, timeout: timeout);
+    if (data is! Map<String, Object?>) throw const SyncException('Сервер вернул неожиданный ответ на запрос места в книге.');
+    final p = data['progress'];
+    return p is Map<String, Object?> ? p : null;
+  }
+
+  /// Отправить места в книгах. Возвращает записи, которые на сервере новее.
+  Future<List<Map<String, Object?>>> uploadBookProgress(List<Map<String, Object?>> items, {Duration? timeout}) async {
+    final newer = <Map<String, Object?>>[];
+    for (var i = 0; i < items.length; i += 500) {
+      final chunk = items.sublist(i, i + 500 > items.length ? items.length : i + 500);
+      final data = await _send('POST', '/books.php', body: {'progress': chunk}, timeout: timeout);
+      final list = data is Map<String, Object?> ? data['progress'] : null;
+      if (list is List) newer.addAll(list.whereType<Map<String, Object?>>());
+    }
+    return newer;
+  }
+
+  /// Загрузить файл книги. Сначала PUT (на него не действует лимит размера
+  /// POST в PHP), если хостинг его не пропускает — POST.
+  Future<void> uploadBookFile(
+    String key,
+    File file, {
+    required String title,
+    String? author,
+    required String format,
+  }) async {
+    final query = {'upload': key, 'title': title, 'format': format, 'author': ?author};
+    for (final method in ['PUT', 'POST']) {
+      final uri = Uri.parse('$baseUrl/books.php').replace(queryParameters: query);
+      final request = http.StreamedRequest(method, uri)
+        ..headers['authorization'] = _auth
+        ..headers['accept'] = 'application/json'
+        ..headers['content-type'] = 'application/octet-stream'
+        ..headers['user-agent'] = _userAgent
+        ..contentLength = await file.length();
+      final sending = _client.send(request);
+      unawaited(file.openRead().listen(request.sink.add, onDone: request.sink.close, onError: request.sink.addError).asFuture<void>().catchError((_) {}));
+      final http.Response response;
+      try {
+        response = await http.Response.fromStream(await sending.timeout(const Duration(minutes: 10)));
+      } on TimeoutException {
+        throw const SyncException('Сервер синхронизации не ответил вовремя.');
+      } on SocketException {
+        throw const SyncException('Нет соединения с сервером синхронизации.');
+      } on http.ClientException catch (e) {
+        throw SyncException('Ошибка соединения: ${e.message}');
+      }
+      // Метод запрещён хостингом — пробуем POST.
+      if (method == 'PUT' && const {403, 405, 501}.contains(response.statusCode)) continue;
+      _check(response);
+      return;
+    }
+  }
+
+  /// Скачать файл книги в [target].
+  Future<void> downloadBookFile(String key, File target) async {
+    final uri = Uri.parse('$baseUrl/books.php').replace(queryParameters: {'download': key});
+    final request = http.Request('GET', uri)
+      ..headers['authorization'] = _auth
+      ..headers['user-agent'] = _userAgent;
+    final http.StreamedResponse response;
+    try {
+      response = await _client.send(request).timeout(_timeout);
+    } on TimeoutException {
+      throw const SyncException('Сервер синхронизации не ответил вовремя.');
+    } on SocketException {
+      throw const SyncException('Нет соединения с сервером синхронизации.');
+    } on http.ClientException catch (e) {
+      throw SyncException('Ошибка соединения: ${e.message}');
+    }
+    if (response.statusCode != 200) {
+      _check(await http.Response.fromStream(response));
+      throw SyncException('Не удалось скачать книгу (код ${response.statusCode}).', status: response.statusCode);
+    }
+    final sink = target.openWrite();
+    try {
+      await sink.addStream(response.stream.timeout(const Duration(minutes: 2)));
+      await sink.close();
+    } catch (e) {
+      try {
+        await sink.close();
+      } catch (_) {}
+      throw SyncException('Загрузка книги прервалась: $e');
+    }
+  }
+
+  /// Удалить книгу с сервера (и со всех устройств).
+  Future<void> deleteBook(String key) async {
+    try {
+      await _send('DELETE', '/books.php', query: {'id': key});
+    } on SyncException catch (e) {
+      if (!const {403, 405, 501}.contains(e.status)) rethrow;
+      await _send('POST', '/books.php', query: {'delete': key});
+    }
+  }
+
   void close() => _client.close();
 
-  Future<Object?> _send(String method, String path, {Object? body, Map<String, String>? query}) async {
+  static const _userAgent = 'BasicCaster/0.9 (+https://bcaster.ru)';
+
+  void _check(http.Response response) {
+    final type = response.headers['content-type'] ?? '';
+    final code = response.statusCode;
+    if (code == 401) throw const SyncException('Неверный логин или пароль.', unauthorized: true, status: 401);
+    if (code == 404) {
+      throw const SyncException('Сервер синхронизации не нашёл адрес (код 404). Проверьте адрес сервера.',
+          notFound: true, status: 404);
+    }
+    if (code == 507) {
+      throw const SyncException('На сервере закончилось место для книг (2 ГБ). Удалите ненужные книги.',
+          quota: true, status: 507);
+    }
+    if (code == 413) {
+      throw const SyncException('Файл книги слишком большой для сервера (больше 200 МБ).', status: 413);
+    }
+    if (type.contains('text/html') && (code < 200 || code >= 300)) {
+      throw SyncException('Сервер вернул веб-страницу вместо данных (код $code). Проверьте адрес сервера.', status: code);
+    }
+    if (code < 200 || code >= 300) {
+      throw SyncException('Сервер синхронизации вернул ошибку (код $code).', status: code);
+    }
+  }
+
+  Future<Object?> _send(String method, String path, {Object? body, Map<String, String>? query, Duration? timeout}) async {
     final Uri uri;
     try {
       uri = Uri.parse('$baseUrl$path').replace(queryParameters: query);
@@ -214,7 +356,7 @@ class GpodderClient {
     final request = http.Request(method, uri)
       ..headers['authorization'] = _auth
       ..headers['accept'] = 'application/json'
-      ..headers['user-agent'] = 'BasicCaster/0.9 (+https://bcaster.ru)';
+      ..headers['user-agent'] = _userAgent;
     if (body != null) {
       request.headers['content-type'] = 'application/json';
       request.body = jsonEncode(body);
@@ -222,7 +364,7 @@ class GpodderClient {
 
     final http.Response response;
     try {
-      response = await http.Response.fromStream(await _client.send(request).timeout(_timeout));
+      response = await http.Response.fromStream(await _client.send(request).timeout(timeout ?? _timeout));
     } on TimeoutException {
       throw const SyncException('Сервер синхронизации не ответил вовремя.');
     } on SocketException {
@@ -233,11 +375,13 @@ class GpodderClient {
 
     final type = response.headers['content-type'] ?? '';
     if (response.statusCode == 401) {
-      throw const SyncException('Неверный логин или пароль.', unauthorized: true);
+      throw const SyncException('Неверный логин или пароль.', unauthorized: true, status: 401);
     }
     if (response.statusCode == 404) {
-      throw const SyncException('Сервер синхронизации не нашёл адрес (код 404). Проверьте адрес сервера.', notFound: true);
+      throw const SyncException('Сервер синхронизации не нашёл адрес (код 404). Проверьте адрес сервера.',
+          notFound: true, status: 404);
     }
+    if (response.statusCode == 507 || response.statusCode == 413) _check(response);
     if (type.contains('text/html')) {
       throw SyncException(
         'Сервер вернул веб-страницу вместо данных (код ${response.statusCode}). '
@@ -245,7 +389,7 @@ class GpodderClient {
       );
     }
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw SyncException('Сервер синхронизации вернул ошибку (код ${response.statusCode}).');
+      throw SyncException('Сервер синхронизации вернул ошибку (код ${response.statusCode}).', status: response.statusCode);
     }
     final text = utf8.decode(response.bodyBytes).trim();
     if (text.isEmpty) return null;

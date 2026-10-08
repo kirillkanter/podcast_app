@@ -4,7 +4,7 @@ import 'package:drift_flutter/drift_flutter.dart';
 import '../../feed/models.dart';
 import 'tables.dart';
 
-export 'tables.dart' show DownloadStatus;
+export 'tables.dart' show DownloadStatus, BookKind, BookShelf;
 
 part 'database.g.dart';
 
@@ -148,6 +148,12 @@ class FeedSaveResult {
   EpisodeArchives,
   Downloads,
   AppSettings,
+  Books,
+  BookTracks,
+  BookChapters,
+  BookProgresses,
+  BookBookmarks,
+  BookSources,
 ])
 class AppDatabase extends _$AppDatabase {
   AppDatabase(super.e);
@@ -156,7 +162,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.defaults() : super(driftDatabase(name: 'podcasts'));
 
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 4;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -176,6 +182,15 @@ class AppDatabase extends _$AppDatabase {
               'INSERT OR IGNORE INTO episode_archives (episode_id, archived, updated_at, dirty) '
               "SELECT episode_id, 1, strftime('%Y-%m-%dT%H:%M:%S', 'now', 'localtime'), 0 FROM episode_states WHERE played = 1",
             );
+          }
+          if (from < 4) {
+            // Книги: аудиокниги и текстовые.
+            await m.createTable(books);
+            await m.createTable(bookTracks);
+            await m.createTable(bookChapters);
+            await m.createTable(bookProgresses);
+            await m.createTable(bookBookmarks);
+            await m.createTable(bookSources);
           }
         },
         beforeOpen: (details) async {

@@ -9,7 +9,9 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import 'app_services.dart';
+import 'books/book_library.dart';
 import 'catalog/podcast_catalog.dart';
+import 'data/db/books_dao.dart';
 import 'data/db/database.dart';
 import 'data/podcast_repository.dart';
 import 'download/download_manager.dart';
@@ -17,6 +19,7 @@ import 'platform/background.dart';
 import 'platform/desktop.dart';
 import 'platform/notifications.dart';
 import 'player/podcast_audio_handler.dart';
+import 'sync/book_sync.dart';
 import 'sync/sync_service.dart';
 import 'ui/scrolling.dart';
 import 'ui/app_scope.dart';
@@ -79,6 +82,8 @@ Future<void> main(List<String> args) async {
         onPlayed: downloads.onPlayed,
         // Перед запуском — прогресс с других устройств (не дольше 3 секунд).
         beforePlay: (_) => sync.pullProgress(),
+        // Место в книге — на сервер (книги сверяются отдельно, см. book_sync.dart).
+        onBookProgress: services.bookSync.pushSoon,
       ),
       config: const AudioServiceConfig(
         androidNotificationChannelId: 'ru.bcaster.app.playback',
@@ -129,6 +134,8 @@ Future<void> main(List<String> args) async {
     downloads: downloads,
     catalog: catalog,
     sync: sync,
+    books: services.books,
+    bookSync: services.bookSync,
   ));
   // Эпизод, который играл перед закрытием, — снова в мини-плеере.
   unawaited(audio?.restoreLast());
@@ -143,6 +150,8 @@ class PodcastApp extends StatefulWidget {
     this.downloads,
     this.catalog,
     this.sync,
+    this.books,
+    this.bookSync,
     this.refreshOnStart = true,
   });
 
@@ -152,6 +161,8 @@ class PodcastApp extends StatefulWidget {
   final DownloadManager? downloads;
   final PodcastCatalog? catalog;
   final SyncService? sync;
+  final BookLibrary? books;
+  final BookSync? bookSync;
   final bool refreshOnStart;
 
   @override
@@ -165,6 +176,7 @@ class _PodcastAppState extends State<PodcastApp> {
   StreamSubscription<int>? _dirtySubscriptions;
   StreamSubscription<int>? _dirtyState;
   StreamSubscription<String?>? _lastEpisode;
+  StreamSubscription<int>? _dirtyBooks;
   StreamSubscription<String?>? _rotate;
   AppLifecycleListener? _lifecycle;
   Timer? _periodicSync;
@@ -205,6 +217,11 @@ class _PodcastAppState extends State<PodcastApp> {
         audio.restoreLast();
       }
     });
+    // Место в книге изменилось здесь — на сервер (при слушании это делает плеер,
+    // в читалке — экран чтения; здесь — то, что могло остаться неотправленным).
+    _dirtyBooks = widget.books == null
+        ? null
+        : widget.db.watchDirtyBookProgressCount().where((n) => n > 0).listen((_) => widget.bookSync?.pushSoon(const Duration(seconds: 30)));
     if (sync != null) {
       sync.schedule(const Duration(seconds: 3));
       // Подписка или отписка — синхронизировать через несколько секунд.
@@ -256,6 +273,7 @@ class _PodcastAppState extends State<PodcastApp> {
     _dirtySubscriptions?.cancel();
     _dirtyState?.cancel();
     _lastEpisode?.cancel();
+    _dirtyBooks?.cancel();
     _rotate?.cancel();
     _lifecycle?.dispose();
 
@@ -272,6 +290,8 @@ class _PodcastAppState extends State<PodcastApp> {
       downloads: widget.downloads,
       catalog: widget.catalog,
       sync: widget.sync,
+      books: widget.books,
+      bookSync: widget.bookSync,
       child: StreamBuilder<String?>(
         stream: _themeSetting,
         builder: (context, theme) => MaterialApp(

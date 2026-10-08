@@ -214,3 +214,127 @@ class AppSettings extends Table {
   @override
   Set<Column> get primaryKey => {key};
 }
+
+// ---------------------------------------------------------------------------
+// Книги: аудиокниги и текстовые. Отдельно от подкастов — свои таблицы,
+// своя синхронизация (books.php на сервере).
+// ---------------------------------------------------------------------------
+
+enum BookKind { audio, text }
+
+/// Полка: слушаю/читаю, отложено, готово.
+enum BookShelf { reading, later, done }
+
+@DataClassName('Book')
+class Books extends Table {
+  IntColumn get id => integer().autoIncrement()();
+
+  /// Ключ для синхронизации, одинаковый на всех устройствах:
+  /// «a:…» — отпечаток аудиокниги (имена и размеры файлов),
+  /// «t:…» — sha1 файла текстовой книги.
+  TextColumn get key => text().unique()();
+  TextColumn get kind => textEnum<BookKind>()();
+  TextColumn get title => text()();
+  TextColumn get author => text().nullable()();
+  TextColumn get narrator => text().nullable()();
+  TextColumn get description => text().nullable()();
+  TextColumn get language => text().nullable()();
+
+  /// mp3, m4b, epub, fb2, fbz, txt.
+  TextColumn get format => text()();
+
+  /// Аудиокнига — папка или файл; текстовая — файл в папке приложения
+  /// (`null` — книга есть только на сервере, ещё не скачана).
+  TextColumn get path => text().nullable()();
+
+  /// Папка-источник, из которой найдена аудиокнига; `null` — добавлена файлом.
+  TextColumn get sourceRoot => text().nullable()();
+  TextColumn get coverPath => text().nullable()();
+  IntColumn get sizeBytes => integer().withDefault(const Constant(0))();
+
+  /// Длительность аудиокниги.
+  IntColumn get durationMs => integer().nullable()();
+  TextColumn get shelf => textEnum<BookShelf>().withDefault(Constant(BookShelf.reading.name))();
+
+  /// Скорость этой книги; `null` — общая.
+  RealColumn get speed => real().nullable()();
+
+  /// Файлы аудиокниги не нашлись при последней проверке папки.
+  BoolColumn get missing => boolean().withDefault(const Constant(false))();
+
+  /// Текстовая книга загружена на сервер.
+  BoolColumn get uploaded => boolean().withDefault(const Constant(false))();
+
+  /// Удалена здесь, удаление ещё не дошло до сервера.
+  BoolColumn get deletePending => boolean().withDefault(const Constant(false))();
+  DateTimeColumn get addedAt => dateTime().clientDefault(DateTime.now)();
+  DateTimeColumn get openedAt => dateTime().nullable()();
+}
+
+/// Файлы аудиокниги по порядку.
+@DataClassName('BookTrack')
+class BookTracks extends Table {
+  IntColumn get bookId => integer().references(Books, #id, onDelete: KeyAction.cascade)();
+  IntColumn get idx => integer()();
+  TextColumn get path => text()();
+  IntColumn get durationMs => integer().withDefault(const Constant(0))();
+  TextColumn get title => text().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {bookId, idx};
+}
+
+/// Главы аудиокниги: начало — файл и место в нём.
+@DataClassName('BookChapter')
+class BookChapters extends Table {
+  IntColumn get bookId => integer().references(Books, #id, onDelete: KeyAction.cascade)();
+  IntColumn get idx => integer()();
+  TextColumn get title => text()();
+  IntColumn get trackIdx => integer()();
+  IntColumn get startMs => integer().withDefault(const Constant(0))();
+
+  @override
+  Set<Column> get primaryKey => {bookId, idx};
+}
+
+/// Место в книге. [locator] — точное место (`t<файл>:<мс>` в аудио,
+/// `c<глава>:b<абзац>:o<символ>` в тексте), [percent] — доля книги.
+@DataClassName('BookProgress')
+class BookProgresses extends Table {
+  IntColumn get bookId => integer().references(Books, #id, onDelete: KeyAction.cascade)();
+  TextColumn get locator => text()();
+
+  /// Аудио: место от начала книги.
+  IntColumn get positionMs => integer().withDefault(const Constant(0))();
+  RealColumn get percent => real().withDefault(const Constant(0))();
+  DateTimeColumn get updatedAt => dateTime().clientDefault(DateTime.now)();
+  BoolColumn get dirty => boolean().withDefault(const Constant(true))();
+
+  /// Устройство, с которого пришло место (если с другого).
+  TextColumn get device => text().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {bookId};
+}
+
+@DataClassName('BookBookmark')
+class BookBookmarks extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  IntColumn get bookId => integer().references(Books, #id, onDelete: KeyAction.cascade)();
+  TextColumn get locator => text()();
+  IntColumn get positionMs => integer().nullable()();
+
+  /// Глава и время, или начало абзаца — чтобы узнать закладку в списке.
+  TextColumn get label => text()();
+  DateTimeColumn get createdAt => dateTime().clientDefault(DateTime.now)();
+}
+
+/// Папки с аудиокнигами: каждая подпапка — отдельная книга.
+@DataClassName('BookSource')
+class BookSources extends Table {
+  TextColumn get path => text()();
+  DateTimeColumn get addedAt => dateTime().clientDefault(DateTime.now)();
+
+  @override
+  Set<Column> get primaryKey => {path};
+}

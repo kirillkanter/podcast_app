@@ -6,14 +6,16 @@ import 'dart:io';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:path_provider/path_provider.dart';
 
+import 'books/book_library.dart';
 import 'data/db/database.dart';
 import 'data/podcast_repository.dart';
 import 'download/download_manager.dart';
 import 'feed/feed_fetcher.dart';
+import 'sync/book_sync.dart';
 import 'sync/sync_service.dart';
 
 class AppServices {
-  AppServices._(this.db, this.repository, this.downloads, this.sync);
+  AppServices._(this.db, this.repository, this.downloads, this.sync, this.books, this.bookSync);
 
   /// Открыть базу и создать сервисы. Загрузки не запускаются: это делает
   /// тот, кто ими владеет (приложение или фоновая задача).
@@ -39,13 +41,31 @@ class AppServices {
       external: externalDownloads,
     );
     final sync = SyncService(db: db, repository: repository);
-    return AppServices._(db, repository, downloads, sync);
+    late final BookLibrary books;
+    final bookSync = BookSync(
+      db: db,
+      sync: sync,
+      booksDirectory: () => books.textDirectory(),
+      onFilesChanged: (id) => books.completeDownloaded(id),
+    );
+    books = BookLibrary(
+      db: db,
+      dataDirectory: getApplicationSupportDirectory,
+      sync: bookSync,
+      requestSync: () => sync.schedule(const Duration(seconds: 2)),
+    );
+    sync.books = bookSync;
+    return AppServices._(db, repository, downloads, sync, books, bookSync);
   }
 
   final AppDatabase db;
   final PodcastRepository repository;
   final DownloadManager downloads;
   final SyncService sync;
+
+  /// Аудиокниги и текстовые книги.
+  final BookLibrary books;
+  final BookSync bookSync;
 
   /// Проверить фиды подписок, синхронизироваться и поставить в очередь
   /// новые эпизоды по правилам автозагрузки. Ошибки отдельных шагов

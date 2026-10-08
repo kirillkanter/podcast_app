@@ -1,10 +1,12 @@
 import 'package:flutter/widgets.dart';
 
+import '../books/book_library.dart';
 import '../catalog/podcast_catalog.dart';
 import '../data/db/database.dart';
 import '../data/podcast_repository.dart';
 import '../download/download_manager.dart';
 import '../player/podcast_audio_handler.dart';
+import '../sync/book_sync.dart';
 import '../sync/sync_service.dart';
 
 /// Даёт экранам доступ к БД и репозиторию.
@@ -17,6 +19,8 @@ class AppScope extends InheritedWidget {
     this.downloads,
     this.catalog,
     this.sync,
+    this.books,
+    this.bookSync,
     required super.child,
   });
 
@@ -35,6 +39,10 @@ class AppScope extends InheritedWidget {
   /// Синхронизация. `null` в тестах интерфейса.
   final SyncService? sync;
 
+  /// Книги. `null` в тестах интерфейса.
+  final BookLibrary? books;
+  final BookSync? bookSync;
+
   static AppScope of(BuildContext context) {
     final scope = context.dependOnInheritedWidgetOfExactType<AppScope>();
     assert(scope != null, 'AppScope не найден выше по дереву виджетов');
@@ -47,5 +55,7 @@ class AppScope extends InheritedWidget {
       audio != oldWidget.audio ||
       downloads != oldWidget.downloads ||
       catalog != oldWidget.catalog ||
-      sync != oldWidget.sync;
+      sync != oldWidget.sync ||
+      books != oldWidget.books ||
+      bookSync != oldWidget.bookSync;
 }

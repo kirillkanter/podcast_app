@@ -8,9 +8,13 @@ library;
 import 'dart:async';
 
 import 'package:audio_service/audio_service.dart';
+import 'package:drift/drift.dart' show Value;
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 
+import '../books/book_timeline.dart';
+import '../books/locator.dart';
+import '../data/db/books_dao.dart';
 import '../data/db/database.dart';
 import 'playback_logic.dart';
 
@@ -21,6 +25,7 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
     Future<String?> Function(int episodeId)? localFile,
     Future<void> Function(int episodeId)? onPlayed,
     Future<void> Function(int episodeId)? beforePlay,
+    this.onBookProgress,
   })  : _player = player ?? AudioPlayer(),
         _localFile = localFile,
         _onPlayed = onPlayed,
@@ -46,8 +51,12 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
         _saveTimer = Timer.periodic(positionSaveInterval, (_) => _savePosition());
       } else {
         _savePosition();
+        // Пауза в книге — место сразу на сервер (другое устройство может
+        // понадобиться через минуту).
+        if (_bookId != null) onBookProgress?.call(const Duration(seconds: 3));
       }
     });
+    _player.positionStream.listen(_checkChapterEnd);
     _player.processingStateStream.listen((state) {
       if (state == ProcessingState.completed) _onCompleted();
     });
@@ -89,6 +98,24 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
   int? _podcastId;
   Timer? _saveTimer;
 
+  /// Место в книге изменилось — отправить на сервер через [delay].
+  final void Function(Duration delay)? onBookProgress;
+
+  // Аудиокнига.
+  int? _bookId;
+  Book? _book;
+  List<BookTrack> _tracks = const [];
+  List<BookChapter> _chapters = const [];
+  BookTimeline _timeline = BookTimeline(const [], const []);
+  int _track = 0;
+
+  /// Пауза в конце текущей главы (таймер сна «до конца главы»).
+  final sleepAtChapterEnd = ValueNotifier<bool>(false);
+  int? _sleepChapter;
+
+  /// Главы и файлы книги поменялись (книга запущена, уточнилась длительность).
+  final bookChanged = ValueNotifier<int>(0);
+
   /// Эпизод запускали (а не только подготовили на паузе при восстановлении):
   /// только тогда он уходит из очереди и становится «последним».
   bool _activated = false;
@@ -122,6 +149,23 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
   /// id эпизода, который сейчас загружен в плеер.
   int? get currentEpisodeId => _episodeId;
 
+  /// id книги, которая сейчас загружена в плеер.
+  int? get currentBookId => _bookId;
+  Book? get currentBook => _book;
+  List<BookChapter> get bookChapters => _chapters;
+  BookTimeline get bookTimeline => _timeline;
+
+  /// Место от начала книги.
+  Duration get bookPosition => Duration(milliseconds: _timeline.globalOf(_track, _player.position.inMilliseconds));
+
+  Stream<Duration> get bookPositionStream =>
+      _player.positionStream.map((p) => Duration(milliseconds: _timeline.globalOf(_track, p.inMilliseconds)));
+
+  /// Точное место в книге для закладок и синхронизации.
+  AudioLocator get bookLocator => AudioLocator(_track, _player.position.inMilliseconds);
+
+  int get currentChapter => _timeline.chapterAt(bookPosition.inMilliseconds);
+
   /// Запускает эпизод с сохранённой позиции или с [at] (таймкод
   /// в описании, глава). Если он уже загружен — продолжает воспроизведение.
   ///
@@ -142,6 +186,7 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
     await _savePosition();
     final episode = await _db.episodeById(episodeId);
     if (episode == null) return;
+    _leaveBook();
     final previous = _episodeId;
     // Прерванный эпизод — в очередь, только если его действительно слушали
     // и переключение сделал человек (а не восстановление при запуске).
@@ -233,7 +278,17 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
   /// последним — на этом устройстве или на другом.
   Future<void> restoreLast() async {
     if (_player.playing) return;
-    final id = int.tryParse(await _db.setting(PlayerSettings.last) ?? '');
+    final last = await _db.setting(PlayerSettings.last) ?? '';
+    if (last.startsWith('book:')) {
+      final bookId = int.tryParse(last.substring(5));
+      if (bookId == null || bookId == _bookId) return;
+      final book = await _db.bookById(bookId);
+      if (book == null || book.missing || book.kind != BookKind.audio) return;
+      if (_player.playing) return;
+      await playBook(bookId, autoplay: false);
+      return;
+    }
+    final id = int.tryParse(last);
     if (id == null || id == _episodeId) return;
     final state = await _db.episodeState(id);
     if (state?.played ?? false) return;
@@ -319,6 +374,18 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
   /// как последний (после перезапуска вернётся в мини-плеер, другие
   /// устройства подхватят его).
   Future<void> _activate() async {
+    final bookId = _bookId;
+    if (bookId != null) {
+      _activated = true;
+      try {
+        await _db.setSetting(PlayerSettings.last, 'book:$bookId');
+        await _db.setSetting(PlayerSettings.lastAt, DateTime.now().toUtc().toIso8601String());
+        await _db.markBookOpened(bookId);
+      } catch (e) {
+        debugPrint('Не удалось отметить запуск книги: $e');
+      }
+      return;
+    }
     final episodeId = _episodeId;
     if (episodeId == null) return;
     _activated = true;
@@ -348,12 +415,14 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
   }
 
   @override
-  Future<void> rewind() =>
-      seek(seekRelative(_player.position, Duration(seconds: -skipSteps.value.$1), _player.duration));
+  Future<void> rewind() => _bookId != null
+      ? seekBook(bookPosition - Duration(seconds: skipSteps.value.$1))
+      : seek(seekRelative(_player.position, Duration(seconds: -skipSteps.value.$1), _player.duration));
 
   @override
-  Future<void> fastForward() =>
-      seek(seekRelative(_player.position, Duration(seconds: skipSteps.value.$2), _player.duration));
+  Future<void> fastForward() => _bookId != null
+      ? seekBook(bookPosition + Duration(seconds: skipSteps.value.$2))
+      : seek(seekRelative(_player.position, Duration(seconds: skipSteps.value.$2), _player.duration));
 
   // Кнопки «следующий/предыдущий» на клавиатуре и наушниках перематывают:
   // в подкастах перемотка нужнее, чем переход по очереди.
@@ -366,6 +435,11 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
   @override
   Future<void> setSpeed(double speed) async {
     await _player.setSpeed(speed);
+    final bookId = _bookId;
+    if (bookId != null) {
+      await _db.setBookSpeed(bookId, speed);
+      return;
+    }
     final podcastId = _podcastId;
     if (podcastId != null) await _db.setPodcastSpeed(podcastId, speed);
   }
@@ -379,6 +453,7 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
     _remoteState = null;
     _episodeId = null;
     _podcastId = null;
+    _leaveBook();
     _cancelSleepTimer();
     await _player.stop();
     mediaItem.add(null);
@@ -408,9 +483,12 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
     _sleepTimer?.cancel();
     _sleepTimer = null;
     sleepTimer.value = null;
+    sleepAtChapterEnd.value = false;
+    _sleepChapter = null;
   }
 
   Future<void> _onCompleted() async {
+    if (_bookId != null) return _onTrackCompleted();
     final episodeId = _episodeId;
     if (episodeId == null) return;
     // Сначала отвязываем эпизод, чтобы stop() не записал конечную позицию.
@@ -470,6 +548,7 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
   }
 
   Future<void> _savePosition() async {
+    if (_bookId != null) return _saveBookPosition();
     final episodeId = _episodeId;
     if (episodeId == null) return;
     if (!_touched) return;
@@ -483,6 +562,267 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
       await _db.savePosition(episodeId, position);
     } catch (e) {
       debugPrint('Не удалось сохранить позицию: $e');
+    }
+  }
+
+
+  // -------------------------------------------------------------------------
+  // Аудиокниги
+  // -------------------------------------------------------------------------
+
+  /// Запустить книгу с места [at] или с сохранённого. Место на сервере
+  /// интерфейс сверяет заранее (с вопросом человеку), здесь — не сверяем.
+  Future<void> playBook(int bookId, {AudioLocator? at, bool autoplay = true}) async {
+    if (_bookId == bookId && _player.processingState != ProcessingState.idle && at == null) {
+      if (autoplay) await play();
+      return;
+    }
+    final book = await _db.bookById(bookId);
+    if (book == null) return;
+    final tracks = await _db.bookTracks(bookId);
+    if (tracks.isEmpty) {
+      _errors.add('В книге нет файлов');
+      return;
+    }
+
+    await _savePosition();
+    // Прерванный эпизод — в очередь, как при переключении на другой эпизод.
+    final previousEpisode = _episodeId;
+    if (autoplay && _activated && previousEpisode != null) await _requeue(previousEpisode);
+    unawaited(_remoteState?.cancel());
+    _remoteState = null;
+    _episodeId = null;
+    _podcastId = null;
+
+    final token = ++_startToken;
+    _bookId = bookId;
+    _book = book;
+    _tracks = tracks;
+    _chapters = await _db.bookChaptersOf(bookId);
+    _rebuildTimeline();
+    _activated = false;
+    _touched = false;
+    _seeked = at != null;
+    _cancelSleepTimer();
+
+    final progress = await _db.bookProgress(bookId);
+    var target = at ?? AudioLocator.parse(progress?.locator);
+    if (target == null && progress != null && progress.positionMs > 0) {
+      final l = _timeline.locate(progress.positionMs);
+      target = AudioLocator(l.track, l.ms);
+    }
+    // Книга дослушана — сначала.
+    if (target != null && progress != null && progress.percent >= 0.999 && at == null) target = null;
+    target ??= const AudioLocator(0, 0);
+    if (target.track >= tracks.length) target = AudioLocator(tracks.length - 1, 0);
+    _track = target.track;
+    _start = Duration(milliseconds: target.ms);
+    _publishBookItem();
+
+    if (autoplay) {
+      _starting = true;
+      if (_player.playing) await _player.pause();
+      _broadcastState();
+    }
+    final ok = await _loadTrack(_track, Duration(milliseconds: target.ms), token);
+    if (!ok) {
+      _stopStarting(token);
+      return;
+    }
+    await _player.setSpeed(book.speed ?? double.tryParse(await _db.setting(PlayerSettings.speed) ?? '') ?? 1.0);
+    if (autoplay) {
+      if (token != _startToken || !_starting) return;
+      _starting = false;
+      _touched = true;
+      await _activate();
+      unawaited(_player.play());
+    }
+  }
+
+  void _leaveBook() {
+    if (_bookId == null) return;
+    _bookId = null;
+    _book = null;
+    _tracks = const [];
+    _chapters = const [];
+    _timeline = BookTimeline(const [], const []);
+    _track = 0;
+    sleepAtChapterEnd.value = false;
+    _sleepChapter = null;
+    bookChanged.value++;
+  }
+
+  void _rebuildTimeline() {
+    _timeline = BookTimeline(
+      [for (final t in _tracks) t.durationMs],
+      [for (final c in _chapters) (trackIdx: c.trackIdx, startMs: c.startMs)],
+    );
+    bookChanged.value++;
+  }
+
+  Future<bool> _loadTrack(int idx, Duration at, int token) async {
+    final track = _tracks[idx];
+    try {
+      final duration = await _player.setFilePath(track.path, initialPosition: at);
+      if (token != _startToken && _bookId == null) return false;
+      // Длительность из плеера точнее тегов (а у ogg и flac теги её не дают).
+      if (duration != null && (duration.inMilliseconds - track.durationMs).abs() > 1000 && _bookId != null) {
+        final updated = track.copyWith(durationMs: duration.inMilliseconds);
+        _tracks = [..._tracks]..[idx] = updated;
+        unawaited(_db.update(_db.bookTracks).replace(updated));
+        _rebuildTimeline();
+        final total = _timeline.totalMs;
+        final book = _book;
+        if (book != null && total != book.durationMs) {
+          unawaited((_db.update(_db.books)..where((b) => b.id.equals(book.id)))
+              .write(BooksCompanion(durationMs: Value(total))));
+        }
+      }
+      _publishBookItem();
+      return true;
+    } on PlayerInterruptedException {
+      return false;
+    } on PlayerException catch (e) {
+      _errors.add('Не удалось открыть файл книги: ${e.message ?? 'ошибка ${e.code}'}');
+      return false;
+    } catch (e) {
+      _errors.add('Не удалось открыть файл книги: $e');
+      return false;
+    }
+  }
+
+  void _publishBookItem() {
+    final book = _book;
+    if (book == null) return;
+    final chapter = _chapters.isEmpty ? null : _chapters[_timeline.chapterAt(bookPosition.inMilliseconds)];
+    final duration = _tracks.isEmpty ? null : Duration(milliseconds: _tracks[_track].durationMs);
+    final item = MediaItem(
+      id: 'book:${book.id}:$_track',
+      title: chapter?.title ?? book.title,
+      album: book.title,
+      artist: book.author ?? book.title,
+      artUri: book.coverPath == null ? null : Uri.file(book.coverPath!),
+      duration: duration == null || duration == Duration.zero ? null : duration,
+      extras: {'bookId': book.id},
+    );
+    final current = mediaItem.value;
+    if (current == null || current.id != item.id || current.title != item.title || current.duration != item.duration) {
+      mediaItem.add(item);
+    }
+  }
+
+  /// Перейти к месту [position] от начала книги.
+  Future<void> seekBook(Duration position) async {
+    if (_bookId == null) return;
+    var g = position.inMilliseconds;
+    if (g < 0) g = 0;
+    if (_timeline.totalMs > 0 && g > _timeline.totalMs - 500) g = _timeline.totalMs - 500;
+    final l = _timeline.locate(g);
+    if (l.track != _track) {
+      final wasPlaying = _player.playing;
+      _track = l.track;
+      final ok = await _loadTrack(l.track, Duration(milliseconds: l.ms), _startToken);
+      if (!ok) return;
+      _touched = true;
+      _seeked = true;
+      await _savePosition();
+      if (wasPlaying) unawaited(_player.play());
+    } else {
+      await seek(Duration(milliseconds: l.ms));
+    }
+    _publishBookItem();
+  }
+
+  Future<void> seekToChapter(int idx) async {
+    if (_chapters.isEmpty) return;
+    await seekBook(Duration(milliseconds: _timeline.chapterStart(idx.clamp(0, _chapters.length - 1))));
+  }
+
+  Future<void> nextChapter() async {
+    final c = currentChapter;
+    if (c + 1 < _timeline.chapterCount) await seekToChapter(c + 1);
+  }
+
+  /// В начало главы; если от её начала прошло меньше 3 секунд — к предыдущей.
+  Future<void> previousChapter() async {
+    final c = currentChapter;
+    final into = bookPosition.inMilliseconds - _timeline.chapterStart(c);
+    await seekToChapter(into < 3000 && c > 0 ? c - 1 : c);
+  }
+
+  /// Таймер сна до конца текущей главы.
+  void setSleepAtChapterEnd(bool on) {
+    _sleepTimer?.cancel();
+    _sleepTimer = null;
+    sleepTimer.value = null;
+    sleepAtChapterEnd.value = on && _bookId != null;
+    _sleepChapter = sleepAtChapterEnd.value ? currentChapter : null;
+  }
+
+  void _checkChapterEnd(Duration _) {
+    if (_bookId == null) return;
+    // Название главы в уведомлении — следим за переходом.
+    _publishBookItem();
+    final sleepChapter = _sleepChapter;
+    if (sleepChapter == null || !_player.playing) return;
+    final end = _timeline.chapterEnd(sleepChapter);
+    if (bookPosition.inMilliseconds >= end - 250 || currentChapter > sleepChapter) {
+      _sleepChapter = null;
+      sleepAtChapterEnd.value = false;
+      unawaited(pause());
+    }
+  }
+
+  Future<void> _onTrackCompleted() async {
+    final bookId = _bookId;
+    if (bookId == null) return;
+    if (_track + 1 < _tracks.length) {
+      _track++;
+      _touched = true;
+      final ok = await _loadTrack(_track, Duration.zero, _startToken);
+      if (ok && _bookId == bookId) {
+        await _saveBookPosition();
+        unawaited(_player.play());
+      }
+      return;
+    }
+    // Книга дослушана.
+    try {
+      final last = _tracks.length - 1;
+      await _db.saveBookProgress(
+        bookId,
+        locator: AudioLocator(last, _tracks[last].durationMs).encode(),
+        positionMs: _timeline.totalMs,
+        percent: 1,
+      );
+      await _db.setBookShelf(bookId, BookShelf.done);
+      await _db.setSetting(PlayerSettings.last, '');
+      onBookProgress?.call(const Duration(seconds: 2));
+    } catch (e) {
+      debugPrint('Не удалось отметить книгу прослушанной: $e');
+    }
+    _leaveBook(); // stop() не должен записать место
+    await stop();
+  }
+
+  Future<void> _saveBookPosition() async {
+    final bookId = _bookId;
+    if (bookId == null || !_touched) return;
+    final state = _player.processingState;
+    if (state == ProcessingState.idle || state == ProcessingState.loading) return;
+    final position = _player.position;
+    if (!_seeked && _start > const Duration(seconds: 10) && position < const Duration(seconds: 3)) return;
+    final global = _timeline.globalOf(_track, position.inMilliseconds);
+    try {
+      await _db.saveBookProgress(
+        bookId,
+        locator: AudioLocator(_track, position.inMilliseconds).encode(),
+        positionMs: global,
+        percent: _timeline.totalMs > 0 ? global / _timeline.totalMs : 0,
+      );
+      onBookProgress?.call(const Duration(seconds: 60));
+    } catch (e) {
+      debugPrint('Не удалось сохранить место в книге: $e');
     }
   }
 

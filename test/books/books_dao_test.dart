@@ -29,7 +29,7 @@ void main() {
     final again = await db.saveAudioBook(_audio('a:1'), sourceRoot: '/a');
     expect(again, id);
     expect((await db.bookProgress(id))?.locator, 't0:500');
-    expect(await db.bookTracks(id), hasLength(1));
+    expect(await db.tracksOfBook(id), hasLength(1));
 
     await db.saveAudioBook(_audio('a:2'), sourceRoot: '/a');
     await db.markMissingBooks('/a', {'a:2'});

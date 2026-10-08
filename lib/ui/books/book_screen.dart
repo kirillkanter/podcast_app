@@ -51,7 +51,7 @@ class _BookScreenState extends State<BookScreen> {
     final scope = AppScope.of(context);
     if (book.kind == BookKind.audio) {
       _audioChapters = () async {
-        final tracks = await scope.db.bookTracks(book.id);
+        final tracks = await scope.db.tracksOfBook(book.id);
         final chapters = await scope.db.bookChaptersOf(book.id);
         return (
           chapters: chapters,

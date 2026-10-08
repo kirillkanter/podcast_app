@@ -579,7 +579,7 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
     }
     final book = await _db.bookById(bookId);
     if (book == null) return;
-    final tracks = await _db.bookTracks(bookId);
+    final tracks = await _db.tracksOfBook(bookId);
     if (tracks.isEmpty) {
       _errors.add('В книге нет файлов');
       return;

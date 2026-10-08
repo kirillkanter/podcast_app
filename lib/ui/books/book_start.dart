@@ -194,7 +194,7 @@ Future<bool> _reconcile(
 Future<String> _describeAudio(AppDatabase db, Book book, String locatorText) async {
   final locator = AudioLocator.parse(locatorText);
   if (locator == null) return 'начало книги';
-  final tracks = await db.bookTracks(book.id);
+  final tracks = await db.tracksOfBook(book.id);
   final chapters = await db.bookChaptersOf(book.id);
   final t = BookTimeline(
     [for (final x in tracks) x.durationMs],

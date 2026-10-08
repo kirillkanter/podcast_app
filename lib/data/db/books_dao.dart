@@ -82,7 +82,7 @@ extension BooksDao on AppDatabase {
 
   Future<Book?> bookByKey(String key) => (select(books)..where((b) => b.key.equals(key))).getSingleOrNull();
 
-  Future<List<BookTrack>> bookTracks(int bookId) =>
+  Future<List<BookTrack>> tracksOfBook(int bookId) =>
       (select(bookTracks)..where((t) => t.bookId.equals(bookId))..orderBy([(t) => OrderingTerm.asc(t.idx)])).get();
 
   Future<List<BookChapter>> bookChaptersOf(int bookId) => (select(bookChapters)

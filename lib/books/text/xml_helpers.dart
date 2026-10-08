@@ -24,7 +24,11 @@ String? attr(XmlElement e, String local) {
 String textOf(XmlElement e) => e.innerText.replaceAll(RegExp(r'\s+'), ' ').trim();
 
 /// Текст узла, если это текст или CDATA.
-String? dataOf(XmlNode n) => n is XmlText || n is XmlCDATA ? (n as XmlData).value : null;
+String? dataOf(XmlNode n) => switch (n) {
+      XmlText(:final value) => value,
+      XmlCDATA(:final value) => value,
+      _ => null,
+    };
 
 /// Добавить в [b] текст элемента с начертанием: [italicTags] и [boldTags] —
 /// локальные имена тегов, [skipTags] — что пропустить целиком.

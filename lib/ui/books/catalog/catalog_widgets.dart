@@ -99,12 +99,22 @@ class KindMark extends StatelessWidget {
 
 /// Карточка в подборке: обложка, название, автор, тип и источник.
 class CatalogCard extends StatelessWidget {
-  const CatalogCard({super.key, required this.book, required this.width, required this.onTap, this.selected = false});
+  const CatalogCard({
+    super.key,
+    required this.book,
+    required this.width,
+    required this.onTap,
+    this.selected = false,
+    this.coverHeight,
+  });
 
   final CatalogBook book;
   final double width;
   final VoidCallback onTap;
   final bool selected;
+
+  /// Место под обложку; по умолчанию — как у книги 2:3.
+  final double? coverHeight;
 
   @override
   Widget build(BuildContext context) {
@@ -118,7 +128,7 @@ class CatalogCard extends StatelessWidget {
         onTap: onTap,
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           SizedBox(
-            height: width * 1.5,
+            height: coverHeight ?? width * 1.5,
             child: Align(
               alignment: Alignment.bottomLeft,
               child: DecoratedBox(

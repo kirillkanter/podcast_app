@@ -192,6 +192,7 @@ class _CatalogViewState extends State<CatalogView> {
             child: _Shelf(
               key: ValueKey('lv/${filter.key}'),
               title: 'Популярное на LibriVox',
+              audio: true,
               load: () => catalog.popularLibriVox(filter),
               cardWidth: cardWidth,
               side: side,
@@ -222,6 +223,7 @@ class _CatalogViewState extends State<CatalogView> {
             child: _Shelf(
               key: ValueKey('${g.id}/${filter.key}/${config.encode().hashCode}'),
               title: g.name,
+              audio: filter.kind == CatalogKind.audio || (filter.kind == CatalogKind.all && config.opds.isEmpty),
               load: () => catalog.genre(g, filter),
               cardWidth: cardWidth,
               side: side,
@@ -248,7 +250,11 @@ class _Shelf extends StatefulWidget {
     required this.wide,
     required this.onAll,
     this.hideEmpty = false,
+    this.audio = false,
   });
+
+  /// В ряду только аудиокниги (пока не загрузился — для заглушек).
+  final bool audio;
 
   final String title;
   final Future<List<CatalogBook>> Function() load;
@@ -280,6 +286,11 @@ class _ShelfState extends State<_Shelf> {
       future: _future,
       builder: (context, s) {
         final items = s.data;
+        // Только аудиокниги — место под квадратные обложки, без пустоты сверху.
+        final audioOnly = items == null || items.isEmpty ? widget.audio : items.every((b) => b.audio);
+        final coverHeight = audioOnly ? w : w * 1.5;
+        // Название в две строки, автор, источник — с учётом размера шрифта.
+        final textHeight = MediaQuery.textScalerOf(context).scale(84);
         if (widget.hideEmpty && (s.hasError || (items != null && items.isEmpty))) return const SizedBox.shrink();
         return Padding(
           padding: const EdgeInsets.only(bottom: 22),
@@ -306,7 +317,7 @@ class _ShelfState extends State<_Shelf> {
               ]),
             ),
             SizedBox(
-              height: w * 1.5 + 70,
+              height: coverHeight + textHeight,
               child: s.hasError
                   ? Align(
                       alignment: Alignment.topLeft,
@@ -324,7 +335,7 @@ class _ShelfState extends State<_Shelf> {
                       : ScrollArrows(
                           controller: _scroll,
                           enabled: widget.wide,
-                          top: w * 0.75 - 20,
+                          top: coverHeight / 2 - 20,
                           child: ListView.separated(
                             controller: _scroll,
                             scrollDirection: Axis.horizontal,
@@ -336,11 +347,16 @@ class _ShelfState extends State<_Shelf> {
                                     alignment: Alignment.topCenter,
                                     child: Container(
                                       width: w,
-                                      height: w * 1.5,
+                                      height: coverHeight,
                                       decoration: BoxDecoration(color: c.raised, borderRadius: BorderRadius.circular(10)),
                                     ),
                                   )
-                                : CatalogCard(book: items[i], width: w, onTap: () => openCatalogBook(context, items[i])),
+                                : CatalogCard(
+                                    book: items[i],
+                                    width: w,
+                                    coverHeight: coverHeight,
+                                    onTap: () => openCatalogBook(context, items[i]),
+                                  ),
                           ),
                         ),
             ),

@@ -107,7 +107,7 @@ OpdsFeed parseOpdsFeed(String body, Uri base, {required String catalogId, requir
     if (title == null) continue;
     final id = text(entry, 'id') ?? title;
     final files = <CatalogFile>[];
-    String? cover, thumbnail, nav, web;
+    String? cover, thumbnail, nav, navType, web;
     for (final link in entry.childElements.where((c) => c.localName == 'link')) {
       final rel = link.getAttribute('rel') ?? '';
       final type = link.getAttribute('type') ?? '';
@@ -125,7 +125,10 @@ OpdsFeed parseOpdsFeed(String body, Uri base, {required String catalogId, requir
           rel == 'x-stanza-cover-image-thumbnail') {
         thumbnail = href;
       } else if (type.contains('atom+xml') || type.contains('opds-catalog')) {
-        if (rel != 'alternate' || nav == null) nav ??= href;
+        if (nav == null) {
+          nav = href;
+          navType = type;
+        }
       } else if (rel == 'alternate' && type.contains('html')) {
         web = href;
       }
@@ -141,7 +144,17 @@ OpdsFeed parseOpdsFeed(String body, Uri base, {required String catalogId, requir
     // Книга: есть файлы. Запись-ссылка с автором или обложкой — тоже
     // книга (Project Gutenberg так отдаёт результаты поиска), файлы
     // будут в её ленте. Остальное — разделы.
-    final isBook = files.isNotEmpty || (nav != null && (author.isNotEmpty || cover != null || thumbnail != null));
+    // Книга: есть файлы или автор. Запись-ссылка с обложкой — тоже книга
+    // (так Project Gutenberg отдаёт результаты поиска: файлы — в ленте
+    // книги), но только если это не явный раздел: ссылка с параметрами
+    // (?sort_order=…), пометка kind=navigation или название вроде
+    // «Popular», «Новинки», «Жанры». У разделов бывают значки и подписи.
+    final navUri = nav == null ? null : Uri.tryParse(nav);
+    final looksLikeSection = (navType ?? '').contains('kind=navigation') ||
+        (navUri?.hasQuery ?? false) ||
+        (_sectionTitle.hasMatch(title.trim()) && title.trim().split(RegExp(r'\s+')).length <= 2);
+    final isBook = files.isNotEmpty ||
+        (nav != null && !looksLikeSection && (author.isNotEmpty || cover != null || thumbnail != null));
     if (isBook) {
       books.add(CatalogBook(
         id: 'opds:$catalogId:$id',
@@ -172,6 +185,13 @@ OpdsFeed parseOpdsFeed(String body, Uri base, {required String catalogId, requir
     searchDescription: searchDescription,
   );
 }
+
+/// Названия разделов каталога, которые не бывают книгами.
+final _sectionTitle = RegExp(
+  r'^(popular|most popular|latest|new|newest|recent|random|top|best|search|browse|sort|all books|authors?|titles?|genres?|subjects?|categories|bookshelves|languages?|series|'
+  r'популярн|новинк|новое|новые|последн|случайн|лучш|поиск|по авторам|авторы|по названи|жанры|по жанрам|серии|языки|все книги|подборки)',
+  caseSensitive: false,
+);
 
 /// У Project Gutenberg в результатах поиска в content — только автор.
 String? _authorFromContent(String? s) {

@@ -19,6 +19,7 @@ import 'book_import.dart';
 import 'book_screen.dart';
 import 'book_start.dart';
 import 'book_widgets.dart';
+import 'catalog/add_opds.dart';
 import 'catalog/catalog_view.dart';
 import 'reader/reading_stats.dart';
 
@@ -133,7 +134,10 @@ class _BooksScreenState extends State<BooksScreen> with WidgetsBindingObserver {
             final header = Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Padding(
                 padding: EdgeInsets.fromLTRB(wide ? 32 : 20, 20, wide ? 24 : 12, catalogOn ? 4 : 8),
-                child: Row(children: [
+                child: SizedBox(
+                  // Высота одна на обеих вкладках: кнопки справа разного размера.
+                  height: 48,
+                  child: Row(children: [
                   Expanded(child: Text('Книги', style: screenTitleStyle(context).copyWith(fontSize: wide ? 30 : 26))),
                   if (!(catalogOn && _catalogTab)) ...[
                     IconButton(
@@ -148,25 +152,18 @@ class _BooksScreenState extends State<BooksScreen> with WidgetsBindingObserver {
                           ? const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2))
                           : Icon(Icons.refresh_rounded, color: c.text),
                     ),
-                    const SizedBox(width: 4),
-                    _AddButton(),
                   ],
+                  const SizedBox(width: 4),
+                  _AddButton(config: config, onCatalogAdded: () => setState(() => _catalogTab = true)),
                 ]),
+                ),
               ),
               if (catalogOn)
                 Padding(
                   padding: EdgeInsets.fromLTRB(wide ? 32 : 20, 4, 20, 12),
-                  child: SizedBox(
-                    width: 280,
-                    child: SegmentedButton<bool>(
-                      showSelectedIcon: false,
-                      segments: const [
-                        ButtonSegment(value: false, label: Text('Мои')),
-                        ButtonSegment(value: true, label: Text('Каталог')),
-                      ],
-                      selected: {_catalogTab},
-                      onSelectionChanged: (v) => setState(() => _catalogTab = v.first),
-                    ),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 360),
+                    child: _Tabs(catalog: _catalogTab, onChanged: (v) => setState(() => _catalogTab = v)),
                   ),
                 ),
             ]);
@@ -279,16 +276,44 @@ class _BooksScreenState extends State<BooksScreen> with WidgetsBindingObserver {
 }
 
 class _AddButton extends StatelessWidget {
+  const _AddButton({required this.config, required this.onCatalogAdded});
+
+  /// Настройки каталога; null — каталога в приложении нет (тесты).
+  final CatalogConfig? config;
+
+  /// Каталог включили или добавили — показать вкладку «Каталог».
+  final VoidCallback onCatalogAdded;
+
+  Future<void> _select(BuildContext context, int v) async {
+    switch (v) {
+      case 0:
+        await pickBookFiles(context);
+      case 1:
+        await pickBookFolder(context);
+      case 2:
+        await showAddOpdsCatalog(context);
+        if (!context.mounted) return;
+        final catalog = AppScope.of(context).bookCatalog;
+        if (catalog != null && (await catalog.config()).opds.isNotEmpty) onCatalogAdded();
+      case 3:
+        await AppScope.of(context).bookCatalog?.setLibriVox(true);
+        onCatalogAdded();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = BcColors.of(context);
+    final catalog = AppScope.of(context).bookCatalog;
     return BcMenu<int>(
-      tooltip: 'Добавить книгу',
+      tooltip: 'Добавить книгу или каталог',
       borderRadius: BorderRadius.circular(22),
-      onSelected: (v) => v == 0 ? pickBookFiles(context) : pickBookFolder(context),
-      options: const [
-        MenuOption(0, 'Файлы книги (EPUB, FB2, TXT, MP3, M4B)'),
-        MenuOption(1, 'Папка с аудиокнигами'),
+      onSelected: (v) => _select(context, v),
+      options: [
+        const MenuOption(0, 'Файлы книги (EPUB, FB2, TXT, MP3, M4B)'),
+        const MenuOption(1, 'Папка с аудиокнигами'),
+        if (catalog != null) const MenuOption(2, 'Каталог OPDS'),
+        if (catalog != null && config != null && !config!.librivox) const MenuOption(3, 'Каталог LibriVox'),
       ],
       child: Container(
         width: 44,
@@ -297,6 +322,61 @@ class _AddButton extends StatelessWidget {
         alignment: Alignment.center,
         child: BcIcon(BcIcons.plus, size: 22, color: c.text),
       ),
+    );
+  }
+}
+
+/// Переключатель «Мои | Каталог», как в макете: две половины на подложке.
+class _Tabs extends StatelessWidget {
+  const _Tabs({required this.catalog, required this.onChanged});
+
+  final bool catalog;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = BcColors.of(context);
+    Widget tab(String label, bool value) {
+      final on = catalog == value;
+      return Expanded(
+        child: Semantics(
+          selected: on,
+          button: true,
+          child: Material(
+            color: on ? c.bg : Colors.transparent,
+            borderRadius: BorderRadius.circular(9),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(9),
+              onTap: on ? null : () => onChanged(value),
+              child: SizedBox(
+                height: 36,
+                child: Center(
+                  child: Text(
+                    label,
+                    textHeightBehavior: const TextHeightBehavior(
+                      applyHeightToFirstAscent: false,
+                      applyHeightToLastDescent: false,
+                    ),
+                    style: TextStyle(
+                      fontSize: 14,
+                      height: 1,
+                      // Одинаковая толщина: иначе подписи «прыгают» по высоте.
+                      fontWeight: FontWeight.w600,
+                      color: on ? c.text : c.muted,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(color: c.raised, borderRadius: BorderRadius.circular(12)),
+      child: Row(children: [tab('Мои', false), tab('Каталог', true)]),
     );
   }
 }

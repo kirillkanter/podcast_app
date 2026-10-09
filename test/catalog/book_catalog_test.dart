@@ -111,6 +111,39 @@ const gutenbergSearch = '''<?xml version="1.0" encoding="UTF-8"?>
   </entry>
 </feed>''';
 
+/// Корень Project Gutenberg: у разделов есть значки и подписи.
+const gutenbergRoot = '''<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Project Gutenberg</title>
+  <entry>
+    <title>Popular</title>
+    <id>popular</id>
+    <content type="text">Our most popular books.</content>
+    <link type="application/atom+xml;profile=opds-catalog" rel="subsection" href="/ebooks/search.opds/?sort_order=downloads"/>
+    <link type="image/png" rel="http://opds-spec.org/image/thumbnail" href="/gutenberg/popular.png"/>
+  </entry>
+  <entry>
+    <title>Latest</title>
+    <id>latest</id>
+    <content type="text">Recently added.</content>
+    <link type="application/atom+xml;profile=opds-catalog" rel="subsection" href="/ebooks/latest.opds"/>
+    <link type="image/png" rel="http://opds-spec.org/image/thumbnail" href="/gutenberg/new.png"/>
+  </entry>
+  <entry>
+    <title>Random</title>
+    <id>random</id>
+    <link type="application/atom+xml;profile=opds-catalog;kind=navigation" rel="subsection" href="/ebooks/random.opds"/>
+    <link type="image/png" rel="http://opds-spec.org/image/thumbnail" href="/gutenberg/random.png"/>
+  </entry>
+  <entry>
+    <title>New Arabian Nights</title>
+    <id>book</id>
+    <content type="text">Robert Louis Stevenson</content>
+    <link type="application/atom+xml;profile=opds-catalog" rel="subsection" href="/ebooks/839.opds"/>
+    <link type="image/jpeg" rel="http://opds-spec.org/image/thumbnail" href="/cache/839.jpg"/>
+  </entry>
+</feed>''';
+
 const openSearch = '''<?xml version="1.0" encoding="UTF-8"?>
 <OpenSearchDescription xmlns="http://a9.com/-/spec/opensearch/1.1/">
   <Url type="text/html" template="https://www.gutenberg.org/ebooks/search/?query={searchTerms}"/>
@@ -203,6 +236,13 @@ void main() {
       final t = parseOpenSearch(openSearch, Uri.parse('https://www.gutenberg.org/catalog/osd-books.xml'));
       expect(t, 'https://www.gutenberg.org/ebooks/search.opds/?query={searchTerms}&start_index={startIndex?}');
       expect(fillSearchTemplate(t!, 'time'), 'https://www.gutenberg.org/ebooks/search.opds/?query=time&start_index=');
+    });
+
+    test('Project Gutenberg: разделы со значками — не книги', () {
+      final feed = parseOpdsFeed(gutenbergRoot, Uri.parse('https://www.gutenberg.org/ebooks.opds/'),
+          catalogId: 'pg', catalogName: 'Project Gutenberg');
+      expect(feed.sections.map((s) => s.title), ['Popular', 'Latest', 'Random']);
+      expect(feed.books.single.title, 'New Arabian Nights');
     });
 
     test('не лента — понятная ошибка', () {

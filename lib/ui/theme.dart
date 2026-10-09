@@ -26,6 +26,7 @@ class BcColors extends ThemeExtension<BcColors> {
     required this.glass,
     required this.glassBorder,
     required this.track,
+    required this.inverse,
   });
 
   /// Фон экрана.
@@ -65,6 +66,33 @@ class BcColors extends ThemeExtension<BcColors> {
   /// Дорожка ползунка на стекле.
   final Color track;
 
+  /// Акцент на «перевёрнутой» плашке (всплывающее сообщение цвета текста):
+  /// кнопка «Отменить» и подобные.
+  final Color inverse;
+
+  /// Те же цвета с другим акцентом.
+  BcColors withAccent(Accent a) {
+    final darkTheme = onFill == dark.onFill;
+    return BcColors(
+      bg: bg,
+      text: text,
+      muted: muted,
+      raised: raised,
+      card: card,
+      line: line,
+      divider: divider,
+      body: body,
+      ink: darkTheme ? a.dark : a.lightInk,
+      fill: darkTheme ? a.dark : a.light,
+      onFill: onFill,
+      bar: darkTheme ? a.dark : a.light,
+      glass: glass,
+      glassBorder: glassBorder,
+      track: track,
+      inverse: darkTheme ? a.lightInk : a.dark,
+    );
+  }
+
   static const dark = BcColors(
     bg: Color(0xFF161616),
     text: Color(0xFFF5F5F2),
@@ -81,6 +109,7 @@ class BcColors extends ThemeExtension<BcColors> {
     glass: Color(0x8C303030),
     glassBorder: Color(0x14FFFFFF),
     track: Color(0x2EFFFFFF),
+    inverse: Color(0xFF4A7300),
   );
 
   static const light = BcColors(
@@ -99,6 +128,7 @@ class BcColors extends ThemeExtension<BcColors> {
     glass: Color(0x9EFFFFFF),
     glassBorder: Color(0x0F000000),
     track: Color(0x1F000000),
+    inverse: Color(0xFFC5F52E),
   );
 
   static BcColors of(BuildContext context) =>
@@ -127,9 +157,51 @@ class BcColors extends ThemeExtension<BcColors> {
       glass: l(glass, other.glass),
       glassBorder: l(glassBorder, other.glassBorder),
       track: l(track, other.track),
+      inverse: l(inverse, other.inverse),
     );
   }
 }
+
+/// Акцентный цвет приложения (настройка «Оформление → Цвет акцента»).
+///
+/// В тёмной теме акцент — светлый и яркий, текст на нём тёмный. В светлой —
+/// тот же оттенок темнее: на нём белый текст и он читается на светлом фоне
+/// (контраст не ниже 4,5:1).
+@immutable
+class Accent {
+  const Accent(this.id, this.label, {required this.dark, required this.light, required this.lightInk});
+
+  final String id;
+  final String label;
+
+  /// Заливка, ссылки и полосы в тёмной теме.
+  final Color dark;
+
+  /// Заливка и полосы в светлой теме.
+  final Color light;
+
+  /// Ссылки и акцентный текст в светлой теме.
+  final Color lightInk;
+
+  static const standard = Accent('lime', 'Салатовый',
+      dark: Color(0xFFC5F52E), light: Color(0xFF557F00), lightInk: Color(0xFF4A7300));
+
+  static const all = [
+    standard,
+    Accent('yellow', 'Жёлтый', dark: Color(0xFFFFD43B), light: Color(0xFF8A6A00), lightInk: Color(0xFF7A5D00)),
+    Accent('orange', 'Оранжевый', dark: Color(0xFFFF9F43), light: Color(0xFFB35300), lightInk: Color(0xFFA04A00)),
+    Accent('red', 'Красный', dark: Color(0xFFFF7B6B), light: Color(0xFFC2372A), lightInk: Color(0xFFB02F23)),
+    Accent('pink', 'Розовый', dark: Color(0xFFFF8CC6), light: Color(0xFFC2185B), lightInk: Color(0xFFAD1457)),
+    Accent('violet', 'Фиолетовый', dark: Color(0xFFB9A0FF), light: Color(0xFF6C4AD9), lightInk: Color(0xFF5F3DCC)),
+    Accent('blue', 'Синий', dark: Color(0xFF7DB9FF), light: Color(0xFF1F63D6), lightInk: Color(0xFF1A57BF)),
+    Accent('teal', 'Бирюзовый', dark: Color(0xFF4FE3C4), light: Color(0xFF00796B), lightInk: Color(0xFF006B5F)),
+  ];
+
+  static Accent from(String? id) => all.where((a) => a.id == id).firstOrNull ?? standard;
+}
+
+/// Ключ настройки акцентного цвета: [Accent.id].
+const accentSettingKey = 'ui.accent';
 
 /// Шрифт заголовков (Unbounded) и основной шрифт (Golos Text).
 const displayFont = 'Unbounded';
@@ -154,8 +226,8 @@ TextStyle sectionTitleStyle(BuildContext context) => TextStyle(
       color: BcColors.of(context).text,
     );
 
-ThemeData buildTheme(Brightness brightness) {
-  final c = brightness == Brightness.dark ? BcColors.dark : BcColors.light;
+ThemeData buildTheme(Brightness brightness, [Accent accent = Accent.standard]) {
+  final c = (brightness == Brightness.dark ? BcColors.dark : BcColors.light).withAccent(accent);
   final scheme = ColorScheme(
     brightness: brightness,
     primary: c.fill,
@@ -273,7 +345,7 @@ ThemeData buildTheme(Brightness brightness) {
     snackBarTheme: SnackBarThemeData(
       backgroundColor: c.text,
       contentTextStyle: TextStyle(fontFamily: bodyFont, color: c.bg),
-      actionTextColor: brightness == Brightness.dark ? const Color(0xFF557F00) : c.fill,
+      actionTextColor: c.inverse,
       behavior: SnackBarBehavior.floating,
     ),
     inputDecorationTheme: InputDecorationTheme(

@@ -14,6 +14,7 @@ import android.os.Looper
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import android.provider.Settings
+import android.view.KeyEvent
 import android.view.WindowManager
 import java.io.File
 import com.ryanheise.audioservice.AudioServiceActivity
@@ -36,6 +37,10 @@ class MainActivity : AudioServiceActivity() {
     private var pendingMediaResult: MethodChannel.Result? = null
     private var pendingPickResult: MethodChannel.Result? = null
 
+    /** Читалка: кнопки громкости листают страницы, а не меняют громкость. */
+    private var volumeChannel: MethodChannel? = null
+    @Volatile private var volumePaging = false
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         // Полноэкранная читалка: содержимое и под вырезом камеры, без чёрной полосы.
@@ -57,6 +62,17 @@ class MainActivity : AudioServiceActivity() {
                     else -> result.notImplemented()
                 }
             }
+        volumeChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, VOLUME_CHANNEL).also { channel ->
+            channel.setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "enable" -> {
+                        volumePaging = call.argument<Boolean>("on") == true
+                        result.success(null)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+        }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, SYSTEM_CHANNEL)
             .setMethodCallHandler { call, result ->
                 when (call.method) {
@@ -163,6 +179,22 @@ class MainActivity : AudioServiceActivity() {
     }
 
     @Deprecated("Deprecated in Java")
+    /**
+     * Пока открыт текст книги и листание включено, кнопки громкости не доходят
+     * до системы: «тише» — следующая страница, «громче» — предыдущая.
+     * Удержание кнопки не листает дальше — одна страница на нажатие.
+     */
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        val code = event.keyCode
+        if (volumePaging && (code == KeyEvent.KEYCODE_VOLUME_DOWN || code == KeyEvent.KEYCODE_VOLUME_UP)) {
+            if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+                volumeChannel?.invokeMethod("key", if (code == KeyEvent.KEYCODE_VOLUME_DOWN) "next" else "prev")
+            }
+            return true
+        }
+        return super.dispatchKeyEvent(event)
+    }
+
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode != PICK_FILES_CODE && requestCode != PICK_FOLDER_CODE) return
@@ -316,6 +348,7 @@ class MainActivity : AudioServiceActivity() {
     companion object {
         private const val CHANNEL = "podcast_app/notifications"
         private const val SYSTEM_CHANNEL = "basic_caster/system"
+        private const val VOLUME_CHANNEL = "basic_caster/volume_keys"
         private const val REQUEST_CODE = 4101
         private const val MEDIA_REQUEST_CODE = 4102
         private const val PICK_FILES_CODE = 4103

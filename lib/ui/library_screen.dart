@@ -15,6 +15,7 @@ import 'podcast_screen.dart';
 import 'queue_screen.dart';
 import 'shell.dart';
 import 'icons.dart';
+import 'nav_ink.dart';
 import 'theme.dart';
 import 'opml_actions.dart';
 
@@ -365,7 +366,7 @@ class _ShowAll extends StatelessWidget {
       child: Material(
         color: c.card,
         borderRadius: BorderRadius.circular(14),
-        child: InkWell(
+        child: NavInkWell(
           borderRadius: BorderRadius.circular(14),
           onTap: () => Navigator.of(context).push(
             MaterialPageRoute<void>(builder: (_) => FeedScreen(initialFilter: filter)),
@@ -523,7 +524,7 @@ class _SubscriptionTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = BcColors.of(context);
-    return InkWell(
+    return NavInkWell(
       borderRadius: BorderRadius.circular(14),
       onTap: () => Navigator.of(context).push(
         MaterialPageRoute<void>(builder: (_) => PodcastScreen(podcastId: podcast.id)),

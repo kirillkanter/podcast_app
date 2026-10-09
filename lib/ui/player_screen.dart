@@ -18,6 +18,7 @@ import 'icons.dart';
 import 'now_playing.dart';
 import 'podcast_cover.dart';
 import 'shell.dart';
+import 'nav_ink.dart';
 import 'theme.dart';
 import 'menu.dart';
 import 'marquee.dart';
@@ -262,7 +263,7 @@ class _PodcastLink extends StatelessWidget {
     final p = podcast;
     return Align(
       alignment: Alignment.centerLeft,
-      child: InkWell(
+      child: NavInkWell(
         borderRadius: BorderRadius.circular(8),
         onTap: p == null ? null : () => _openPodcast(context, p.id),
         child: ConstrainedBox(

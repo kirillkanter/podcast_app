@@ -12,6 +12,7 @@ import '../app_scope.dart';
 import '../icons.dart';
 import '../menu.dart';
 import '../now_playing.dart';
+import '../nav_ink.dart';
 import '../theme.dart';
 import 'book_import.dart';
 import 'book_screen.dart';
@@ -350,7 +351,7 @@ class _CurrentCard extends StatelessWidget {
       color: c.card,
       borderRadius: BorderRadius.circular(20),
       clipBehavior: Clip.antiAlias,
-      child: InkWell(
+      child: NavInkWell(
         onTap: onOpen,
         child: Padding(
           padding: const EdgeInsets.all(14),
@@ -409,7 +410,7 @@ class _BookRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = BcColors.of(context);
     final b = item.book;
-    return InkWell(
+    return NavInkWell(
       onTap: onOpen,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
@@ -458,7 +459,7 @@ class _GridTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = BcColors.of(context);
     final b = item.book;
-    return InkWell(
+    return NavInkWell(
       borderRadius: BorderRadius.circular(14),
       onTap: onOpen,
       child: LayoutBuilder(builder: (context, box) {

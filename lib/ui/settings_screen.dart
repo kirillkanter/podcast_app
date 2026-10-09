@@ -18,6 +18,7 @@ import 'format.dart';
 import 'opml_actions.dart';
 import 'sync_screen.dart';
 import 'icons.dart';
+import 'nav_ink.dart';
 import 'theme.dart';
 import 'menu.dart';
 
@@ -263,6 +264,13 @@ class SettingsScreen extends StatelessWidget {
             ),
           ),
         ),
+        StreamBuilder<String?>(
+          stream: scope.db.watchSetting(accentSettingKey),
+          builder: (context, s) => _AccentPicker(
+            value: Accent.from(s.data),
+            onChanged: (a) => scope.db.setSetting(accentSettingKey, a.id),
+          ),
+        ),
         if (Platform.isAndroid)
           const _SwitchRow(
             label: 'Поворачивать экран',
@@ -309,10 +317,14 @@ class SettingsScreen extends StatelessWidget {
           final bottom = MediaQuery.paddingOf(context).bottom + 16;
           final title = Text('Настройки', style: screenTitleStyle(context));
           if (!twoColumns) {
-            return ListView(
+            // Не ListView: тот строит строки по мере прокрутки, а строки
+            // с настройками сначала появляются пустыми и через кадр меняют
+            // высоту. При прокрутке вверх список из-за этого подправлял
+            // позицию и «застревал». Настроек немного — строим все сразу.
+            return SingleChildScrollView(
               key: const Key('settings-list'),
               padding: EdgeInsets.fromLTRB(side, 16, side, bottom),
-              children: [
+              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                 title,
                 const SizedBox(height: 16),
                 if (scope.sync != null) const _SyncCard(),
@@ -326,7 +338,7 @@ class SettingsScreen extends StatelessWidget {
                 ...look,
                 ...app,
                 footer,
-              ],
+              ]),
             );
           }
           return SingleChildScrollView(
@@ -382,7 +394,7 @@ class _SyncCard extends StatelessWidget {
     return Material(
       color: c.raised,
       borderRadius: BorderRadius.circular(16),
-      child: InkWell(
+      child: NavInkWell(
         borderRadius: BorderRadius.circular(16),
         onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const SyncScreen())),
         child: Padding(
@@ -843,6 +855,59 @@ class _ThemePicker extends StatelessWidget {
               ),
             ),
           ),
+      ]),
+    );
+  }
+}
+
+/// Цвет акцента: кружки всех вариантов, выбранный — с галочкой.
+class _AccentPicker extends StatelessWidget {
+  const _AccentPicker({required this.value, required this.onChanged});
+
+  final Accent value;
+  final ValueChanged<Accent> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = BcColors.of(context);
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('Цвет акцента', style: TextStyle(fontSize: 15)),
+        Text('Кнопки, переключатели, ссылки и полосы прогресса · ${value.label}',
+            style: TextStyle(fontSize: 12, color: c.muted)),
+        const SizedBox(height: 12),
+        Wrap(spacing: 10, runSpacing: 10, children: [
+          for (final a in Accent.all)
+            Tooltip(
+              message: a.label,
+              child: Semantics(
+                label: a.label,
+                selected: a.id == value.id,
+                button: true,
+                child: GestureDetector(
+                  onTap: () => onChanged(a),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 150),
+                    width: 40,
+                    height: 40,
+                    padding: const EdgeInsets.all(3),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(color: a.id == value.id ? c.text : Colors.transparent, width: 2),
+                    ),
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(shape: BoxShape.circle, color: dark ? a.dark : a.light),
+                      child: a.id == value.id
+                          ? Center(child: BcIcon(BcIcons.check, size: 18, color: c.onFill))
+                          : null,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ]),
       ]),
     );
   }

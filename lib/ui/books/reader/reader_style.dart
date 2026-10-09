@@ -35,6 +35,7 @@ const _ribbonKey = 'reader.bookmarkColor';
 const _marginKey = 'reader.margin';
 const _justifyKey = 'reader.justify';
 const _fullKey = 'reader.fullscreen';
+const _volumeKey = 'reader.volumeKeys';
 
 /// Цвета выделений текста: жёлтый, зелёный, голубой, розовый.
 const highlightColors = [Color(0xFFF5D547), Color(0xFF8FD694), Color(0xFF7FB8F0), Color(0xFFF29BC0)];
@@ -81,6 +82,7 @@ class ReaderStyle {
     this.margin = 1,
     this.justify = true,
     this.fullscreen = true,
+    this.volumeKeys = true,
   });
 
   /// Индекс в [readerSizes].
@@ -106,6 +108,9 @@ class ReaderStyle {
 
   /// Прятать системные строки (время, значки) во время чтения.
   final bool fullscreen;
+
+  /// Листать кнопками громкости (Android): «тише» — вперёд, «громче» — назад.
+  final bool volumeKeys;
 
   double get marginFactor => readerMargins[margin.clamp(0, readerMargins.length - 1)];
 
@@ -134,6 +139,7 @@ class ReaderStyle {
     int? margin,
     bool? justify,
     bool? fullscreen,
+    bool? volumeKeys,
     bool autoPaper = false,
   }) =>
       ReaderStyle(
@@ -147,6 +153,7 @@ class ReaderStyle {
         margin: margin ?? this.margin,
         justify: justify ?? this.justify,
         fullscreen: fullscreen ?? this.fullscreen,
+        volumeKeys: volumeKeys ?? this.volumeKeys,
       );
 
   static Future<ReaderStyle> load(AppDatabase db) async {
@@ -160,7 +167,9 @@ class ReaderStyle {
     final margin = int.tryParse(await db.setting(_marginKey) ?? '');
     final justify = await db.setting(_justifyKey);
     final full = await db.setting(_fullKey);
+    final volume = await db.setting(_volumeKey);
     return ReaderStyle(
+      volumeKeys: volume != 'false',
       fullscreen: full != 'false',
       margin: margin ?? 1,
       justify: justify != 'false',
@@ -185,5 +194,6 @@ class ReaderStyle {
     await db.setSetting(_marginKey, '$margin');
     await db.setSetting(_justifyKey, '$justify');
     await db.setSetting(_fullKey, '$fullscreen');
+    await db.setSetting(_volumeKey, '$volumeKeys');
   }
 }

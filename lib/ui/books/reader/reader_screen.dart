@@ -220,6 +220,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     unawaited(keepScreenOn(false));
+    if (_volumePaging) unawaited(setVolumeKeyPaging(null));
     _clockTimer?.cancel();
     _returnTimer?.cancel();
     if (_immersive == true) unawaited(setImmersive(false));
@@ -1112,6 +1113,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   @override
   Widget build(BuildContext context) {
     final paper = _paper;
+    _syncVolumeKeys(ModalRoute.of(context)?.isCurrent ?? true);
     return PopScope(
       canPop: !_menu && _selection == null,
       onPopInvokedWithResult: (didPop, _) {
@@ -1182,6 +1184,22 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       );
     }
     return _insets;
+  }
+
+  /// Кнопки громкости листают, пока на экране текст книги: не в меню
+  /// и не под окном (заметка, перевод, настройки).
+  bool _volumePaging = false;
+
+  void _syncVolumeKeys(bool onTop) {
+    final want = _ready && _style.volumeKeys && !_menu && onTop;
+    if (want == _volumePaging) return;
+    _volumePaging = want;
+    unawaited(setVolumeKeyPaging(want ? _onVolumeKey : null));
+  }
+
+  void _onVolumeKey(bool forward) {
+    if (!mounted || !_volumePaging) return;
+    forward ? _next() : _prev();
   }
 
   /// Системные строки: спрятаны во время чтения, видны в меню.
@@ -2051,7 +2069,6 @@ class _Toast extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = BcColors.of(context);
-    final dark = Theme.of(context).brightness == Brightness.dark;
     return Material(
       color: c.text,
       elevation: 8,
@@ -2070,7 +2087,7 @@ class _Toast extends StatelessWidget {
             TextButton(
               onPressed: onUndo,
               child: Text('Отменить',
-                  style: TextStyle(fontWeight: FontWeight.w600, color: dark ? const Color(0xFF557F00) : const Color(0xFFC5F52E))),
+                  style: TextStyle(fontWeight: FontWeight.w600, color: c.inverse)),
             ),
           const SizedBox(width: 4),
         ]),

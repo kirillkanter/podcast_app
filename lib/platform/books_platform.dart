@@ -115,3 +115,22 @@ Future<void> setImmersive(bool on) async {
   if (!Platform.isAndroid) return;
   await SystemChrome.setEnabledSystemUIMode(on ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge);
 }
+
+const _volumeKeys = MethodChannel('basic_caster/volume_keys');
+
+/// Листание кнопками громкости (Android). Пока задан [onKey], кнопки громкости
+/// не меняют громкость, а вызывают [onKey]: `true` — «тише» (вперёд),
+/// `false` — «громче» (назад). `null` — кнопки снова регулируют громкость.
+Future<void> setVolumeKeyPaging(void Function(bool forward)? onKey) async {
+  if (!Platform.isAndroid) return;
+  _volumeKeys.setMethodCallHandler(onKey == null
+      ? null
+      : (call) async {
+          if (call.method == 'key') onKey(call.arguments == 'next');
+        });
+  try {
+    await _volumeKeys.invokeMethod<void>('enable', {'on': onKey != null});
+  } catch (e) {
+    debugPrint('Не удалось ${onKey != null ? 'включить' : 'выключить'} листание кнопками громкости: $e');
+  }
+}

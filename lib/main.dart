@@ -127,7 +127,12 @@ Future<void> main(List<String> args) async {
     }
   }
 
+  // Тема и акцент — до первого кадра, чтобы интерфейс не мигал другим цветом.
+  final theme = await db.setting(themeSettingKey);
+  final accent = await db.setting(accentSettingKey);
   runApp(PodcastApp(
+    initialTheme: theme,
+    initialAccent: accent,
     db: db,
     repository: repository,
     audio: audio,
@@ -153,7 +158,13 @@ class PodcastApp extends StatefulWidget {
     this.books,
     this.bookSync,
     this.refreshOnStart = true,
+    this.initialTheme,
+    this.initialAccent,
   });
+
+  /// Сохранённые тема и акцент (до первого ответа базы).
+  final String? initialTheme;
+  final String? initialAccent;
 
   final AppDatabase db;
   final PodcastRepository repository;
@@ -182,8 +193,11 @@ class _PodcastAppState extends State<PodcastApp> {
   Timer? _periodicSync;
   bool _notificationsChecked = false;
   late final Stream<String?> _themeSetting = widget.db.watchSetting(themeSettingKey);
-  static final _light = buildTheme(Brightness.light);
-  static final _dark = buildTheme(Brightness.dark);
+  late final Stream<String?> _accentSetting = widget.db.watchSetting(accentSettingKey);
+
+  /// Темы для каждого акцента — строятся один раз.
+  static final _themes = <(String, Brightness), ThemeData>{};
+  static ThemeData _theme(Accent a, Brightness b) => _themes.putIfAbsent((a.id, b), () => buildTheme(b, a));
 
   @override
   void initState() {
@@ -293,20 +307,25 @@ class _PodcastAppState extends State<PodcastApp> {
       books: widget.books,
       bookSync: widget.bookSync,
       child: StreamBuilder<String?>(
+        stream: _accentSetting,
+        initialData: widget.initialAccent,
+        builder: (context, accentId) => StreamBuilder<String?>(
         stream: _themeSetting,
+        initialData: widget.initialTheme,
         builder: (context, theme) => MaterialApp(
           title: 'Basic Caster',
           debugShowCheckedModeBanner: false,
           // На компьютере списки тянутся мышью (ряды подборок, пилюли).
           scrollBehavior: const AppScrollBehavior(),
           scaffoldMessengerKey: _messenger,
-          theme: _light,
-          darkTheme: _dark,
+          theme: _theme(Accent.from(accentId.data), Brightness.light),
+          darkTheme: _theme(Accent.from(accentId.data), Brightness.dark),
           themeMode: themeModeFrom(theme.data),
           home: AppShell(refreshOnStart: widget.refreshOnStart),
           builder: Platform.isWindows
               ? (context, child) => PlayerHotkeys(audio: widget.audio, child: child!)
               : null,
+        ),
         ),
       ),
     );

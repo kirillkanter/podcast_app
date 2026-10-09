@@ -10,6 +10,7 @@ import 'player_screen.dart';
 import 'podcast_cover.dart';
 import 'shell.dart';
 import 'icons.dart';
+import 'nav_ink.dart';
 import 'theme.dart';
 import 'menu.dart';
 import 'marquee.dart';
@@ -35,7 +36,7 @@ class MiniPlayer extends StatelessWidget {
           child: Stack(children: [
             Material(
               type: MaterialType.transparency,
-              child: InkWell(
+              child: NavInkWell(
                 onTap: () => _openPlayer(context, now),
                 child: Padding(
                   padding: const EdgeInsets.all(8),
@@ -90,7 +91,7 @@ class DesktopPlayerBar extends StatelessWidget {
               child: Row(children: [
                 Expanded(
                   flex: 3,
-                  child: InkWell(
+                  child: NavInkWell(
                     borderRadius: BorderRadius.circular(12),
                     onTap: () => _openPlayer(context, now),
                     child: Padding(

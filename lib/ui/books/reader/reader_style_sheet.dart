@@ -173,6 +173,15 @@ class ReaderStyleSheet extends StatelessWidget {
               subtitle: Text('Системные значки прячутся, время и заряд — в строке над текстом',
                   style: TextStyle(fontSize: 12, color: c.muted)),
             ),
+          if (Platform.isAndroid)
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              value: style.volumeKeys,
+              onChanged: (v) => onChanged(style.copyWith(volumeKeys: v)),
+              title: Text('Листать кнопками громкости', style: TextStyle(fontSize: 15, color: c.text)),
+              subtitle: Text('«Тише» — следующая страница, «громче» — предыдущая. Громкость при этом не меняется',
+                  style: TextStyle(fontSize: 12, color: c.muted)),
+            ),
         ]),
       ),
     );

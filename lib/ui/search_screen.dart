@@ -12,6 +12,7 @@ import 'podcast_cover.dart';
 import 'podcast_screen.dart';
 import 'scrolling.dart';
 import 'shell.dart';
+import 'nav_ink.dart';
 import 'theme.dart';
 
 /// Подкасты каталога, которые сейчас загружаются (подписка или открытие).
@@ -628,7 +629,7 @@ class _Card extends StatelessWidget {
     final radius = BorderRadius.circular(rank != null ? 16 : 12);
     return SizedBox(
       width: size,
-      child: InkWell(
+      child: NavInkWell(
         borderRadius: radius,
         onTap: () => openCatalogPodcast(context, p),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -797,7 +798,7 @@ class CatalogRow extends StatelessWidget {
     ].join(' · ');
     return Opacity(
       opacity: available ? 1 : 0.5,
-      child: InkWell(
+      child: NavInkWell(
         onTap: available ? () => openCatalogPodcast(context, p) : null,
         child: Padding(
           padding: EdgeInsets.fromLTRB(horizontalPadding, 8, horizontalPadding - 8, 8),

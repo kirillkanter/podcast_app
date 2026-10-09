@@ -17,6 +17,7 @@ import 'queue_screen.dart';
 import 'search_screen.dart';
 import 'settings_screen.dart';
 import 'icons.dart';
+import 'nav_ink.dart';
 import 'theme.dart';
 
 /// Разделы приложения: нижние вкладки на телефоне, боковое меню на компьютере.
@@ -370,7 +371,7 @@ class _Sidebar extends StatelessWidget {
                     itemBuilder: (context, i) {
                       final p = list[i];
                       final n = counts.data?[p.id] ?? 0;
-                      return InkWell(
+                      return NavInkWell(
                         borderRadius: BorderRadius.circular(10),
                         onTap: () => onOpenPodcast(p.id),
                         child: Padding(

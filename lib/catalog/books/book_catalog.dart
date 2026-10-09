@@ -218,7 +218,9 @@ class BookCatalog {
     final future = load();
     _cache[key] = future;
     // Ошибку не запоминаем: в следующий раз — новая попытка.
-    unawaited(future.then((_) {}, onError: (Object _) => _cache.remove(key)));
+    unawaited(future.then((_) {}, onError: (Object _) {
+      _cache.remove(key);
+    }));
     return future;
   }
 

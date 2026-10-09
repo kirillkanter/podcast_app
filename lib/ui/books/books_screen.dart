@@ -6,6 +6,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
+import '../../catalog/books/book_catalog.dart';
 import '../../data/db/books_dao.dart';
 import '../../data/db/database.dart';
 import '../app_scope.dart';
@@ -18,6 +19,7 @@ import 'book_import.dart';
 import 'book_screen.dart';
 import 'book_start.dart';
 import 'book_widgets.dart';
+import 'catalog/catalog_view.dart';
 import 'reader/reading_stats.dart';
 
 enum _Filter {
@@ -50,6 +52,10 @@ class _BooksScreenState extends State<BooksScreen> with WidgetsBindingObserver {
   bool _scanned = false;
   bool _refreshing = false;
 
+  /// Открыта вкладка «Каталог».
+  bool _catalogTab = false;
+  Stream<CatalogConfig>? _catalogConfig;
+
   static bool get _desktop => Platform.isWindows || Platform.isMacOS || Platform.isLinux;
 
   @override
@@ -68,6 +74,7 @@ class _BooksScreenState extends State<BooksScreen> with WidgetsBindingObserver {
   void didChangeDependencies() {
     super.didChangeDependencies();
     _books ??= AppScope.of(context).db.watchBooks();
+    _catalogConfig ??= AppScope.of(context).bookCatalog?.watchConfig();
     if (!_scanned) {
       _scanned = true;
       // Новые книги в папках-источниках появятся без нажатий.
@@ -118,7 +125,53 @@ class _BooksScreenState extends State<BooksScreen> with WidgetsBindingObserver {
       backgroundColor: c.bg,
       body: SafeArea(
         bottom: false,
-        child: StreamBuilder<List<BookItem>>(
+        child: StreamBuilder<CatalogConfig>(
+          stream: _catalogConfig,
+          builder: (context, cfg) {
+            final config = cfg.data;
+            final catalogOn = config != null && config.enabled;
+            final header = Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Padding(
+                padding: EdgeInsets.fromLTRB(wide ? 32 : 20, 20, wide ? 24 : 12, catalogOn ? 4 : 8),
+                child: Row(children: [
+                  Expanded(child: Text('Книги', style: screenTitleStyle(context).copyWith(fontSize: wide ? 30 : 26))),
+                  if (!(catalogOn && _catalogTab)) ...[
+                    IconButton(
+                      tooltip: 'Статистика чтения',
+                      onPressed: () => showReadingStats(context),
+                      icon: Icon(Icons.insights_rounded, color: c.text),
+                    ),
+                    IconButton(
+                      tooltip: 'Обновить: проверить папки с книгами и синхронизировать',
+                      onPressed: _refreshing ? null : _refresh,
+                      icon: _refreshing
+                          ? const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                          : Icon(Icons.refresh_rounded, color: c.text),
+                    ),
+                    const SizedBox(width: 4),
+                    _AddButton(),
+                  ],
+                ]),
+              ),
+              if (catalogOn)
+                Padding(
+                  padding: EdgeInsets.fromLTRB(wide ? 32 : 20, 4, 20, 12),
+                  child: SizedBox(
+                    width: 280,
+                    child: SegmentedButton<bool>(
+                      showSelectedIcon: false,
+                      segments: const [
+                        ButtonSegment(value: false, label: Text('Мои')),
+                        ButtonSegment(value: true, label: Text('Каталог')),
+                      ],
+                      selected: {_catalogTab},
+                      onSelectionChanged: (v) => setState(() => _catalogTab = v.first),
+                    ),
+                  ),
+                ),
+            ]);
+            if (catalogOn && _catalogTab) return CatalogView(config: config!, header: header);
+            return StreamBuilder<List<BookItem>>(
           stream: _books,
           builder: (context, snap) {
             final all = snap.data ?? const <BookItem>[];
@@ -129,28 +182,7 @@ class _BooksScreenState extends State<BooksScreen> with WidgetsBindingObserver {
             return RefreshIndicator(
               onRefresh: _refresh,
               child: CustomScrollView(physics: const AlwaysScrollableScrollPhysics(), slivers: [
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: EdgeInsets.fromLTRB(wide ? 32 : 20, 20, wide ? 24 : 12, 8),
-                    child: Row(children: [
-                      Expanded(child: Text('Книги', style: screenTitleStyle(context).copyWith(fontSize: wide ? 30 : 26))),
-                      IconButton(
-                        tooltip: 'Статистика чтения',
-                        onPressed: () => showReadingStats(context),
-                        icon: Icon(Icons.insights_rounded, color: c.text),
-                      ),
-                      IconButton(
-                        tooltip: 'Обновить: проверить папки с книгами и синхронизировать',
-                        onPressed: _refreshing ? null : _refresh,
-                        icon: _refreshing
-                            ? const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                            : Icon(Icons.refresh_rounded, color: c.text),
-                      ),
-                      const SizedBox(width: 4),
-                      _AddButton(),
-                    ]),
-                  ),
-                ),
+                SliverToBoxAdapter(child: header),
                 if (library != null)
                   SliverToBoxAdapter(
                     child: ValueListenableBuilder<String?>(
@@ -237,6 +269,8 @@ class _BooksScreenState extends State<BooksScreen> with WidgetsBindingObserver {
                 ],
               ]),
             );
+          },
+        );
           },
         ),
       ),

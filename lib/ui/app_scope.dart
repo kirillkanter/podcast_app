@@ -1,6 +1,7 @@
 import 'package:flutter/widgets.dart';
 
 import '../books/book_library.dart';
+import '../catalog/books/book_catalog.dart';
 import '../catalog/podcast_catalog.dart';
 import '../data/db/database.dart';
 import '../data/podcast_repository.dart';
@@ -21,6 +22,7 @@ class AppScope extends InheritedWidget {
     this.sync,
     this.books,
     this.bookSync,
+    this.bookCatalog,
     required super.child,
   });
 
@@ -43,6 +45,9 @@ class AppScope extends InheritedWidget {
   final BookLibrary? books;
   final BookSync? bookSync;
 
+  /// Каталог книг (LibriVox, OPDS). `null` в тестах интерфейса.
+  final BookCatalog? bookCatalog;
+
   static AppScope of(BuildContext context) {
     final scope = context.dependOnInheritedWidgetOfExactType<AppScope>();
     assert(scope != null, 'AppScope не найден выше по дереву виджетов');
@@ -57,5 +62,6 @@ class AppScope extends InheritedWidget {
       catalog != oldWidget.catalog ||
       sync != oldWidget.sync ||
       books != oldWidget.books ||
-      bookSync != oldWidget.bookSync;
+      bookSync != oldWidget.bookSync ||
+      bookCatalog != oldWidget.bookCatalog;
 }

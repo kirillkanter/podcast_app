@@ -10,6 +10,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'app_services.dart';
 import 'books/book_library.dart';
+import 'catalog/books/book_catalog.dart';
 import 'catalog/podcast_catalog.dart';
 import 'data/db/books_dao.dart';
 import 'data/db/database.dart';
@@ -141,6 +142,7 @@ Future<void> main(List<String> args) async {
     sync: sync,
     books: services.books,
     bookSync: services.bookSync,
+    bookCatalog: BookCatalog(db: db, library: services.books),
   ));
   // Эпизод, который играл перед закрытием, — снова в мини-плеере.
   unawaited(audio?.restoreLast());
@@ -157,6 +159,7 @@ class PodcastApp extends StatefulWidget {
     this.sync,
     this.books,
     this.bookSync,
+    this.bookCatalog,
     this.refreshOnStart = true,
     this.initialTheme,
     this.initialAccent,
@@ -174,6 +177,7 @@ class PodcastApp extends StatefulWidget {
   final SyncService? sync;
   final BookLibrary? books;
   final BookSync? bookSync;
+  final BookCatalog? bookCatalog;
   final bool refreshOnStart;
 
   @override
@@ -306,6 +310,7 @@ class _PodcastAppState extends State<PodcastApp> {
       sync: widget.sync,
       books: widget.books,
       bookSync: widget.bookSync,
+      bookCatalog: widget.bookCatalog,
       child: StreamBuilder<String?>(
         stream: _accentSetting,
         initialData: widget.initialAccent,

@@ -170,6 +170,52 @@ class BookLibrary {
 
   /// Аудиокнига из выбранных файлов: файлы копируются в папку приложения
   /// (на Android выбранный файл — временная копия).
+  /// Новая пустая папка для аудиокниги в папке приложения.
+  Future<Directory> newAudioFolder() async {
+    final base = await _dir('audiobooks');
+    final folder = Directory(p.join(base.path, '${DateTime.now().millisecondsSinceEpoch}'));
+    await folder.create(recursive: true);
+    return folder;
+  }
+
+  /// Добавить аудиокнигу из папки, которая уже лежит в папке приложения
+  /// (скачана из каталога). [title], [author] и [description] — из каталога,
+  /// если в тегах файлов их нет.
+  Future<int?> addAudioFolder(String folder, {String? title, String? author, String? description}) async {
+    status.value = 'Добавляю книгу…';
+    try {
+      var book = await BookScanner.scanFolder(folder);
+      if (book == null) return null;
+      final noTitle = RegExp(r'^\d+$').hasMatch(book.title.trim());
+      if ((noTitle && title != null) || (book.author == null && author != null) || (book.description == null && description != null)) {
+        book = ScannedAudioBook(
+          key: book.key,
+          title: noTitle && title != null ? title : book.title,
+          author: book.author ?? author,
+          narrator: book.narrator,
+          description: book.description ?? description,
+          path: book.path,
+          format: book.format,
+          tracks: book.tracks,
+          chapters: book.chapters,
+          cover: book.cover,
+          coverFile: book.coverFile,
+        );
+      }
+      final existing = await _db.bookByKey(book.key);
+      if (existing != null && existing.path != null && !existing.missing) {
+        await Directory(folder).delete(recursive: true);
+        return existing.id;
+      }
+      final cover = await _saveCover(book.key, book.cover, book.coverFile);
+      final id = await _db.saveAudioBook(book, coverPath: cover);
+      fillMissingCovers();
+      return id;
+    } finally {
+      status.value = null;
+    }
+  }
+
   Future<int?> addAudioFiles(List<String> paths) async {
     if (paths.isEmpty) return null;
     status.value = 'Копирую файлы книги…';

@@ -3,6 +3,7 @@ import 'dart:io' show Platform;
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 
+import '../catalog/books/book_catalog.dart';
 import '../catalog/podcast_catalog.dart';
 import '../data/db/database.dart';
 import '../download/download_manager.dart';
@@ -11,6 +12,7 @@ import '../platform/desktop.dart';
 import '../sync/sync_service.dart';
 import 'app_scope.dart';
 import 'books/book_import.dart';
+import 'books/catalog/add_opds.dart';
 import '../data/db/books_dao.dart';
 import 'diagnostics_dialog.dart';
 import 'episode_actions.dart';
@@ -244,6 +246,48 @@ class SettingsScreen extends StatelessWidget {
       ],
     ];
 
+    final bookCatalog = scope.bookCatalog;
+    final catalogSection = [
+      if (bookCatalog != null) ...[
+        const _SectionTitle('КАТАЛОГ КНИГ'),
+        StreamBuilder<CatalogConfig>(
+          stream: bookCatalog.watchConfig(),
+          builder: (context, snap) {
+            final config = snap.data ?? const CatalogConfig();
+            return _Card(children: [
+              _Row(
+                label: 'LibriVox',
+                hint: 'Бесплатные аудиокниги из общественного достояния, в основном на английском',
+                onTap: () => bookCatalog.setLibriVox(!config.librivox),
+                trailing: Switch(value: config.librivox, onChanged: bookCatalog.setLibriVox),
+              ),
+              for (final o in config.opds)
+                _Row(
+                  label: o.name,
+                  hint: o.private ? '${o.url} · вход: ${o.login}' : o.url,
+                  trailing: IconButton(
+                    tooltip: 'Убрать каталог',
+                    icon: BcIcon(BcIcons.close, size: 18, color: c.muted),
+                    onPressed: () => bookCatalog.removeOpds(o.id),
+                  ),
+                ),
+              _Row(
+                label: 'Добавить каталог OPDS',
+                hint: 'Каталог библиотеки или книжного сайта',
+                onTap: () => showAddOpdsCatalog(context),
+                trailing: BcIcon(BcIcons.plus, size: 20, color: c.muted),
+              ),
+            ]);
+          },
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(4, 8, 4, 0),
+          child: Text('Когда LibriVox выключен и каталогов нет, вкладка «Каталог» в книгах скрывается.',
+              style: TextStyle(fontSize: 12, color: c.muted)),
+        ),
+      ],
+    ];
+
     final search = [
       if (scope.catalog != null) ...[
         const _SectionTitle('ПОИСК'),
@@ -333,6 +377,7 @@ class SettingsScreen extends StatelessWidget {
                 ...gestures,
                 ...subscriptions,
                 ...books,
+                ...catalogSection,
                 ...downloadSection,
                 ...search,
                 ...look,
@@ -364,6 +409,7 @@ class SettingsScreen extends StatelessWidget {
                     Expanded(
                       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                         ...books,
+                        ...catalogSection,
                         ...downloadSection,
                         ...search,
                         ...look,

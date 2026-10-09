@@ -1,0 +1,67 @@
+Basic Caster
+Copyright (c) 2026 Kirill Kanter. Все права защищены. All rights reserved.
+
+Русский
+
+Исходный код Basic Caster опубликован только для ознакомления. Разрешается
+просматривать его на GitHub и сообщать об ошибках.
+
+Без предварительного письменного разрешения правообладателя запрещается:
+- копировать код целиком или частично, кроме случаев, предусмотренных
+  правилами GitHub (просмотр и форк средствами GitHub);
+- изменять код и создавать на его основе производные работы;
+- распространять код, программу или её изменённые версии;
+- использовать код или его части в других программах, сервисах
+  и продуктах, в том числе коммерческих;
+- выпускать программу под этим или другим названием.
+
+Готовую программу Basic Caster можно бесплатно устанавливать и использовать
+для личных целей.
+
+Исключения. Следующие части репозитория распространяются по своим лицензиям,
+и данные ограничения на них не действуют:
+- sync-server/ — сервер синхронизации на основе oPodSync, вместе с файлами
+  bcaster.php и books.php: GNU Affero General Public License 3.0
+  (sync-server/LICENSE);
+- third_party/windows_taskbar/ — плагин windows_taskbar: лицензия MIT
+  (third_party/windows_taskbar/LICENSE);
+- assets/fonts/ — шрифты Golos Text, PT Serif, Unbounded, OpenDyslexic:
+  SIL Open Font License 1.1 (файлы *-OFL.txt рядом со шрифтами).
+
+Программа предоставляется «как есть», без каких-либо гарантий. Правообладатель
+не несёт ответственности за любой ущерб, связанный с её использованием.
+
+Разрешение на использование кода можно запросить через GitHub:
+https://github.com/kirillkanter
+
+English
+
+The Basic Caster source code is published for viewing only. You may read it
+on GitHub and report issues.
+
+Without prior written permission from the copyright holder you may not:
+- copy the code in whole or in part, except as permitted by the GitHub Terms
+  of Service (viewing and forking on GitHub);
+- modify the code or create derivative works;
+- distribute the code, the application or modified versions of it;
+- use the code or any part of it in other software, services or products,
+  including commercial ones;
+- release the application under this or any other name.
+
+The compiled Basic Caster application may be installed and used free of
+charge for personal purposes.
+
+Exceptions. The following parts of this repository are distributed under
+their own licenses, and the restrictions above do not apply to them:
+- sync-server/ — the sync server based on oPodSync, including bcaster.php
+  and books.php: GNU Affero General Public License 3.0 (sync-server/LICENSE);
+- third_party/windows_taskbar/ — the windows_taskbar plugin: MIT License
+  (third_party/windows_taskbar/LICENSE);
+- assets/fonts/ — Golos Text, PT Serif, Unbounded and OpenDyslexic fonts:
+  SIL Open Font License 1.1 (the *-OFL.txt files next to the fonts).
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND. IN NO EVENT
+SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY DAMAGES ARISING FROM ITS USE.
+
+To request permission to use the code, contact the author via GitHub:
+https://github.com/kirillkanter

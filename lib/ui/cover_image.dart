@@ -51,7 +51,9 @@ class CoverCache {
   Future<Uint8List> _bytes(String url) async {
     if (!_pruned) {
       _pruned = true;
-      unawaited(_disk.prune(maxBytes));
+      // Не в момент запуска, когда читаются все обложки на экране: обход
+      // папки с тысячами файлов подождёт.
+      Timer(const Duration(seconds: 30), () => unawaited(_disk.prune(maxBytes)));
     }
     final cached = await _disk.read(url);
     if (cached != null) {

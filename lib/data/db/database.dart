@@ -163,7 +163,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.defaults() : super(driftDatabase(name: 'podcasts'));
 
   @override
-  int get schemaVersion => 5;
+  int get schemaVersion => 6;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -197,6 +197,10 @@ class AppDatabase extends _$AppDatabase {
             // Выделения цветом и заметки в текстовых книгах.
             await m.createTable(bookHighlights);
           }
+          if (from < 6) {
+            // Отпечаток фида: неизменившийся фид не разбирается заново.
+            await m.addColumn(podcasts, podcasts.contentHash);
+          }
         },
         beforeOpen: (details) async {
           // В SQLite внешние ключи по умолчанию выключены.
@@ -226,6 +230,7 @@ class AppDatabase extends _$AppDatabase {
     ParsedFeed feed, {
     String? etag,
     String? lastModified,
+    String? contentHash,
   }) {
     return transaction(() async {
       final now = DateTime.now();
@@ -246,6 +251,7 @@ class AppDatabase extends _$AppDatabase {
         lastCheckedAt: Value(now),
         lastSuccessAt: Value(now),
         lastError: const Value(null),
+        contentHash: Value(contentHash),
       );
 
       final existing = await (select(podcasts)..where((p) => p.feedUrl.equals(feedUrl)))
@@ -315,9 +321,29 @@ class AppDatabase extends _$AppDatabase {
   }
 
   /// Фид не изменился (HTTP 304): отмечаем успешную проверку.
-  Future<void> markFeedNotModified(int podcastId) {
+  Future<void> markFeedNotModified(
+    int podcastId, {
+    Value<String?> etag = const Value.absent(),
+    Value<String?> lastModified = const Value.absent(),
+  }) {
     final now = DateTime.now();
     return (update(podcasts)..where((p) => p.id.equals(podcastId))).write(
+      PodcastsCompanion(
+        lastCheckedAt: Value(now),
+        lastSuccessAt: Value(now),
+        lastError: const Value(null),
+        etag: etag,
+        lastModified: lastModified,
+      ),
+    );
+  }
+
+  /// «Проверено, изменений нет» сразу для нескольких подкастов — одной
+  /// записью, чтобы экраны перечитали списки один раз, а не на каждый фид.
+  Future<void> markFeedsChecked(List<int> podcastIds) async {
+    if (podcastIds.isEmpty) return;
+    final now = DateTime.now();
+    await (update(podcasts)..where((p) => p.id.isIn(podcastIds))).write(
       PodcastsCompanion(
         lastCheckedAt: Value(now),
         lastSuccessAt: Value(now),

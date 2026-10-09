@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -206,6 +207,38 @@ void main() {
       expect(await repo.refresh(id), 1);
       expect((await db.podcastById(id))!.feedUrl, 'https://new.example.com/rss');
       expect(await db.select(db.podcasts).get(), hasLength(1));
+    });
+
+    test('неизменившийся фид не разбирается и не переписывается', () async {
+      web.serve('https://example.com/feed', feed('Тест', ['1']));
+      final id = await repo.addAndSubscribe('https://example.com/feed');
+      expect((await db.podcastById(id))!.contentHash, isNotNull);
+
+      // Пометка в базе, которую перезаписал бы повторный разбор.
+      await (db.update(db.episodes)..where((e) => e.podcastId.equals(id)))
+          .write(const EpisodesCompanion(title: Value('метка')));
+      expect(await repo.refresh(id), 0);
+      expect((await db.watchEpisodes(id).first).single.title, 'метка', reason: 'тот же фид — без записи');
+
+      web.serve('https://example.com/feed', feed('Тест', ['1', '2']));
+      expect(await repo.refresh(id), 1);
+      expect([for (final e in await db.watchEpisodes(id).first) e.title]..sort(), ['Эпизод 1', 'Эпизод 2']);
+    });
+
+    test('при запуске недавно проверенные подкасты не запрашиваются', () async {
+      web.serve('https://a.example.com/feed', feed('A', ['1']));
+      final a = await repo.addAndSubscribe('https://a.example.com/feed');
+      web.requests.clear();
+
+      await repo.refreshAll(olderThan: const Duration(minutes: 15));
+      expect(web.requests, isEmpty);
+
+      await (db.update(db.podcasts)..where((p) => p.id.equals(a)))
+          .write(PodcastsCompanion(lastCheckedAt: Value(DateTime.now().subtract(const Duration(hours: 1)))));
+      final before = DateTime.now();
+      await repo.refreshAll(olderThan: const Duration(minutes: 15));
+      expect(web.requests, hasLength(1));
+      expect((await db.podcastById(a))!.lastCheckedAt!.isBefore(before), isFalse, reason: 'отмечен проверенным');
     });
 
     test('обновление всех подписок: итог и ошибки', () async {

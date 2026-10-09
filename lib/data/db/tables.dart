@@ -43,6 +43,10 @@ class Podcasts extends Table {
   DateTimeColumn get lastSuccessAt => dateTime().nullable()();
   TextColumn get lastError => text().nullable()();
 
+  /// Отпечаток содержимого фида при последнем разборе
+  /// (`feedContentHash`): совпал — фид не разбирается заново.
+  TextColumn get contentHash => text().nullable()();
+
   DateTimeColumn get createdAt => dateTime().clientDefault(DateTime.now)();
 }
 

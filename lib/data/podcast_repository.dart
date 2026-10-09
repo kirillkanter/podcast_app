@@ -4,6 +4,8 @@ library;
 
 import 'dart:isolate';
 
+import 'package:drift/drift.dart' show Value;
+
 import '../feed/feed_fetcher.dart';
 import '../feed/feed_url.dart';
 import '../feed/models.dart';
@@ -31,18 +33,55 @@ class RefreshSummary {
 typedef FeedParserFn = Future<ParsedFeed> Function(
     List<int> bytes, String feedUrl, String? charset);
 
+/// Версия разбора фидов. Если разбор изменился (исправили ошибку),
+/// версия растёт — и все фиды разбираются заново, даже без изменений.
+const feedParserVersion = 1;
+
+/// Отпечаток содержимого фида: длина и 64-битный FNV-1a, плюс версия разбора.
+/// Совпал с сохранённым — фид не менялся, разбирать и записывать нечего.
+String feedContentHash(List<int> bytes) {
+  var h = 0xcbf29ce484222325;
+  for (final b in bytes) {
+    h ^= b;
+    h *= 0x100000001b3;
+  }
+  return 'v$feedParserVersion:${bytes.length}:${h.toUnsigned(64).toRadixString(16)}';
+}
+
+/// Отпечаток и, если он не совпал с [known], разобранный фид.
+typedef _Checked = ({String hash, ParsedFeed? feed});
+
 class PodcastRepository {
-  PodcastRepository(this._db, this._fetcher, {FeedParserFn? parser})
-      : _parse = parser ?? _parseInIsolate;
+  PodcastRepository(this._db, this._fetcher, {FeedParserFn? parser}) : _customParse = parser;
 
   final AppDatabase _db;
   final FeedFetcher _fetcher;
-  final FeedParserFn _parse;
 
-  /// Разбор большого фида может занять заметное время, поэтому он идёт
-  /// в отдельном потоке, чтобы не подвисал интерфейс.
-  static Future<ParsedFeed> _parseInIsolate(List<int> bytes, String feedUrl, String? charset) =>
-      Isolate.run(() => parseFeedBytes(bytes, feedUrl: feedUrl, httpCharset: charset));
+  /// Свой разбор (тесты); `null` — в отдельном потоке.
+  final FeedParserFn? _customParse;
+
+  /// Отпечаток и разбор — в отдельном потоке: и то и другое на большом
+  /// фиде заметно по времени. Если фид не изменился с прошлого раза,
+  /// разобранный фид не возвращается: передавать его в основной поток
+  /// и переписывать сотни эпизодов в базе незачем.
+  Future<_Checked> _parseIfChanged(List<int> bytes, String feedUrl, String? charset, String? known) {
+    final custom = _customParse;
+    if (custom != null) {
+      final hash = feedContentHash(bytes);
+      if (hash == known) return Future.value((hash: hash, feed: null));
+      return custom(bytes, feedUrl, charset).then((feed) => (hash: hash, feed: feed));
+    }
+    return _checkInIsolate(bytes, feedUrl, charset, known);
+  }
+
+  /// Отдельная статическая функция: замыкание для другого потока не должно
+  /// захватить репозиторий (в нём база, её туда не передать).
+  static Future<_Checked> _checkInIsolate(List<int> bytes, String feedUrl, String? charset, String? known) =>
+      Isolate.run(() {
+        final hash = feedContentHash(bytes);
+        if (hash == known) return (hash: hash, feed: null);
+        return (hash: hash, feed: parseFeedBytes(bytes, feedUrl: feedUrl, httpCharset: charset));
+      });
 
   /// Разбор в текущем потоке — для тестов.
   static Future<ParsedFeed> parseInPlace(List<int> bytes, String feedUrl, String? charset) async =>
@@ -102,6 +141,7 @@ class PodcastRepository {
       loaded.feed,
       etag: loaded.etag,
       lastModified: loaded.lastModified,
+      contentHash: loaded.hash,
     );
     if (subscribe) await _db.setSubscribed(result.podcastId, true);
     return result.podcastId;
@@ -109,7 +149,10 @@ class PodcastRepository {
 
   /// Обновляет один подкаст. Возвращает число новых эпизодов.
   /// Ошибку записывает в БД и пробрасывает как [PodcastException].
-  Future<int> refresh(int podcastId) async {
+  ///
+  /// [checked] — копить сюда подкасты, где ничего не изменилось, чтобы
+  /// записать «проверено» одним запросом на все (см. [refreshAll]).
+  Future<int> refresh(int podcastId, {List<int>? checked}) async {
     final podcast = await _db.podcastById(podcastId);
     if (podcast == null) return 0;
 
@@ -127,10 +170,28 @@ class PodcastRepository {
 
       switch (result) {
         case FeedNotModified():
-          await _db.markFeedNotModified(podcastId);
+          if (checked != null) {
+            checked.add(podcastId);
+          } else {
+            await _db.markFeedNotModified(podcastId);
+          }
           return 0;
         case final FeedFetched fetched:
-          final feed = await _parseSafely(fetched, podcast.feedUrl);
+          final checkedFeed = await _parseSafely(fetched, podcast.feedUrl, known: podcast.contentHash);
+          final feed = checkedFeed.feed;
+          if (feed == null) {
+            // Содержимое то же, что в прошлый раз.
+            final moved = fetched.movedPermanently && fetched.finalUrl != podcast.feedUrl;
+            if (moved) await _db.updateFeedUrl(podcastId, fetched.finalUrl);
+            final cacheChanged = fetched.etag != podcast.etag || fetched.lastModified != podcast.lastModified;
+            if (checked != null && !moved && !cacheChanged) {
+              checked.add(podcastId);
+            } else {
+              await _db.markFeedNotModified(podcastId,
+                  etag: Value(fetched.etag), lastModified: Value(fetched.lastModified));
+            }
+            return 0;
+          }
           var url = podcast.feedUrl;
           if (fetched.movedPermanently && fetched.finalUrl != url) {
             url = fetched.finalUrl;
@@ -148,6 +209,7 @@ class PodcastRepository {
             feed,
             etag: cacheValid ? fetched.etag : null,
             lastModified: cacheValid ? fetched.lastModified : null,
+            contentHash: checkedFeed.hash,
           );
           return saved.newEpisodes;
       }
@@ -158,17 +220,30 @@ class PodcastRepository {
   }
 
   /// Обновляет все подписки, не больше [parallel] одновременно.
-  Future<RefreshSummary> refreshAll({int parallel = 4}) async {
-    final podcasts = await _db.subscribedPodcasts();
+  ///
+  /// [olderThan] — только подкасты, которые не проверялись дольше этого
+  /// (при запуске приложения: только что проверенные фоновой задачей
+  /// или прошлым запуском не трогаем).
+  ///
+  /// Неизменившиеся подкасты отмечаются проверенными одним запросом в конце:
+  /// каждая запись в базу заставляет экраны перечитать списки, и десяток
+  /// отдельных записей подряд давал десяток мелких подтормаживаний.
+  Future<RefreshSummary> refreshAll({int parallel = 4, Duration? olderThan}) async {
+    final now = DateTime.now();
+    final podcasts = [
+      for (final p in await _db.subscribedPodcasts())
+        if (olderThan == null || p.lastCheckedAt == null || now.difference(p.lastCheckedAt!) >= olderThan) p,
+    ];
     var added = 0;
     final failed = <int, String>{};
+    final checked = <int>[];
     final queue = [...podcasts];
 
     Future<void> worker() async {
       while (queue.isNotEmpty) {
         final p = queue.removeLast();
         try {
-          added += await refresh(p.id);
+          added += await refresh(p.id, checked: checked);
         } on PodcastException catch (e) {
           failed[p.id] = e.message;
         }
@@ -176,6 +251,7 @@ class PodcastRepository {
     }
 
     await Future.wait([for (var i = 0; i < parallel; i++) worker()]);
+    await _db.markFeedsChecked(checked);
     return RefreshSummary(newEpisodes: added, failed: failed);
   }
 
@@ -196,18 +272,19 @@ class PodcastRepository {
       throw const PodcastException('Сервер вернул пустой ответ.');
     }
     final finalUrl = result.movedPermanently ? result.finalUrl : url;
-    final feed = await _parseSafely(result, finalUrl);
+    final checked = await _parseSafely(result, finalUrl);
     return _Loaded(
       url: finalUrl,
-      feed: feed,
+      feed: checked.feed!,
+      hash: checked.hash,
       etag: result.etag,
       lastModified: result.lastModified,
     );
   }
 
-  Future<ParsedFeed> _parseSafely(FeedFetched result, String feedUrl) async {
+  Future<_Checked> _parseSafely(FeedFetched result, String feedUrl, {String? known}) async {
     try {
-      return await _parse(result.bytes, feedUrl, result.charset);
+      return await _parseIfChanged(result.bytes, feedUrl, result.charset, known);
     } on FeedParseException catch (e) {
       throw PodcastException('Не удалось прочитать фид: ${e.message}');
     } catch (e) {
@@ -223,15 +300,17 @@ class PodcastRepository {
       loaded.feed,
       etag: loaded.etag,
       lastModified: loaded.lastModified,
+      contentHash: loaded.hash,
     );
   }
 }
 
 class _Loaded {
-  const _Loaded({required this.url, required this.feed, this.etag, this.lastModified});
+  const _Loaded({required this.url, required this.feed, required this.hash, this.etag, this.lastModified});
 
   final String url;
   final ParsedFeed feed;
+  final String hash;
   final String? etag;
   final String? lastModified;
 }

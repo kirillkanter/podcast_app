@@ -35,24 +35,39 @@ class _LibraryScreenState extends State<LibraryScreen> {
   bool _refreshing = false;
   bool _started = false;
 
+  /// Поток подписок создаётся один раз: иначе каждая перерисовка экрана
+  /// (например, значок обновления) заново запрашивала базу.
+  Stream<List<Podcast>>? _subscriptions;
+
+  /// Подкасты, проверенные недавно (фоновой задачей или прошлым запуском),
+  /// при запуске не перепроверяются.
+  static const _freshEnough = Duration(minutes: 15);
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    _subscriptions ??= AppScope.of(context).db.watchSubscribedPodcasts();
     if (!_started) {
       _started = true;
       if (widget.refreshOnStart) {
-        WidgetsBinding.instance.addPostFrameCallback((_) => _refreshAll(silent: true));
+        // Не в первые же кадры: сначала приложение открывается и рисует
+        // обложки, потом в фоне проверяются фиды.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          Future<void>.delayed(const Duration(milliseconds: 1500), () {
+            if (mounted) unawaited(_refreshAll(silent: true, olderThan: _freshEnough));
+          });
+        });
       }
     }
   }
 
-  Future<void> _refreshAll({bool silent = false}) async {
+  Future<void> _refreshAll({bool silent = false, Duration? olderThan}) async {
     if (_refreshing) return;
     setState(() => _refreshing = true);
     final scope = AppScope.of(context);
     final messenger = ScaffoldMessenger.of(context);
     try {
-      final summary = await scope.repository.refreshAll();
+      final summary = await scope.repository.refreshAll(olderThan: olderThan);
       await scope.downloads?.autoDownloadAll();
       if (!mounted) return;
       final parts = <String>[
@@ -78,14 +93,13 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final db = AppScope.of(context).db;
     final c = BcColors.of(context);
     return Scaffold(
       backgroundColor: c.bg,
       body: SafeArea(
         bottom: false,
         child: StreamBuilder<List<Podcast>>(
-          stream: db.watchSubscribedPodcasts(),
+          stream: _subscriptions,
           builder: (context, subs) {
             final podcasts = subs.data;
             return RefreshIndicator(

@@ -329,19 +329,23 @@ class SyncService {
     }
 
     var updated = 0;
-    for (final a in latest.values) {
-      final episode = await _db.findEpisodeByEnclosure(a.episode, feedUrl: a.podcast);
-      if (episode == null) continue; // эпизода нет в локальном фиде
-      final applied = a.action == 'new'
-          ? await _db.applyRemoteEpisodeState(episode.id, positionMs: 0, played: false, changed: a.effectiveTime)
-          : await _db.applyRemoteEpisodeState(
-              episode.id,
-              positionMs: (a.position ?? 0) * 1000,
-              played: _isPlayed(a),
-              changed: a.effectiveTime,
-            );
-      if (applied) updated++;
-    }
+    // Одной транзакцией: экраны перечитают списки один раз после всех
+    // изменений, а не после каждого эпизода.
+    await _db.transaction(() async {
+      for (final a in latest.values) {
+        final episode = await _db.findEpisodeByEnclosure(a.episode, feedUrl: a.podcast);
+        if (episode == null) continue; // эпизода нет в локальном фиде
+        final applied = a.action == 'new'
+            ? await _db.applyRemoteEpisodeState(episode.id, positionMs: 0, played: false, changed: a.effectiveTime)
+            : await _db.applyRemoteEpisodeState(
+                episode.id,
+                positionMs: (a.position ?? 0) * 1000,
+                played: _isPlayed(a),
+                changed: a.effectiveTime,
+              );
+        if (applied) updated++;
+      }
+    });
     await _applyRemoteLast(result.actions, deviceId);
     await _db.setSetting(SyncSettings.episodesSince, '${result.timestamp}');
     return updated;
@@ -406,6 +410,7 @@ class SyncService {
 
       final changes = await client.stateChanges(since);
       var updated = 0;
+      await _db.transaction(() async {
       for (final item in changes.items) {
         final kind = item['kind'];
         final episodeUrl = item['episode'];
@@ -432,6 +437,7 @@ class SyncService {
         };
         if (applied) updated++;
       }
+      });
       await _db.setSetting(SyncSettings.stateSince, '${changes.rev}');
       await _db.setSetting(SyncSettings.stateUnsupported, '');
       return updated;

@@ -258,12 +258,14 @@ class _PlayerColumn extends StatelessWidget {
 
 Future<void> _addBookmark(BuildContext context, PodcastAudioHandler audio, Book book) async {
   final db = AppScope.of(context).db;
+  final bookSync = AppScope.of(context).bookSync;
   final chapters = audio.bookChapters;
   final g = audio.bookPosition.inMilliseconds;
   final idx = audio.bookTimeline.chapterAt(g);
   final into = Duration(milliseconds: g - audio.bookTimeline.chapterStart(idx));
   final label = chapters.isEmpty ? formatClock(Duration(milliseconds: g)) : '${chapters[idx].title}, ${formatClock(into)}';
   await db.addBookmark(book.id, locator: audio.bookLocator.encode(), positionMs: g, label: label);
+  bookSync?.highlightsChanged();
   if (context.mounted) {
     ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text('Закладка: $label')));
   }

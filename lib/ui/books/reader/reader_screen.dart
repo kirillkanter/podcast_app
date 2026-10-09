@@ -517,6 +517,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       for (final b in existing) {
         await _db.deleteBookmark(b.id);
       }
+      _bookSync?.highlightsChanged();
       return;
     }
     final pages = _pagesOf(chapter);
@@ -529,6 +530,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       if (snippet.length > 120) snippet = '${snippet.substring(0, 120).trimRight()}…';
     }
     await _db.addBookmark(widget.book.id, locator: at.encode(), label: snippet);
+    _bookSync?.highlightsChanged();
     if (!mounted) return;
     setState(() => _ribbonDrop++);
   }

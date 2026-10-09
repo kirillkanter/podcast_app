@@ -2,6 +2,7 @@ import 'package:drift/drift.dart';
 import 'package:drift_flutter/drift_flutter.dart';
 
 import '../../feed/models.dart';
+import 'books_dao.dart' show bookmarkEnd, newUid;
 import 'tables.dart';
 
 export 'tables.dart' show DownloadStatus, BookKind, BookShelf;
@@ -163,7 +164,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.defaults() : super(driftDatabase(name: 'podcasts'));
 
   @override
-  int get schemaVersion => 6;
+  int get schemaVersion => 7;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -200,6 +201,29 @@ class AppDatabase extends _$AppDatabase {
           if (from < 6) {
             // Отпечаток фида: неизменившийся фид не разбирается заново.
             await m.addColumn(podcasts, podcasts.contentHash);
+          }
+          if (from >= 4 && from < 7) {
+            // Закладки переезжают к выделениям: так они синхронизируются
+            // между устройствами (см. watchBookmarks).
+            final old = await customSelect(
+              'SELECT b.locator, b.position_ms, b.label, b.created_at, k.key AS book_key '
+              'FROM book_bookmarks b JOIN books k ON k.id = b.book_id',
+              readsFrom: {bookBookmarks, books},
+            ).get();
+            for (final row in old) {
+              final ms = row.readNullable<int>('position_ms');
+              final created = row.read<DateTime>('created_at');
+              await into(bookHighlights).insert(BookHighlightsCompanion.insert(
+                bookKey: row.read<String>('book_key'),
+                uid: newUid(),
+                startAt: row.read<String>('locator'),
+                endAt: ms == null ? bookmarkEnd : '$bookmarkEnd:$ms',
+                quote: row.read<String>('label'),
+                createdAt: created,
+                updatedAt: created,
+              ));
+            }
+            await delete(bookBookmarks).go();
           }
         },
         beforeOpen: (details) async {

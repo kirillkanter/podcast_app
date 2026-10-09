@@ -336,28 +336,46 @@ extension BooksDao on AppDatabase {
   // Закладки
   // -------------------------------------------------------------------------
 
-  Stream<List<BookBookmark>> watchBookmarks(int bookId) => (select(bookBookmarks)
-        ..where((b) => b.bookId.equals(bookId))
-        ..orderBy([(b) => OrderingTerm.asc(b.positionMs), (b) => OrderingTerm.asc(b.locator)]))
-      .watch();
+  // Закладки хранятся вместе с выделениями (таблица book_highlights) и
+  // синхронизируются тем же путём: привязаны к ключу книги, у каждой общий
+  // для всех устройств uid. От выделения закладку отличает конец:
+  // [bookmarkEnd] (текстовая книга) или `bookmark:<мс>` (аудиокнига —
+  // место в миллисекундах от начала книги). Начало — место в книге.
 
-  Future<int> addBookmark(int bookId, {required String locator, int? positionMs, required String label}) =>
-      into(bookBookmarks).insert(BookBookmarksCompanion(
-        bookId: Value(bookId),
-        locator: Value(locator),
-        positionMs: Value(positionMs),
-        label: Value(label),
-      ));
+  Stream<List<BookBookmark>> watchBookmarks(int bookId) {
+    final query = select(bookHighlights).join([innerJoin(books, books.key.equalsExp(bookHighlights.bookKey))])
+      ..where(books.id.equals(bookId) & bookHighlights.deleted.equals(false) & bookHighlights.endAt.like('$bookmarkEnd%'));
+    return query.watch().map((rows) {
+      final list = [for (final r in rows) bookmarkFrom(r.readTable(bookHighlights), bookId)];
+      list.sort((a, b) {
+        final byTime = (a.positionMs ?? 0).compareTo(b.positionMs ?? 0);
+        return byTime != 0 ? byTime : a.locator.compareTo(b.locator);
+      });
+      return list;
+    });
+  }
 
-  Future<void> deleteBookmark(int id) => (delete(bookBookmarks)..where((b) => b.id.equals(id))).go();
+  Future<int> addBookmark(int bookId, {required String locator, int? positionMs, required String label}) async {
+    final book = await bookById(bookId);
+    if (book == null) return -1;
+    return addHighlight(
+      book.key,
+      start: locator,
+      end: positionMs == null ? bookmarkEnd : '$bookmarkEnd:$positionMs',
+      quote: label,
+    );
+  }
+
+  /// Удалить везде (удаление уходит на сервер, как у выделений).
+  Future<void> deleteBookmark(int id) => deleteHighlight(id);
 
   // -------------------------------------------------------------------------
   // Выделения и заметки
   // -------------------------------------------------------------------------
 
-  /// Выделения книги (кроме удалённых).
+  /// Выделения книги (кроме удалённых и закладок).
   Stream<List<BookHighlight>> watchHighlights(String bookKey) => (select(bookHighlights)
-        ..where((h) => h.bookKey.equals(bookKey) & h.deleted.equals(false))
+        ..where((h) => h.bookKey.equals(bookKey) & h.deleted.equals(false) & h.endAt.like('$bookmarkEnd%').not())
         ..orderBy([(h) => OrderingTerm.asc(h.createdAt)]))
       .watch();
 
@@ -481,3 +499,18 @@ extension BooksDao on AppDatabase {
         await (delete(books)..where((b) => b.sourceRoot.equals(path))).go();
       });
 }
+
+/// Конец записи в book_highlights, по которому видно, что это закладка.
+const bookmarkEnd = 'bookmark';
+
+bool isBookmarkRow(BookHighlight h) => h.endAt.startsWith(bookmarkEnd);
+
+/// Закладка из записи book_highlights.
+BookBookmark bookmarkFrom(BookHighlight h, int bookId) => BookBookmark(
+      id: h.id,
+      bookId: bookId,
+      locator: h.startAt,
+      positionMs: h.endAt.startsWith('$bookmarkEnd:') ? int.tryParse(h.endAt.substring(bookmarkEnd.length + 1)) : null,
+      label: h.quote,
+      createdAt: h.createdAt,
+    );

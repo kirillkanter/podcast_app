@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../data/db/books_dao.dart';
 import '../../data/db/database.dart';
 import '../../player/playback_logic.dart';
+import '../app_scope.dart';
 import '../format.dart';
 import '../icons.dart';
 import '../podcast_cover.dart';
@@ -179,6 +180,7 @@ class BookmarksList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = BcColors.of(context);
+    final sync = AppScope.of(context).bookSync;
     return StreamBuilder<List<BookBookmark>>(
       stream: db.watchBookmarks(bookId),
       builder: (context, snap) {
@@ -204,7 +206,10 @@ class BookmarksList extends StatelessWidget {
               trailing: IconButton(
                 tooltip: 'Удалить закладку',
                 icon: BcIcon(BcIcons.close, size: 18, color: c.muted),
-                onPressed: () => db.deleteBookmark(b.id),
+                onPressed: () async {
+                  await db.deleteBookmark(b.id);
+                  sync?.highlightsChanged();
+                },
               ),
               onTap: () => onOpen(b),
             );

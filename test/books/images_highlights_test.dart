@@ -100,6 +100,45 @@ void main() {
       expect((await db.dirtyHighlights()).single.deleted, isTrue);
     });
 
+    test('закладки: отдельно от выделений, уходят на сервер, приходят с него', () async {
+      Future<int> book(AppDatabase d) =>
+          d.into(d.books).insert(BooksCompanion.insert(key: 't:1', kind: BookKind.text, title: 'Книга', format: 'epub'));
+      final bookId = await book(db);
+      await db.addHighlight('t:1', start: 'c0:b0:o0', end: 'c0:b0:o5', quote: 'выделение');
+      await db.addBookmark(bookId, locator: 'c2:b5:o0', label: 'Начало страницы');
+      final audioId = await db.addBookmark(bookId, locator: 'x', positionMs: 61000, label: 'Глава 1, 1:01');
+
+      final marks = await db.watchBookmarks(bookId).first;
+      expect([for (final b in marks) (b.locator, b.positionMs, b.label)],
+          [('c2:b5:o0', null, 'Начало страницы'), ('x', 61000, 'Глава 1, 1:01')]);
+      expect((await db.watchHighlights('t:1').first).map((h) => h.quote), ['выделение']);
+      expect((await db.dirtyHighlights()).length, 3, reason: 'закладки уходят на сервер вместе с выделениями');
+
+      await db.deleteBookmark(audioId);
+      expect(await db.watchBookmarks(bookId).first, hasLength(1));
+      expect((await db.highlightById(audioId))!.deleted, isTrue, reason: 'удаление тоже уходит на сервер');
+
+      // На другом устройстве — та же закладка по данным с сервера.
+      final other = AppDatabase(NativeDatabase.memory());
+      addTearDown(other.close);
+      final otherId = await book(other);
+      final sent = (await db.dirtyHighlights()).firstWhere((h) => h.startAt == 'c2:b5:o0');
+      await other.applyRemoteHighlight(
+        uid: sent.uid,
+        bookKey: sent.bookKey,
+        start: sent.startAt,
+        end: sent.endAt,
+        quote: sent.quote,
+        note: sent.note,
+        color: sent.color,
+        deleted: sent.deleted,
+        createdAt: sent.createdAt,
+        updatedAt: sent.updatedAt,
+      );
+      expect((await other.watchBookmarks(otherId).first).single.label, 'Начало страницы');
+      expect(await other.watchHighlights('t:1').first, isEmpty);
+    });
+
     test('с сервера: более позднее изменение побеждает', () async {
       final id = await db.addHighlight('t:1', start: 'c0:b0:o0', end: 'c0:b0:o5', quote: 'x');
       final local = (await db.highlightById(id))!;

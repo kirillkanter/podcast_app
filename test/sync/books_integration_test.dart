@@ -213,6 +213,25 @@ void main() {
       await f.books.syncHighlights();
       expect(await f.db.watchHighlights(key).first, isEmpty);
       expect(await f.db.dirtyHighlights(), isEmpty);
+
+      // Закладка в книге на E — появляется на F.
+      Future<int> book(AppDatabase d) =>
+          d.into(d.books).insert(BooksCompanion.insert(key: key, kind: BookKind.text, title: 'Книга', format: 'epub'));
+      final bookOnE = await book(e.db);
+      final bookOnF = await book(f.db);
+      await e.db.addBookmark(bookOnE, locator: 'c3:b7:o0', label: 'Страница с закладкой');
+      await e.books.syncHighlights();
+      await f.books.syncHighlights();
+      final mark = (await f.db.watchBookmarks(bookOnF).first).single;
+      expect((mark.locator, mark.label), ('c3:b7:o0', 'Страница с закладкой'));
+      expect(await f.db.watchHighlights(key).first, isEmpty, reason: 'закладка — не выделение');
+
+      // Убрали на F — пропала на E.
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      await f.db.deleteBookmark(mark.id);
+      await f.books.syncHighlights();
+      await e.books.syncHighlights();
+      expect(await e.db.watchBookmarks(bookOnE).first, isEmpty);
     },
     skip: _server == null ? 'Нет OPODSYNC_URL: интеграционный тест только в CI' : false,
     timeout: const Timeout(Duration(minutes: 1)),

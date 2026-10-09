@@ -157,6 +157,17 @@ class SyncService {
     await _resetProgress();
   }
 
+  /// Новый аккаунт на сервере и сразу вход в него.
+  Future<void> register({required String server, required String username, required String password}) async {
+    final client = _clientFactory?.call();
+    try {
+      await GpodderClient.register(server: server, username: username, password: password, client: client);
+    } finally {
+      client?.close();
+    }
+    await signIn(server: server, username: username, password: password);
+  }
+
   /// Выход: забываем логин и пароль. Подписки и прогресс на устройстве остаются.
   Future<void> signOut() async {
     _scheduled?.cancel();

@@ -99,4 +99,23 @@ void main() {
     },
     skip: _server == null ? 'OPODSYNC_URL не задан — нет сервера oPodSync' : false,
   );
+
+  test(
+    'oPodSync: новый аккаунт из приложения — регистрация и сразу вход',
+    () async {
+      final d = _Device('Новый');
+      addTearDown(d.db.close);
+      final name = 'ci${DateTime.now().microsecondsSinceEpoch}';
+      await d.sync.register(server: _server!, username: name, password: 'new-password-123');
+      expect(await d.db.setting(SyncSettings.username), name);
+      await d.sync.syncNow();
+
+      // Повторно то же имя — понятная ошибка сервера.
+      await expectLater(
+        GpodderClient.register(server: _server!, username: name, password: 'new-password-123'),
+        throwsA(isA<SyncException>().having((e) => e.message, 'message', contains('уже есть'))),
+      );
+    },
+    skip: _server == null ? 'OPODSYNC_URL не задан — нет сервера oPodSync' : false,
+  );
 }

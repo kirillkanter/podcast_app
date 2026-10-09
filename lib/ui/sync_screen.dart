@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../platform/open_url.dart';
 import '../sync/gpodder_client.dart';
@@ -21,6 +22,10 @@ class _SyncScreenState extends State<SyncScreen> {
   bool _showServer = false;
   String? _error;
 
+  /// Форма «Новый аккаунт» вместо «Вход».
+  bool _creating = false;
+  bool _showPassword = false;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -37,14 +42,36 @@ class _SyncScreenState extends State<SyncScreen> {
     super.dispose();
   }
 
+  /// Те же правила, что у сервера oPodSync: проверяем до отправки.
+  String? _checkNewAccount() {
+    final name = _username.text.trim();
+    if (!RegExp(r'^[A-Za-z0-9][A-Za-z0-9_-]+$').hasMatch(name)) {
+      return 'Логин: латинские буквы, цифры, «_» и «-», не короче двух символов, начинается с буквы или цифры.';
+    }
+    if (_password.text.trim().length < 8) return 'Пароль — не короче 8 символов.';
+    return null;
+  }
+
   Future<void> _signIn() async {
     final sync = AppScope.of(context).sync!;
+    final problem = _creating ? _checkNewAccount() : null;
+    if (problem != null) {
+      setState(() => _error = problem);
+      return;
+    }
     setState(() {
       _busy = true;
       _error = null;
     });
     try {
-      await sync.signIn(server: _server.text, username: _username.text, password: _password.text);
+      if (_creating) {
+        await sync.register(server: _server.text, username: _username.text, password: _password.text);
+      } else {
+        await sync.signIn(server: _server.text, username: _username.text, password: _password.text);
+      }
+      // Вход удался — менеджер паролей (Google, Samsung, Bitwarden и др.)
+      // предложит сохранить логин и пароль.
+      TextInput.finishAutofillContext();
       _password.clear();
       await sync.syncNow();
     } on SyncException catch (e) {
@@ -77,7 +104,8 @@ class _SyncScreenState extends State<SyncScreen> {
     }
   }
 
-  Future<void> _register() async {
+  /// Регистрация на сайте — для серверов, где из приложения нельзя.
+  Future<void> _registerInBrowser() async {
     final url = '${GpodderClient.normalizeServer(_server.text)}/register.php';
     final ok = await openUrl(url);
     if (!ok && mounted) {
@@ -106,28 +134,71 @@ class _SyncScreenState extends State<SyncScreen> {
 
   Widget _signInForm(BuildContext context) {
     final theme = Theme.of(context);
+    final muted = theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant);
     return ListView(
       padding: const EdgeInsets.all(24),
       children: [
         Text(
-          'Войдите в аккаунт, чтобы подписки, позиции и отметки «прослушано» '
-          'совпадали на телефоне и компьютере.',
+          _creating
+              ? 'Аккаунт нужен, чтобы подписки, позиции, книги и заметки совпадали на телефоне и компьютере. '
+                  'Почта не нужна — только логин и пароль.'
+              : 'Войдите в аккаунт, чтобы подписки, позиции и отметки «прослушано» '
+                  'совпадали на телефоне и компьютере.',
           style: theme.textTheme.bodyMedium,
         ),
-        const SizedBox(height: 24),
-        TextField(
-          controller: _username,
-          enabled: !_busy,
-          autocorrect: false,
-          decoration: const InputDecoration(labelText: 'Логин', border: OutlineInputBorder()),
+        const SizedBox(height: 16),
+        SegmentedButton<bool>(
+          segments: const [
+            ButtonSegment(value: false, label: Text('Вход')),
+            ButtonSegment(value: true, label: Text('Новый аккаунт')),
+          ],
+          selected: {_creating},
+          showSelectedIcon: false,
+          onSelectionChanged: _busy ? null : (v) => setState(() {
+                _creating = v.first;
+                _error = null;
+              }),
         ),
-        const SizedBox(height: 12),
-        TextField(
-          controller: _password,
-          enabled: !_busy,
-          obscureText: true,
-          onSubmitted: (_) => _signIn(),
-          decoration: const InputDecoration(labelText: 'Пароль', border: OutlineInputBorder()),
+        const SizedBox(height: 20),
+        // Поля в одной группе: менеджер паролей подставит сохранённые
+        // логин и пароль и предложит сохранить новые.
+        AutofillGroup(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            TextField(
+              controller: _username,
+              enabled: !_busy,
+              autocorrect: false,
+              enableSuggestions: false,
+              textInputAction: TextInputAction.next,
+              autofillHints: [_creating ? AutofillHints.newUsername : AutofillHints.username],
+              decoration: InputDecoration(
+                labelText: 'Логин',
+                helperText: _creating ? 'Латинские буквы, цифры, «_» и «-»' : null,
+                border: const OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _password,
+              enabled: !_busy,
+              obscureText: !_showPassword,
+              autocorrect: false,
+              enableSuggestions: false,
+              textInputAction: TextInputAction.done,
+              autofillHints: [_creating ? AutofillHints.newPassword : AutofillHints.password],
+              onSubmitted: (_) => _signIn(),
+              decoration: InputDecoration(
+                labelText: 'Пароль',
+                helperText: _creating ? 'Не короче 8 символов' : null,
+                border: const OutlineInputBorder(),
+                suffixIcon: IconButton(
+                  tooltip: _showPassword ? 'Скрыть пароль' : 'Показать пароль',
+                  icon: Icon(_showPassword ? Icons.visibility_off_outlined : Icons.visibility_outlined),
+                  onPressed: () => setState(() => _showPassword = !_showPassword),
+                ),
+              ),
+            ),
+          ]),
         ),
         if (_showServer) ...[
           const SizedBox(height: 12),
@@ -135,6 +206,7 @@ class _SyncScreenState extends State<SyncScreen> {
             controller: _server,
             enabled: !_busy,
             keyboardType: TextInputType.url,
+            autocorrect: false,
             decoration: const InputDecoration(labelText: 'Сервер', border: OutlineInputBorder()),
           ),
         ],
@@ -147,16 +219,16 @@ class _SyncScreenState extends State<SyncScreen> {
           onPressed: _busy ? null : _signIn,
           child: _busy
               ? const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2))
-              : const Text('Войти'),
+              : Text(_creating ? 'Создать аккаунт' : 'Войти'),
         ),
-        const SizedBox(height: 8),
-        OutlinedButton(onPressed: _busy ? null : _register, child: const Text('Создать аккаунт')),
-        const SizedBox(height: 8),
-        Text(
-          'Регистрация откроется в браузере. После неё вернитесь сюда и войдите.',
-          style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-          textAlign: TextAlign.center,
-        ),
+        if (_creating && _showServer) ...[
+          const SizedBox(height: 8),
+          TextButton(
+            onPressed: _busy ? null : _registerInBrowser,
+            child: const Text('Зарегистрироваться на сайте сервера'),
+          ),
+          Text('Если сервер не даёт создать аккаунт из приложения.', style: muted, textAlign: TextAlign.center),
+        ],
         if (!_showServer)
           TextButton(
             onPressed: () => setState(() => _showServer = true),

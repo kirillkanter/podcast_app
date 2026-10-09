@@ -146,6 +146,75 @@ class GpodderClient {
 
   String get _user => Uri.encodeComponent(username);
 
+  /// Создать аккаунт на сервере oPodSync (страница register.php), не открывая
+  /// браузер. Проверочное число на странице — защита от простейших роботов,
+  /// оно лежит в самой странице; приложение читает его оттуда же.
+  /// Ошибку сервера («имя занято», «пароль короткий») отдаёт как [SyncException].
+  static Future<void> register({
+    required String server,
+    required String username,
+    required String password,
+    http.Client? client,
+  }) async {
+    final http.Client c = client ?? http.Client();
+    final page = Uri.parse('${normalizeServer(server)}/register.php');
+    const headers = {'user-agent': _userAgent};
+    try {
+      final form = await c.get(page, headers: headers).timeout(_timeout);
+      if (form.statusCode == 404) {
+        throw const SyncException('На этом сервере нельзя создать аккаунт из приложения. '
+            'Зарегистрируйтесь на сайте сервера.', notFound: true);
+      }
+      final html = utf8.decode(form.bodyBytes, allowMalformed: true);
+      final closed = _pageError(html);
+      final check = RegExp(r'name="cc"\s+value="([0-9a-f]+)"').firstMatch(html)?.group(1);
+      final label = RegExp(r'class="ca".*?</dd>', dotAll: true).firstMatch(html)?.group(0) ?? '';
+      final digits = [for (final m in RegExp(r'<i>(\d)</i>').allMatches(label)) m.group(1)!].join();
+      if (check == null || digits.isEmpty) {
+        throw SyncException(closed ?? 'Не удалось открыть страницу регистрации на сервере (код ${form.statusCode}).',
+            status: form.statusCode);
+      }
+      final response = await c
+          .post(page, headers: headers, body: {
+            'login': username.trim(),
+            'password': password,
+            'captcha': digits,
+            'cc': check,
+          })
+          .timeout(_timeout);
+      // Успех — переход на главную страницу сервера.
+      if (response.statusCode == 302 || response.statusCode == 303) return;
+      final error = _pageError(utf8.decode(response.bodyBytes, allowMalformed: true));
+      if (error != null) throw SyncException(error, status: response.statusCode);
+      // http по умолчанию сам идёт по переходу: главная без ошибки — тоже успех.
+      if (response.statusCode == 200) return;
+      throw SyncException('Сервер не создал аккаунт (код ${response.statusCode}).', status: response.statusCode);
+    } on TimeoutException {
+      throw const SyncException('Сервер не ответил. Проверьте интернет и попробуйте ещё раз.');
+    } on SocketException {
+      throw const SyncException('Нет связи с сервером. Проверьте интернет и адрес сервера.');
+    } on http.ClientException catch (e) {
+      throw SyncException('Нет связи с сервером: ${e.message}');
+    } finally {
+      if (client == null) c.close();
+    }
+  }
+
+  /// Текст ошибки со страницы сервера oPodSync, если он там есть.
+  static String? _pageError(String html) {
+    final m = RegExp(r'<p class="error[^"]*">(.*?)</p>', dotAll: true).firstMatch(html);
+    if (m == null) return null;
+    final text = m.group(1)!.replaceAll(RegExp(r'<[^>]+>'), '').trim();
+    return text.isEmpty
+        ? null
+        : text
+            .replaceAll('&quot;', '"')
+            .replaceAll('&#039;', "'")
+            .replaceAll('&laquo;', '«')
+            .replaceAll('&raquo;', '»')
+            .replaceAll('&amp;', '&');
+  }
+
   /// Проверка логина и пароля.
   Future<void> login() => _send('POST', '/api/2/auth/$_user/login.json');
 

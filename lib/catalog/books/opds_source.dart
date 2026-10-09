@@ -280,17 +280,26 @@ class OpdsSource {
 
   /// Подборка для главной: раздел «Популярное»/«Новое», иначе книги
   /// из корня каталога.
-  Future<List<CatalogBook>> popular() async {
+  Future<OpdsFeed?> popularFeed() async {
     final root = await this.root();
-    if (root.books.isNotEmpty) return root.books;
+    if (root.books.isNotEmpty) return root;
     final nav = _find(root.sections, const ['популяр', 'popular', 'top', 'лучш', 'best', 'нов', 'new', 'recent', 'latest']);
-    if (nav == null) return const [];
-    return (await fetch(nav.url)).books;
+    if (nav != null) return fetch(nav.url);
+    // Нет «Популярного» — первый раздел, где есть книги.
+    for (final s in root.sections.take(4)) {
+      try {
+        final feed = await fetch(s.url);
+        if (feed.books.isNotEmpty) return feed;
+      } catch (_) {}
+    }
+    return null;
   }
 
-  /// Книги жанра: раздел с подходящим названием (в корне или в разделе
+  Future<List<CatalogBook>> popular() async => (await popularFeed())?.books ?? const [];
+
+  /// Лента жанра: раздел с подходящим названием (в корне или в разделе
   /// «Жанры»), иначе — поиск по названию жанра.
-  Future<List<CatalogBook>> genre(BookGenre genre) async {
+  Future<OpdsFeed?> genreFeed(BookGenre genre) async {
     final root = await this.root();
     var nav = root.sections.where((s) => genre.matchesTitle(s.title)).firstOrNull;
     if (nav == null) {
@@ -305,24 +314,28 @@ class OpdsSource {
     }
     if (nav != null) {
       final feed = await fetch(nav.url);
-      if (feed.books.isNotEmpty) return feed.books;
+      if (feed.books.isNotEmpty) return feed;
       // Раздел жанра бывает списком подразделов: берём первый с книгами.
       for (final sub in feed.sections.take(3)) {
         try {
-          final books = (await fetch(sub.url)).books;
-          if (books.isNotEmpty) return books;
+          final f = await fetch(sub.url);
+          if (f.books.isNotEmpty) return f;
         } catch (_) {}
       }
     }
-    if (await _searchTemplate() != null) return search(genre.searchTerm);
-    return const [];
+    if (await _searchTemplate() != null) return searchFeed(genre.searchTerm);
+    return null;
   }
 
-  Future<List<CatalogBook>> search(String query) async {
+  Future<List<CatalogBook>> genre(BookGenre genre) async => (await genreFeed(genre))?.books ?? const [];
+
+  Future<OpdsFeed?> searchFeed(String query) async {
     final template = await _searchTemplate();
-    if (template == null) return const [];
-    return (await fetch(fillSearchTemplate(template, query))).books;
+    if (template == null) return null;
+    return fetch(fillSearchTemplate(template, query));
   }
+
+  Future<List<CatalogBook>> search(String query) async => (await searchFeed(query))?.books ?? const [];
 
   Future<String?> _searchTemplate() => _template ??= () async {
         final root = await this.root();

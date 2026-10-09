@@ -19,6 +19,7 @@ import 'librivox_source.dart';
 import 'opds_source.dart';
 
 export 'catalog_models.dart';
+export 'opds_source.dart' show OpdsNav;
 
 /// Где лежат пароли каталогов OPDS.
 abstract class CatalogPasswords {
@@ -138,7 +139,7 @@ class BookCatalog {
   Future<void> _save(CatalogConfig c) async {
     await _db.setSetting(BookCatalogSettings.config, c.encode());
     _sources.clear();
-    _cache.clear();
+    _pageCache.clear();
   }
 
   Future<void> setLibriVox(bool on) async => _save((await config()).copyWith(librivox: on));
@@ -198,7 +199,6 @@ class BookCatalog {
   // Подборки
 
   final _sources = <String, OpdsSource>{};
-  final _cache = <String, Future<List<CatalogBook>>>{};
 
   Future<List<OpdsSource>> _opds() async {
     final config = await this.config();
@@ -212,80 +212,131 @@ class BookCatalog {
     return out;
   }
 
-  Future<List<CatalogBook>> _cached(String key, Future<List<CatalogBook>> Function() load) {
-    final f = _cache[key];
+  final _pageCache = <String, Future<CatalogPage>>{};
+
+  /// Первая страница — общая для ряда на главной и списка «Все».
+  Future<CatalogPage> _cachedPage(String key, Future<CatalogPage> Function() load) {
+    final f = _pageCache[key];
     if (f != null) return f;
     final future = load();
-    _cache[key] = future;
-    // Ошибку не запоминаем: в следующий раз — новая попытка.
+    _pageCache[key] = future;
     unawaited(future.then((_) {}, onError: (Object _) {
-      _cache.remove(key);
+      _pageCache.remove(key);
     }));
     return future;
   }
 
-  /// Самое скачиваемое на LibriVox. Пусто, если LibriVox выключен
-  /// или в фильтре только книги.
-  Future<List<CatalogBook>> popularLibriVox(CatalogFilter filter) async {
-    if (!filter.audio || !(await config()).librivox) return const [];
-    return _cached('lv/popular/${filter.language.name}', () => _librivox.list(language: filter.language));
+  static const _lvRows = 40;
+
+  /// Страницы LibriVox начиная с [page].
+  _Cursor _librivoxCursor({BookGenre? genre, String? text, required CatalogLanguage language, int page = 1}) =>
+      _Cursor(() async {
+        final books = await _librivox.list(genre: genre, text: text, language: language, rows: _lvRows, page: page);
+        return (
+          books,
+          books.length >= _lvRows
+              ? _librivoxCursor(genre: genre, text: text, language: language, page: page + 1)
+              : null,
+        );
+      });
+
+  /// Лента OPDS и её следующие страницы.
+  static _Cursor _feedCursor(OpdsSource source, Future<OpdsFeed?> Function() load) => _Cursor(() async {
+        final feed = await load();
+        if (feed == null) return (const <CatalogBook>[], null);
+        final next = feed.next;
+        return (feed.books, next == null ? null : _feedCursor(source, () => source.fetch(next)));
+      });
+
+  /// Загрузить страницы всех источников и смешать. Если фильтр отсеял всё,
+  /// а дальше ещё есть страницы, — сразу берём следующие.
+  Future<CatalogPage> _pages(List<_Cursor> cursors, CatalogFilter filter, Set<String> seen, {int depth = 0}) async {
+    if (cursors.isEmpty) return const CatalogPage([]);
+    Object? error;
+    final results = await Future.wait(cursors.map((c) => c.load().catchError((Object e) {
+          error = e;
+          return (const <CatalogBook>[], null as _Cursor?);
+        })));
+    final lists = [for (final r in results) r.$1.where(filter.matches).toList()];
+    final out = <CatalogBook>[];
+    for (var i = 0; lists.any((r) => i < r.length); i++) {
+      for (final r in lists) {
+        if (i < r.length && seen.add(r[i].id)) out.add(r[i]);
+      }
+    }
+    final next = [for (final r in results) ?r.$2];
+    if (out.isEmpty && next.isEmpty && error != null) throw error!;
+    if (out.isEmpty && next.isNotEmpty && depth < 4) return _pages(next, filter, seen, depth: depth + 1);
+    return CatalogPage(out, more: next.isEmpty ? null : () => _pages(next, filter, seen));
   }
 
-  /// Подборка из корня каталога OPDS.
-  Future<List<CatalogBook>> popularOpds(String catalogId, CatalogFilter filter) async {
-    if (!filter.text) return const [];
+  /// Самое скачиваемое на LibriVox. Пусто, если LibriVox выключен
+  /// или в фильтре только книги.
+  Future<CatalogPage> popularLibriVoxPage(CatalogFilter filter) async {
+    if (!filter.audio || !(await config()).librivox) return const CatalogPage([]);
+    return _cachedPage('lv/popular/${filter.language.name}',
+        () => _pages([_librivoxCursor(language: filter.language)], filter, {}));
+  }
+
+  Future<List<CatalogBook>> popularLibriVox(CatalogFilter filter) async => (await popularLibriVoxPage(filter)).books;
+
+  /// Подборка каталога OPDS для главной.
+  Future<CatalogPage> popularOpdsPage(String catalogId, CatalogFilter filter) async {
+    if (!filter.text) return const CatalogPage([]);
     final source = (await _opds()).where((s) => s.catalog.id == catalogId).firstOrNull;
-    if (source == null) return const [];
-    final all = await _cached('opds/$catalogId/popular', source.popular);
-    return all.where(filter.matches).toList();
+    if (source == null) return const CatalogPage([]);
+    return _cachedPage('opds/$catalogId/popular/${filter.key}',
+        () => _pages([_feedCursor(source, source.popularFeed)], filter, {}));
+  }
+
+  Future<List<CatalogBook>> popularOpds(String catalogId, CatalogFilter filter) async =>
+      (await popularOpdsPage(catalogId, filter)).books;
+
+  /// Раздел каталога OPDS как есть: подразделы и книги, без фильтров.
+  /// [url] пустой — корень каталога.
+  Future<CatalogPage> browseOpds(String catalogId, {String? url}) async {
+    final source = (await _opds()).where((s) => s.catalog.id == catalogId).firstOrNull;
+    if (source == null) throw const BookCatalogException('Каталог убран из настроек');
+    final feed = url == null ? await source.root() : await source.fetch(url);
+    Future<CatalogPage> page(OpdsFeed f, Set<String> seen) async {
+      final books = [for (final b in f.books) if (seen.add(b.id)) b];
+      final next = f.next;
+      return CatalogPage(
+        books,
+        sections: f.sections,
+        more: next == null ? null : () async => page(await source.fetch(next), seen),
+      );
+    }
+
+    return page(feed, {});
   }
 
   /// Жанр по всем источникам: книги чередуются, чтобы ни один источник
   /// не занял весь ряд.
-  Future<List<CatalogBook>> genre(BookGenre genre, CatalogFilter filter) async {
+  Future<CatalogPage> genrePage(BookGenre genre, CatalogFilter filter) async {
     final config = await this.config();
-    final lists = <Future<List<CatalogBook>>>[
-      if (filter.audio && config.librivox)
-        _cached('lv/${genre.id}/${filter.language.name}', () => _librivox.list(genre: genre, language: filter.language)),
-      if (filter.text)
-        for (final s in await _opds()) _cached('opds/${s.catalog.id}/${genre.id}', () => s.genre(genre)),
-    ];
-    return _merge(lists, filter);
+    final sources = filter.text ? await _opds() : const <OpdsSource>[];
+    return _cachedPage('genre/${genre.id}/${filter.key}/${config.encode()}', () => _pages([
+          if (filter.audio && config.librivox) _librivoxCursor(genre: genre, language: filter.language),
+          for (final s in sources) _feedCursor(s, () => s.genreFeed(genre)),
+        ], filter, {}));
   }
+
+  Future<List<CatalogBook>> genre(BookGenre genre, CatalogFilter filter) async => (await genrePage(genre, filter)).books;
 
   /// Поиск по всем источникам.
-  Future<List<CatalogBook>> search(String query, CatalogFilter filter) async {
+  Future<CatalogPage> searchPage(String query, CatalogFilter filter) async {
     final q = query.trim();
-    if (q.isEmpty) return const [];
+    if (q.isEmpty) return const CatalogPage([]);
     final config = await this.config();
-    final lists = <Future<List<CatalogBook>>>[
-      if (filter.audio && config.librivox)
-        _cached('lv/search/${filter.language.name}/$q', () => _librivox.list(text: q, language: filter.language)),
-      if (filter.text)
-        for (final s in await _opds()) _cached('opds/${s.catalog.id}/search/$q', () => s.search(q)),
-    ];
-    return _merge(lists, filter);
+    final sources = filter.text ? await _opds() : const <OpdsSource>[];
+    return _cachedPage('search/$q/${filter.key}/${config.encode()}', () => _pages([
+          if (filter.audio && config.librivox) _librivoxCursor(text: q, language: filter.language),
+          for (final s in sources) _feedCursor(s, () => s.searchFeed(q)),
+        ], filter, {}));
   }
 
-  /// Ошибка одного источника не прячет остальные; ошибка всех — видна.
-  Future<List<CatalogBook>> _merge(List<Future<List<CatalogBook>>> lists, CatalogFilter filter) async {
-    if (lists.isEmpty) return const [];
-    Object? error;
-    final results = await Future.wait(lists.map((f) => f.catchError((Object e) {
-          error = e;
-          return const <CatalogBook>[];
-        })));
-    final filtered = [for (final r in results) r.where(filter.matches).toList()];
-    if (filtered.every((r) => r.isEmpty) && error != null) throw error!;
-    final out = <CatalogBook>[];
-    final seen = <String>{};
-    for (var i = 0; filtered.any((r) => i < r.length); i++) {
-      for (final r in filtered) {
-        if (i < r.length && seen.add(r[i].id)) out.add(r[i]);
-      }
-    }
-    return out;
-  }
+  Future<List<CatalogBook>> search(String query, CatalogFilter filter) async => (await searchPage(query, filter)).books;
 
   final _details = <String, Future<CatalogDetails>>{};
 
@@ -466,3 +517,21 @@ class BookCatalog {
 }
 
 class _Cancelled implements Exception {}
+
+/// Следующая страница источника.
+class _Cursor {
+  _Cursor(this.load);
+  final Future<(List<CatalogBook>, _Cursor?)> Function() load;
+}
+
+/// Страница подборки: книги, подразделы (при просмотре каталога OPDS)
+/// и загрузка следующей страницы.
+class CatalogPage {
+  const CatalogPage(this.books, {this.sections = const [], this.more});
+
+  final List<CatalogBook> books;
+  final List<OpdsNav> sections;
+
+  /// null — страниц больше нет.
+  final Future<CatalogPage> Function()? more;
+}

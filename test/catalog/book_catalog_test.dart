@@ -331,6 +331,33 @@ void main() {
       expect(ru.map((b) => b.title), ['Мёртвые души']);
     });
 
+    test('страницы: следующая лента OPDS и просмотр разделов', () async {
+      final page2 = acquisitionFeed
+          .replaceAll('urn:book:1', 'urn:book:2')
+          .replaceAll('Мёртвые души', 'Ревизор')
+          .replaceAll('<link rel="next" href="?page=2" type="application/atom+xml;profile=opds-catalog"/>', '');
+      final client = MockClient((r) async {
+        if (r.url.host == 'archive.org') return json({'response': {'docs': []}});
+        if (r.url.path == '/opds') return xml(rootFeed);
+        if (r.url.path == '/popular') return xml(r.url.query == 'page=2' ? page2 : acquisitionFeed);
+        return http.Response('', 404);
+      });
+      final catalog = BookCatalog(db: db, client: client, passwords: MemoryCatalogPasswords());
+      final added = await catalog.addOpds(url: 'https://lib.example/opds');
+
+      final first = await catalog.popularOpdsPage(added.id, const CatalogFilter());
+      expect(first.books.map((b) => b.title), ['Мёртвые души']);
+      final second = await first.more!();
+      expect(second.books.map((b) => b.title), ['Ревизор']);
+      expect(second.more, isNull);
+
+      final root = await catalog.browseOpds(added.id);
+      expect(root.sections.map((s) => s.title), ['Популярное', 'Жанры']);
+      final popular = await catalog.browseOpds(added.id, url: root.sections.first.url);
+      expect(popular.books.single.title, 'Мёртвые души');
+      expect(popular.more, isNotNull);
+    });
+
     test('ошибка одного источника не прячет другой', () async {
       final client = MockClient((r) async {
         if (r.url.host == 'archive.org') return http.Response('', 500);

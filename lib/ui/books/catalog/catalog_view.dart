@@ -181,7 +181,7 @@ class _CatalogViewState extends State<CatalogView> {
       if (_query.isNotEmpty)
         CatalogResults(
           key: ValueKey('search/$_query/${filter.key}'),
-          load: () => catalog.search(_query, filter),
+          load: () => catalog.searchPage(_query, filter),
           side: side,
           empty: 'Ничего не найдено',
         )
@@ -212,9 +212,10 @@ class _CatalogViewState extends State<CatalogView> {
                 cardWidth: cardWidth,
                 side: side,
                 wide: wide,
-                hideEmpty: true,
+                alwaysAll: true,
+                emptyText: 'Подборки нет — откройте «Все», там разделы каталога',
                 onAll: () => Navigator.of(context).push(MaterialPageRoute<void>(
-                  builder: (_) => BookCatalogListScreen(title: o.name, opdsCatalogId: o.id, filter: filter),
+                  builder: (_) => BookCatalogListScreen(title: o.name, opdsCatalogId: o.id, filter: filter, browse: true),
                 )),
               ),
             ),
@@ -251,7 +252,13 @@ class _Shelf extends StatefulWidget {
     required this.onAll,
     this.hideEmpty = false,
     this.audio = false,
+    this.alwaysAll = false,
+    this.emptyText = 'Здесь пока пусто',
   });
+
+  /// «Все ›» и при пустом ряде (каталог OPDS: там его разделы).
+  final bool alwaysAll;
+  final String emptyText;
 
   /// В ряду только аудиокниги (пока не загрузился — для заглушек).
   final bool audio;
@@ -299,7 +306,7 @@ class _ShelfState extends State<_Shelf> {
               padding: EdgeInsets.fromLTRB(widget.side, 0, widget.side - 8, 8),
               child: Row(children: [
                 Flexible(child: Text(widget.title, style: sectionTitleStyle(context))),
-                if (items != null && items.isNotEmpty) ...[
+                if (items != null && (items.isNotEmpty || widget.alwaysAll)) ...[
                   const SizedBox(width: 8),
                   TextButton(
                     style: TextButton.styleFrom(
@@ -317,7 +324,7 @@ class _ShelfState extends State<_Shelf> {
               ]),
             ),
             SizedBox(
-              height: coverHeight + textHeight,
+              height: items != null && items.isEmpty ? 40 : coverHeight + textHeight,
               child: s.hasError
                   ? Align(
                       alignment: Alignment.topLeft,
@@ -330,7 +337,7 @@ class _ShelfState extends State<_Shelf> {
                   : items != null && items.isEmpty
                       ? Padding(
                           padding: EdgeInsets.symmetric(horizontal: widget.side),
-                          child: Text('Здесь пока пусто', style: TextStyle(color: c.muted)),
+                          child: Text(widget.emptyText, style: TextStyle(color: c.muted)),
                         )
                       : ScrollArrows(
                           controller: _scroll,

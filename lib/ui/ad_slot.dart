@@ -28,7 +28,8 @@ class _AdSlotState extends State<AdSlot> {
 
   void _create(double width) {
     if (_banner != null || width <= 0) return;
-    _banner = InlineBanner(widget.placement, width: width.floor())..load();
+    _banner = InlineBanner(widget.placement, width: width.floor());
+    _banner!.load();
   }
 
   @override
@@ -38,53 +39,64 @@ class _AdSlotState extends State<AdSlot> {
       valueListenable: adsReady,
       builder: (context, ready, _) {
         if (!ready) return const SizedBox.shrink();
-        return Padding(
-          padding: widget.padding,
-          child: LayoutBuilder(builder: (context, box) {
-            _create(box.maxWidth - 24);
-            final banner = _banner!;
-            return ValueListenableBuilder<bool>(
-              valueListenable: banner.loaded,
-              builder: (context, loaded, child) => loaded ? child! : const SizedBox.shrink(),
-              child: _AdCard(child: banner.widget()),
-            );
-          }),
-        );
+        return LayoutBuilder(builder: (context, box) {
+          _create(box.maxWidth - widget.padding.horizontal - 24);
+          final banner = _banner!;
+          return ValueListenableBuilder<bool>(
+            valueListenable: banner.ready,
+            builder: (context, viewReady, _) {
+              if (!viewReady) return const SizedBox.shrink();
+              // Баннер стоит в дереве всё время (иначе Яндекс не загрузит
+              // объявление); пока его нет — без карточки и почти без высоты.
+              return ValueListenableBuilder<bool>(
+                valueListenable: banner.loaded,
+                builder: (context, loaded, _) => _AdCard(loaded: loaded, padding: widget.padding, ad: banner.widget()),
+              );
+            },
+          );
+        });
       },
     );
   }
 }
 
 class _AdCard extends StatelessWidget {
-  const _AdCard({required this.child});
+  const _AdCard({required this.loaded, required this.padding, required this.ad});
 
-  final Widget child;
+  final bool loaded;
+  final EdgeInsets padding;
+  final Widget ad;
 
   @override
   Widget build(BuildContext context) {
     final c = BcColors.of(context);
-    return Material(
-      color: c.card,
-      borderRadius: BorderRadius.circular(16),
-      clipBehavior: Clip.antiAlias,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 12, 12, 2),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          child,
-          Align(
-            alignment: Alignment.centerRight,
-            child: TextButton(
-              style: TextButton.styleFrom(
-                foregroundColor: c.muted,
-                textStyle: const TextStyle(fontSize: 12),
-                minimumSize: const Size(0, 32),
-                padding: const EdgeInsets.symmetric(horizontal: 8),
+    return Padding(
+      padding: loaded ? padding : EdgeInsets.zero,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: loaded ? c.card : Colors.transparent,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Padding(
+          padding: loaded ? const EdgeInsets.fromLTRB(12, 12, 12, 2) : EdgeInsets.zero,
+          child: Column(crossAxisAlignment: CrossAxisAlignment.center, children: [
+            ClipRect(child: ad),
+            if (loaded)
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  style: TextButton.styleFrom(
+                    foregroundColor: c.muted,
+                    textStyle: const TextStyle(fontSize: 12),
+                    minimumSize: const Size(0, 32),
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                  ),
+                  onPressed: () => showAboutAds(context),
+                  child: const Text('О рекламе'),
+                ),
               ),
-              onPressed: () => showAboutAds(context),
-              child: const Text('О рекламе'),
-            ),
-          ),
-        ]),
+          ]),
+        ),
       ),
     );
   }

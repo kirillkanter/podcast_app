@@ -58,26 +58,46 @@ Future<void> setPersonalAds(AppDatabase db, bool on) async {
 }
 
 /// Встроенный баннер: [width] — доступная ширина, высоту выбирает SDK.
+///
+/// У модуля Яндекса запрос уходит, только когда платформенный вид баннера
+/// уже на экране: [AdWidget] ставится в дерево сразу после [load] (пока
+/// объявления нет, он высотой в 1 точку), а карточка показывается, когда
+/// [loaded] стал true.
 class InlineBanner {
   InlineBanner(this.placement, {required int width, int maxHeight = 260})
       : _ad = BannerAd(adSize: BannerAdSize.inline(width: width, maxHeight: maxHeight));
 
   final AdPlacement placement;
   final BannerAd _ad;
+
+  /// Вид баннера создан — [widget] можно ставить в дерево.
+  final ready = ValueNotifier<bool>(false);
+
+  /// Объявление загрузилось.
   final loaded = ValueNotifier<bool>(false);
   StreamSubscription<Object?>? _sub;
 
-  void load() {
+  Future<void> load() async {
     _sub = _ad.loadStateStream.listen((state) {
-      if (state is BannerAdLoadStateLoaded) loaded.value = true;
+      if (state is BannerAdLoadStateLoaded) {
+        loaded.value = true;
+      } else if (state is BannerAdLoadStateError) {
+        debugPrint('Реклама ${placement.name}: $state');
+      }
     });
-    _ad.load(AdRequest(adUnitId: placement.adUnitId));
+    try {
+      await _ad.load(AdRequest(adUnitId: placement.adUnitId));
+      ready.value = true;
+    } catch (e) {
+      debugPrint('Реклама ${placement.name}: $e');
+    }
   }
 
   Widget widget() => AdWidget(bannerAd: _ad);
 
   Future<void> dispose() async {
     await _sub?.cancel();
+    ready.dispose();
     loaded.dispose();
     try {
       await _ad.destroy();

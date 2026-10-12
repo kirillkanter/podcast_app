@@ -27,6 +27,7 @@ import '../../icons.dart';
 import '../../theme.dart';
 import '../book_widgets.dart';
 import '../highlights.dart';
+import '../../onboarding/hints.dart';
 import 'paginator.dart';
 import 'reader_menu.dart';
 import 'reader_selection.dart';
@@ -179,7 +180,22 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       // Выделения с других устройств.
       unawaited(_bookSync?.syncHighlights().catchError((Object _) {}));
       unawaited(_init());
+      unawaited(_translateHint());
     }
+  }
+
+  /// Первая книга не на русском — подсказка про перевод (один раз).
+  Future<void> _translateHint() async {
+    if (_language == 'ru' || await _db.setting(HintKeys.onboarded) != 'true') return;
+    await Future<void>.delayed(const Duration(milliseconds: 1200));
+    if (!mounted) return;
+    await showHintOnce(
+      context,
+      _db,
+      HintKeys.reader,
+      title: 'Перевод слова',
+      text: 'Удержите слово — появятся перевод, перевод фразы и словарь',
+    );
   }
 
   Future<void> _init() async {

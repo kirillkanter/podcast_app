@@ -332,7 +332,9 @@ class _PodcastAppState extends State<PodcastApp> {
           theme: _theme(Accent.from(accentId.data), Brightness.light),
           darkTheme: _theme(Accent.from(accentId.data), Brightness.dark),
           themeMode: themeModeFrom(theme.data),
-          home: AppShell(refreshOnStart: widget.refreshOnStart),
+          // Приветствие — при обычном запуске; тесты (refreshOnStart: false)
+          // открывают сразу библиотеку.
+          home: AppShell(refreshOnStart: widget.refreshOnStart, onboarding: widget.refreshOnStart),
           builder: Platform.isWindows
               ? (context, child) => PlayerHotkeys(audio: widget.audio, child: child!)
               : null,

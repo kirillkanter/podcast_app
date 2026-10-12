@@ -21,6 +21,7 @@ import 'book_screen.dart';
 import 'book_start.dart';
 import 'book_widgets.dart';
 import 'shelves.dart';
+import '../onboarding/hints.dart';
 import 'catalog/add_opds.dart';
 import 'catalog/catalog_view.dart';
 import 'reader/reading_stats.dart';
@@ -109,6 +110,7 @@ class _BooksScreenState extends State<BooksScreen> with WidgetsBindingObserver {
         unawaited(rescanBookSources(context));
         // На компьютере ещё и следим за папками.
         if (_desktop) unawaited(AppScope.of(context).books?.watchSources());
+        unawaited(_addHint());
       });
     }
   }
@@ -137,6 +139,22 @@ class _BooksScreenState extends State<BooksScreen> with WidgetsBindingObserver {
     } finally {
       if (mounted) setState(() => _refreshing = false);
     }
+  }
+
+  /// Подсказка про «+» — один раз, после приветствия.
+  Future<void> _addHint() async {
+    final db = AppScope.of(context).db;
+    if (await db.setting(HintKeys.onboarded) != 'true' || !mounted) return;
+    await Future<void>.delayed(const Duration(milliseconds: 500));
+    if (!mounted || !(ModalRoute.of(context)?.isCurrent ?? false)) return;
+    await showHintOnce(
+      context,
+      db,
+      HintKeys.booksAdd,
+      target: HintTargets.booksAdd,
+      title: 'Добавьте книги',
+      text: 'Файлы EPUB, FB2, MP3 или целая папка с аудиокнигами',
+    );
   }
 
   void _openBook(Book book) => _selected.isNotEmpty
@@ -213,7 +231,10 @@ class _BooksScreenState extends State<BooksScreen> with WidgetsBindingObserver {
                     ),
                   ],
                   const SizedBox(width: 4),
-                  _AddButton(config: config, onCatalogAdded: () => setState(() => _catalogTab = true)),
+                  KeyedSubtree(
+                    key: HintTargets.booksAdd,
+                    child: _AddButton(config: config, onCatalogAdded: () => setState(() => _catalogTab = true)),
+                  ),
                       ]),
                 ),
               ),
@@ -315,6 +336,8 @@ class _BooksScreenState extends State<BooksScreen> with WidgetsBindingObserver {
                       ]),
                     ),
                   ),
+                  if (all.length >= 2 && _selected.isEmpty)
+                    const SliverToBoxAdapter(child: _ShelfHint()),
                   if (items.isEmpty)
                     SliverToBoxAdapter(
                       child: Padding(
@@ -766,5 +789,60 @@ class _Selectable extends StatelessWidget {
         ),
       ),
     ]);
+  }
+}
+
+/// Подсказка в списке: долгое нажатие выбирает книги для полки.
+/// Показывается, пока её не закрыли, и только после приветствия.
+class _ShelfHint extends StatelessWidget {
+  const _ShelfHint();
+
+  @override
+  Widget build(BuildContext context) {
+    final c = BcColors.of(context);
+    final db = AppScope.of(context).db;
+    return StreamBuilder<String?>(
+      stream: db.watchSetting(HintKeys.onboarded),
+      builder: (context, onboarded) => StreamBuilder<String?>(
+        stream: db.watchSetting(HintKeys.shelves),
+        builder: (context, seen) {
+          if (onboarded.data != 'true' || seen.connectionState == ConnectionState.waiting || seen.data == 'true') {
+            return const SizedBox.shrink();
+          }
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+            child: Container(
+              decoration: BoxDecoration(
+                color: c.card,
+                borderRadius: BorderRadius.circular(16),
+                border: Border(left: BorderSide(color: c.ink, width: 3)),
+              ),
+              padding: const EdgeInsets.fromLTRB(14, 12, 6, 4),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Row(children: [
+                  BcIcon(BcIcons.library, size: 18, color: c.ink),
+                  const SizedBox(width: 8),
+                  const Text('Полки', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                ]),
+                const SizedBox(height: 4),
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: Text('Удержите книгу, чтобы выбрать несколько и поставить их на свою полку',
+                      style: TextStyle(fontSize: 13, height: 1.4, color: c.body)),
+                ),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    style: TextButton.styleFrom(foregroundColor: c.ink),
+                    onPressed: () => db.setSetting(HintKeys.shelves, 'true'),
+                    child: const Text('Понятно', style: TextStyle(fontWeight: FontWeight.w600)),
+                  ),
+                ),
+              ]),
+            ),
+          );
+        },
+      ),
+    );
   }
 }

@@ -11,6 +11,8 @@ import 'format.dart';
 import 'library_screen.dart';
 import 'mini_player.dart';
 import 'now_playing.dart';
+import 'onboarding/hints.dart';
+import 'onboarding/welcome_screen.dart';
 import 'podcast_cover.dart';
 import 'podcast_screen.dart';
 import 'queue_screen.dart';
@@ -47,9 +49,12 @@ const wideLayoutWidth = 900.0;
 
 /// Каркас приложения: разделы со своими стопками экранов и мини-плеер.
 class AppShell extends StatefulWidget {
-  const AppShell({super.key, this.refreshOnStart = true});
+  const AppShell({super.key, this.refreshOnStart = true, this.onboarding = false});
 
   final bool refreshOnStart;
+
+  /// Показать приветствие при первом запуске (пустая библиотека).
+  final bool onboarding;
 
   /// Открыть экран подкаста в разделе «Библиотека» (например, из бокового меню).
   /// Работает и из экранов поверх каркаса (большой плеер).
@@ -100,6 +105,42 @@ class _AppShellState extends State<AppShell> {
   void initState() {
     super.initState();
     _current = this;
+    if (widget.onboarding) WidgetsBinding.instance.addPostFrameCallback((_) => _maybeOnboard());
+  }
+
+  /// Первый запуск: приветствие, потом подсказка про поиск. Уже есть
+  /// подписки или книги (обновление, перенос) — приветствие не нужно.
+  Future<void> _maybeOnboard() async {
+    if (!mounted) return;
+    final db = AppScope.of(context).db;
+    if (await db.setting(HintKeys.onboarded) == 'true') return;
+    final subs = await db.watchSubscribedPodcasts().first;
+    final books = await db.watchBooks().first;
+    if (subs.isNotEmpty || books.isNotEmpty) {
+      await db.setSetting(HintKeys.onboarded, 'true');
+      return;
+    }
+    if (!mounted) return;
+    final result = await Navigator.of(context, rootNavigator: true).push<WelcomeResult>(
+      MaterialPageRoute(builder: (_) => const WelcomeScreen(), fullscreenDialog: true),
+    );
+    await db.setSetting(HintKeys.onboarded, 'true');
+    if (!mounted) return;
+    if (result == WelcomeResult.search) {
+      _select(ShellTab.search);
+      return;
+    }
+    if ((await db.watchSubscribedPodcasts().first).isNotEmpty || !mounted) return;
+    await Future<void>.delayed(const Duration(milliseconds: 400));
+    if (!mounted) return;
+    await showHintOnce(
+      context,
+      db,
+      HintKeys.search,
+      target: HintTargets.searchTab,
+      title: 'Найдите первый подкаст',
+      text: 'В каталоге почти все подкасты. Можно вставить и ссылку на RSS',
+    );
   }
 
   @override
@@ -273,7 +314,10 @@ class _PhoneNav extends StatelessWidget {
                 child: Semantics(
                   selected: tab == selected,
                   button: true,
-                  child: InkResponse(
+                  // Цель подсказки «Найдите первый подкаст».
+                  child: KeyedSubtree(
+                    key: tab == ShellTab.search ? HintTargets.searchTab : null,
+                    child: InkResponse(
                     key: Key('tab-${tab.name}'),
                     onTap: () => onSelect(tab),
                     radius: 36,
@@ -295,6 +339,7 @@ class _PhoneNav extends StatelessWidget {
                         ),
                       ]),
                     ),
+                  ),
                   ),
                 ),
               ),
@@ -332,12 +377,15 @@ class _Sidebar extends StatelessWidget {
               child: Text(group, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: c.muted)),
             ),
             for (final tab in tabs)
-              _SideItem(
-                key: Key('tab-${tab.name}'),
-                icon: tab.icon,
-                label: tab.sideLabel ?? tab.label,
-                selected: tab == selected,
-                onTap: () => onSelect(tab),
+              KeyedSubtree(
+                key: tab == ShellTab.search ? HintTargets.searchTab : null,
+                child: _SideItem(
+                  key: Key('tab-${tab.name}'),
+                  icon: tab.icon,
+                  label: tab.sideLabel ?? tab.label,
+                  selected: tab == selected,
+                  onTap: () => onSelect(tab),
+                ),
               ),
           ],
           Padding(

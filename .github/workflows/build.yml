@@ -27,15 +27,6 @@ jobs:
         run: bash tool/ci_run.sh 'Зависимости (pub get)' flutter pub get
       - name: Генерация кода БД
         run: bash tool/ci_run.sh 'Ошибка генерации кода' dart run build_runner build --delete-conflicting-outputs
-      - name: API модуля рекламы (временная проверка)
-        shell: bash
-        run: |
-          root=$(python3 -c "import json;d=json.load(open('.dart_tool/package_config.json'));print([p['rootUri'] for p in d['packages'] if p['name']=='yandex_mobileads'][0].replace('file://',''))")
-          echo "$root"
-          files=$(cd "$root/lib" && find . -name '*.dart' | sort | head -80 | tr '\n' ' ')
-          api=$(grep -rhoE "^(abstract )?(final )?(sealed )?class [A-Za-z]+|static [A-Za-z<>?, ]+ (initialize|setUserConsent|setAgeRestrictedUser|setLocationConsent|enableLogging)\([^)]*\)" "$root/lib" | sort -u | head -120 | tr '\n' ';')
-          echo "::notice title=Файлы yandex_mobileads::$files"
-          echo "::notice title=API yandex_mobileads::$api"
       - name: Анализ кода
         shell: bash
         run: tool/ci_run.sh 'Ошибки анализа кода' flutter analyze --no-fatal-infos --no-fatal-warnings

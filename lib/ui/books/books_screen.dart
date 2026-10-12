@@ -52,6 +52,13 @@ class BooksScreen extends StatefulWidget {
 class _BooksScreenState extends State<BooksScreen> with WidgetsBindingObserver {
   var _filter = _Filter.reading;
 
+  /// Выбранные долгим нажатием книги (id). Пусто — обычный режим.
+  final _selected = <int>{};
+
+  void _toggle(Book b) => setState(() {
+        if (!_selected.remove(b.id)) _selected.add(b.id);
+      });
+
   /// Выбрана своя полка (uid) вместо встроенного фильтра.
   String? _shelf;
   List<UserShelf> _shelves = const [];
@@ -132,15 +139,30 @@ class _BooksScreenState extends State<BooksScreen> with WidgetsBindingObserver {
     }
   }
 
-  void _openBook(Book book) =>
-      Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => BookScreen(bookId: book.id)));
+  void _openBook(Book book) => _selected.isNotEmpty
+      ? _toggle(book)
+      : Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => BookScreen(bookId: book.id)));
+
+  /// Выбранные книги — на полки.
+  Future<void> _toShelves(List<BookItem> all) async {
+    final books = [for (final i in all) if (_selected.contains(i.book.id)) i.book];
+    if (books.isEmpty) return;
+    final done = await showBooksShelves(context, books);
+    if (done && mounted) setState(_selected.clear);
+  }
 
   @override
   Widget build(BuildContext context) {
     final c = BcColors.of(context);
     final library = AppScope.of(context).books;
     final wide = MediaQuery.sizeOf(context).width >= 900;
-    return Scaffold(
+    // «Назад» во время выбора книг — снять выбор, а не уйти с экрана.
+    return PopScope(
+      canPop: _selected.isEmpty,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) setState(_selected.clear);
+      },
+      child: Scaffold(
       backgroundColor: c.bg,
       body: SafeArea(
         bottom: false,
@@ -155,7 +177,26 @@ class _BooksScreenState extends State<BooksScreen> with WidgetsBindingObserver {
                 child: SizedBox(
                   // Высота одна на обеих вкладках: кнопки справа разного размера.
                   height: 48,
-                  child: Row(children: [
+                  child: _selected.isNotEmpty
+                      ? Row(children: [
+                          IconButton(
+                            tooltip: 'Отменить выбор',
+                            onPressed: () => setState(_selected.clear),
+                            icon: BcIcon(BcIcons.close, size: 22, color: c.text),
+                          ),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text('Выбрано: ${_selected.length}',
+                                style: screenTitleStyle(context).copyWith(fontSize: wide ? 24 : 20)),
+                          ),
+                          FilledButton.icon(
+                            style: FilledButton.styleFrom(shape: const StadiumBorder()),
+                            onPressed: () async => _toShelves(await AppScope.of(context).db.watchBooks().first),
+                            icon: const BcIcon(BcIcons.library, size: 18),
+                            label: const Text('На полку'),
+                          ),
+                        ])
+                      : Row(children: [
                   Expanded(child: Text('Книги', style: screenTitleStyle(context).copyWith(fontSize: wide ? 30 : 26))),
                   if (!(catalogOn && _catalogTab)) ...[
                     IconButton(
@@ -173,7 +214,7 @@ class _BooksScreenState extends State<BooksScreen> with WidgetsBindingObserver {
                   ],
                   const SizedBox(width: 4),
                   _AddButton(config: config, onCatalogAdded: () => setState(() => _catalogTab = true)),
-                ]),
+                      ]),
                 ),
               ),
               if (catalogOn)
@@ -280,7 +321,8 @@ class _BooksScreenState extends State<BooksScreen> with WidgetsBindingObserver {
                         padding: const EdgeInsets.all(24),
                         child: Text(
                           shelf != null
-                              ? 'На полке «${shelf.name}» пока нет книг. Поставить книгу на полку — в меню «…» на странице книги. '
+                              ? 'На полке «${shelf.name}» пока нет книг. Чтобы поставить книги на полку, выберите их долгим нажатием '
+                                  'в списке «Все» и нажмите «На полку». '
                                   'Переименовать или удалить полку — долгим нажатием на её название.'
                               : switch (_filter) {
                             _Filter.reading => 'Сейчас ничего не читается и не слушается.',
@@ -303,13 +345,24 @@ class _BooksScreenState extends State<BooksScreen> with WidgetsBindingObserver {
                           childAspectRatio: 0.47,
                         ),
                         itemCount: items.length,
-                        itemBuilder: (context, i) => _GridTile(item: items[i], onOpen: () => _openBook(items[i].book)),
+                        itemBuilder: (context, i) => _GridTile(
+                          item: items[i],
+                          selected: _selected.contains(items[i].book.id),
+                          onOpen: () => _openBook(items[i].book),
+                          onSelect: () => _toggle(items[i].book),
+                        ),
                       ),
                     )
                   else
                     SliverList.builder(
                       itemCount: items.length,
-                      itemBuilder: (context, i) => _BookRow(item: items[i], onOpen: () => _openBook(items[i].book)),
+                      itemBuilder: (context, i) => _BookRow(
+                        item: items[i],
+                        selected: _selected.contains(items[i].book.id),
+                        selecting: _selected.isNotEmpty,
+                        onOpen: () => _openBook(items[i].book),
+                        onSelect: () => _toggle(items[i].book),
+                      ),
                     ),
                   const SliverToBoxAdapter(child: SizedBox(height: 24)),
                 ],
@@ -320,6 +373,7 @@ class _BooksScreenState extends State<BooksScreen> with WidgetsBindingObserver {
           },
         ),
       ),
+    ),
     );
   }
 }
@@ -560,10 +614,23 @@ class _CurrentCard extends StatelessWidget {
 }
 
 class _BookRow extends StatelessWidget {
-  const _BookRow({required this.item, required this.onOpen});
+  const _BookRow({
+    required this.item,
+    required this.onOpen,
+    required this.onSelect,
+    this.selected = false,
+    this.selecting = false,
+  });
 
   final BookItem item;
   final VoidCallback onOpen;
+
+  /// Долгое нажатие — выбрать книгу (несколько книг — на полку разом).
+  final VoidCallback onSelect;
+  final bool selected;
+
+  /// Идёт выбор: кнопки «Читать/Слушать» не нужны.
+  final bool selecting;
 
   @override
   Widget build(BuildContext context) {
@@ -571,10 +638,15 @@ class _BookRow extends StatelessWidget {
     final b = item.book;
     return NavInkWell(
       onTap: onOpen,
-      child: Padding(
+      onLongPress: onSelect,
+      child: Container(
+        color: selected ? c.raised : null,
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
         child: Row(children: [
-          Opacity(opacity: b.missing ? 0.5 : 1, child: BookCoverSlot(book: b, size: 56)),
+          _Selectable(
+            selected: selected,
+            child: Opacity(opacity: b.missing ? 0.5 : 1, child: BookCover(book: b, size: 56, square: true)),
+          ),
           const SizedBox(width: 14),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -601,7 +673,7 @@ class _BookRow extends StatelessWidget {
             ]),
           ),
           const SizedBox(width: 8),
-          if (!b.missing && !(b.kind == BookKind.text && b.path == null)) BookActionButton(book: b),
+          if (!selecting && !b.missing && !(b.kind == BookKind.text && b.path == null)) BookActionButton(book: b),
         ]),
       ),
     );
@@ -609,10 +681,12 @@ class _BookRow extends StatelessWidget {
 }
 
 class _GridTile extends StatelessWidget {
-  const _GridTile({required this.item, required this.onOpen});
+  const _GridTile({required this.item, required this.onOpen, required this.onSelect, this.selected = false});
 
   final BookItem item;
   final VoidCallback onOpen;
+  final VoidCallback onSelect;
+  final bool selected;
 
   @override
   Widget build(BuildContext context) {
@@ -621,6 +695,7 @@ class _GridTile extends StatelessWidget {
     return NavInkWell(
       borderRadius: BorderRadius.circular(14),
       onTap: onOpen,
+      onLongPress: onSelect,
       child: LayoutBuilder(builder: (context, box) {
         return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           // Место под обложку — как у книги 2:3, квадрат аудиокниги — внизу:
@@ -629,7 +704,10 @@ class _GridTile extends StatelessWidget {
             height: box.maxWidth * 1.5,
             child: Align(
               alignment: Alignment.bottomLeft,
-              child: Opacity(opacity: b.missing ? 0.5 : 1, child: BookCover(book: b, size: box.maxWidth, fitWidth: true)),
+              child: _Selectable(
+                selected: selected,
+                child: Opacity(opacity: b.missing ? 0.5 : 1, child: BookCover(book: b, size: box.maxWidth, fitWidth: true)),
+              ),
             ),
           ),
           const SizedBox(height: 8),
@@ -652,5 +730,41 @@ class _GridTile extends StatelessWidget {
         ]);
       }),
     );
+  }
+}
+
+/// Обложка с отметкой выбора.
+class _Selectable extends StatelessWidget {
+  const _Selectable({required this.selected, required this.child});
+
+  final bool selected;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!selected) return child;
+    final c = BcColors.of(context);
+    return Stack(children: [
+      child,
+      Positioned.fill(
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: const Color(0x55000000),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: c.ink, width: 2),
+          ),
+        ),
+      ),
+      Positioned(
+        top: 4,
+        right: 4,
+        child: Container(
+          width: 22,
+          height: 22,
+          decoration: BoxDecoration(color: c.fill, shape: BoxShape.circle),
+          child: Center(child: BcIcon(BcIcons.check, size: 14, color: c.onFill)),
+        ),
+      ),
+    ]);
   }
 }

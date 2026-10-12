@@ -12,10 +12,13 @@ import 'package:flutter/material.dart';
 /// сбрасывается, как только экран скрылся под другим, — при возврате плитка
 /// уже чистая. Содержимое плитки при этом не пересоздаётся.
 class NavInkWell extends StatefulWidget {
-  const NavInkWell({super.key, required this.child, this.onTap, this.borderRadius});
+  const NavInkWell({super.key, required this.child, this.onTap, this.onLongPress, this.borderRadius});
 
   final Widget child;
   final VoidCallback? onTap;
+
+  /// Долгое нажатие; на компьютере — и правая кнопка мыши.
+  final VoidCallback? onLongPress;
   final BorderRadius? borderRadius;
 
   @override
@@ -53,6 +56,8 @@ class _NavInkWellState extends State<NavInkWell> {
         key: ValueKey(_generation),
         borderRadius: widget.borderRadius,
         onTap: widget.onTap,
+        onLongPress: widget.onLongPress,
+        onSecondaryTap: widget.onLongPress,
         child: KeyedSubtree(key: _content, child: widget.child),
       );
 }

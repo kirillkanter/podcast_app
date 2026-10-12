@@ -13,6 +13,7 @@ Future<void> showAddOpdsCatalog(BuildContext context) {
   if (wide) {
     return showDialog<void>(
       context: context,
+      useRootNavigator: true,
       builder: (context) => Dialog(
         backgroundColor: BcColors.of(context).card,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
@@ -25,6 +26,7 @@ Future<void> showAddOpdsCatalog(BuildContext context) {
   }
   return showModalBottomSheet<void>(
     context: context,
+    useRootNavigator: true,
     isScrollControlled: true,
     showDragHandle: true,
     backgroundColor: BcColors.of(context).card,

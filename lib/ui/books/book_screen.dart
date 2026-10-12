@@ -178,7 +178,7 @@ class _BookScreenState extends State<BookScreen> {
                 Padding(
                   padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
                   child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    BookCover(book: book, size: 128),
+                    BookCover(book: book, size: book.kind == BookKind.text ? 156 : 128),
                     const SizedBox(width: 16),
                     Expanded(
                       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

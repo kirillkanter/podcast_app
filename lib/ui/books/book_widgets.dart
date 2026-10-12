@@ -14,20 +14,22 @@ import '../theme.dart';
 /// Обложка книги: картинка из файла или цветная плашка с названием.
 /// Аудиокнига — квадрат [size]×[size]; текстовая книга — как у бумажной,
 /// 2:3: высота [size], ширина 2/3 от неё. С [fitWidth] [size] — ширина
-/// (для сетки, где плитки одной ширины).
+/// (для сетки, где плитки одной ширины). [square] — квадрат и у текстовой
+/// книги (строки списка: прямоугольник там слишком мелкий).
 class BookCover extends StatelessWidget {
-  const BookCover({super.key, required this.book, this.size = 56, this.fitWidth = false});
+  const BookCover({super.key, required this.book, this.size = 56, this.fitWidth = false, this.square = false});
 
   final Book book;
   final double size;
   final bool fitWidth;
+  final bool square;
 
   static const _colors = [
     Color(0xFF5B2A3A), Color(0xFF3E5A3A), Color(0xFF26385A), Color(0xFF2E5A6B),
     Color(0xFF6B4A2E), Color(0xFF4B3B6B), Color(0xFF2F5D50), Color(0xFF7A3B5C),
   ];
 
-  bool get _tall => book.kind == BookKind.text;
+  bool get _tall => book.kind == BookKind.text && !square;
   double get width => !_tall || fitWidth ? size : size * 2 / 3;
   double get height => !_tall ? size : (fitWidth ? size * 1.5 : size);
 
@@ -77,19 +79,6 @@ class BookCover extends StatelessWidget {
             ),
     );
   }
-}
-
-/// Место под обложку в строке списка: текстовая книга уже аудиокниги,
-/// но названия начинаются на одной линии.
-class BookCoverSlot extends StatelessWidget {
-  const BookCoverSlot({super.key, required this.book, required this.size});
-
-  final Book book;
-  final double size;
-
-  @override
-  Widget build(BuildContext context) =>
-      SizedBox(width: size, height: size, child: Center(child: BookCover(book: book, size: size)));
 }
 
 /// Значки формата: наушники — аудио, страница — текст.

@@ -184,7 +184,7 @@ void _patchAndroid() {
     xml = xml.replaceFirst('<application', '<application\n        android:usesCleartextTraffic="true"');
   }
 
-  xml = xml.replaceFirst(RegExp(r'android:label="[^"]*"'), 'android:label="Basic Caster"');
+  xml = xml.replaceFirst(RegExp(r'android:label="[^"]*"'), 'android:label="$androidLabel"');
 
   // MainActivity заменяется своей (наследник AudioServiceActivity), см. ниже.
 
@@ -274,7 +274,15 @@ void _patchGradle() {
   stdout.writeln('build.gradle.kts: applicationId $androidApplicationId, подпись настроена.');
 }
 
-const androidApplicationId = 'ru.bcaster.app';
+/// Версия сборки (см. lib/edition.dart): переменная окружения
+/// BCASTER_EDITION=public — публичная для RuStore, иначе личная.
+/// Личная — отдельное приложение со своим идентификатором: RuStore не
+/// заменит её публичной при обновлении, а на телефоне можно держать обе.
+final bool isPublicEdition = Platform.environment['BCASTER_EDITION'] == 'public';
+
+final String androidApplicationId = isPublicEdition ? 'ru.bcaster.app' : 'ru.bcaster.app.personal';
+
+final String androidLabel = isPublicEdition ? 'Basic Caster' : 'Basic Caster (личная)';
 
 const _signingConfig = '''    signingConfigs {
         create("release") {

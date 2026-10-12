@@ -3,13 +3,16 @@ import 'dart:io' show Platform;
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 
+import '../ads/ads.dart' show AdSettings, setPersonalAds;
 import '../catalog/books/book_catalog.dart';
 import '../catalog/podcast_catalog.dart';
 import '../data/db/database.dart';
 import '../download/download_manager.dart';
+import '../edition.dart';
 import '../platform/background.dart';
 import '../platform/desktop.dart';
 import '../sync/sync_service.dart';
+import 'ad_slot.dart' show showAboutAds;
 import 'app_scope.dart';
 import 'books/book_import.dart';
 import 'books/catalog/add_opds.dart';
@@ -219,6 +222,7 @@ class SettingsScreen extends StatelessWidget {
             onTap: () => scope.books!.unhideAll(),
             trailing: BcIcon(BcIcons.refresh, size: 20, color: c.muted),
           ),
+          if (scope.sync != null)
           StreamBuilder<String?>(
             stream: scope.db.watchSetting(BookSettings.serverUsed),
             builder: (context, used) => StreamBuilder<String?>(
@@ -286,6 +290,25 @@ class SettingsScreen extends StatelessWidget {
       if (scope.catalog != null) ...[
         const _SectionTitle('ПОИСК'),
         _Card(children: [_CountryRow(catalog: scope.catalog!)]),
+      ],
+    ];
+
+    final adsSection = [
+      if (Edition.hasAds) ...[
+        const _SectionTitle('РЕКЛАМА'),
+        _Card(children: [
+          _SwitchRow(
+            label: 'Персональная реклама',
+            hint: 'Объявления по интересам. Если выключить, реклама останется, но станет случайной',
+            settingKey: AdSettings.personal,
+            onChanged: (v) => setPersonalAds(scope.db, v),
+          ),
+          _Row(
+            label: 'Почему здесь реклама',
+            onTap: () => showAboutAds(context),
+            trailing: BcIcon(BcIcons.chevronRight, size: 18, color: c.muted),
+          ),
+        ]),
       ],
     ];
 
@@ -374,6 +397,7 @@ class SettingsScreen extends StatelessWidget {
                 ...catalogSection,
                 ...downloadSection,
                 ...search,
+                ...adsSection,
                 ...look,
                 ...app,
                 footer,
@@ -406,6 +430,7 @@ class SettingsScreen extends StatelessWidget {
                         ...catalogSection,
                         ...downloadSection,
                         ...search,
+                        ...adsSection,
                         ...look,
                         ...app,
                       ]),

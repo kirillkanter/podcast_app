@@ -2,8 +2,10 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../ads/ads.dart' show AdPlacement;
 import '../data/db/database.dart';
 import 'add_feed_dialog.dart';
+import 'ad_slot.dart';
 import 'app_scope.dart';
 import 'episode_actions.dart';
 import 'episode_sheet.dart';
@@ -114,6 +116,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                     const SliverToBoxAdapter(child: _EmptyState())
                   else ...[
                     SliverToBoxAdapter(child: _feedAndQueue()),
+                    const SliverToBoxAdapter(child: AdSlot(placement: AdPlacement.library)),
                     SliverToBoxAdapter(
                       child: Padding(
                         padding: const EdgeInsets.fromLTRB(20, 22, 20, 12),

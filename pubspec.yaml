@@ -51,6 +51,8 @@ dependencies:
   # Книги: отпечатки файлов (sha1), EPUB и FBZ — zip-архивы.
   crypto: ^3.0.6
   archive: ^4.0.0
+  # Реклама Рекламной сети Яндекса (только публичная версия на Android, см. lib/edition.dart).
+  yandex_mobileads: ^8.5.0
 
 dev_dependencies:
   flutter_test:

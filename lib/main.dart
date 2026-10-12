@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import 'ads/ads.dart';
 import 'app_services.dart';
 import 'books/book_library.dart';
 import 'catalog/books/book_catalog.dart';
@@ -16,6 +17,7 @@ import 'data/db/books_dao.dart';
 import 'data/db/database.dart';
 import 'data/podcast_repository.dart';
 import 'download/download_manager.dart';
+import 'edition.dart';
 import 'platform/background.dart';
 import 'platform/desktop.dart';
 import 'platform/notifications.dart';
@@ -128,6 +130,9 @@ Future<void> main(List<String> args) async {
     }
   }
 
+  // Реклама — только в публичной версии на Android; запуск не задерживает.
+  unawaited(initAds(db));
+
   // Тема и акцент — до первого кадра, чтобы интерфейс не мигал другим цветом.
   final theme = await db.setting(themeSettingKey);
   final accent = await db.setting(accentSettingKey);
@@ -139,9 +144,10 @@ Future<void> main(List<String> args) async {
     audio: audio,
     downloads: downloads,
     catalog: catalog,
-    sync: sync,
+    // В публичной версии синхронизации нет: экраны её не показывают.
+    sync: Edition.hasSync ? sync : null,
     books: services.books,
-    bookSync: services.bookSync,
+    bookSync: Edition.hasSync ? services.bookSync : null,
     bookCatalog: BookCatalog(db: db, library: services.books),
   ));
   // Эпизод, который играл перед закрытием, — снова в мини-плеере.

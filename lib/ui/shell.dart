@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../data/db/books_dao.dart';
 import '../data/db/database.dart';
 import '../sync/sync_service.dart';
 import 'app_scope.dart';

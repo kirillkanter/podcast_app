@@ -20,6 +20,7 @@ import 'package:path/path.dart' as p;
 import '../books/book_models.dart';
 import '../books/reading_log.dart';
 import '../data/db/books_dao.dart';
+import '../data/db/shelves_dao.dart';
 import '../data/db/database.dart';
 import 'gpodder_client.dart';
 import 'sync_service.dart';
@@ -336,6 +337,82 @@ class BookSync {
     await _db.setSetting(BookSettings.highlightsSince, '${result.rev}');
   }
 
+  Timer? _shelvesTimer;
+
+  /// Полки изменили — отправить через пару секунд (правки подряд — одним
+  /// запросом).
+  void shelvesChanged() {
+    _shelvesTimer?.cancel();
+    _shelvesTimer = Timer(const Duration(seconds: 2), () => unawaited(syncShelves().catchError((Object _) {})));
+  }
+
+  Future<void>? _syncingShelves;
+
+  /// Свои полки: изменения — на сервер, чужие — сюда.
+  Future<void> syncShelves() => _syncingShelves ??= () async {
+        try {
+          final client = await _sync.openClient();
+          if (client == null) return;
+          try {
+            await syncShelvesWith(client);
+          } finally {
+            client.close();
+          }
+        } finally {
+          _syncingShelves = null;
+        }
+      }();
+
+  Future<void> syncShelvesWith(GpodderClient client) async {
+    final since = int.tryParse(await _db.setting(BookSettings.shelvesSince) ?? '') ?? 0;
+    final shelves = await _db.dirtyShelves();
+    final members = await _db.dirtyShelfBooks();
+    final result = await client.syncShelves(since: since, items: [
+      for (final s in shelves)
+        {
+          'shelf': s.uid,
+          'book': '',
+          'name': s.name,
+          'position': s.position,
+          'deleted': s.deleted,
+          'changed': s.updatedAt.millisecondsSinceEpoch,
+        },
+      for (final m in members)
+        {
+          'shelf': m.shelfUid,
+          'book': m.bookKey,
+          'deleted': m.deleted,
+          'changed': m.updatedAt.millisecondsSinceEpoch,
+        },
+    ]);
+    for (final s in shelves) {
+      await _db.markShelfSynced(s.uid, s.updatedAt);
+    }
+    for (final m in members) {
+      await _db.markShelfBookSynced(m.shelfUid, m.bookKey, m.updatedAt);
+    }
+    for (final j in result.items) {
+      final shelf = j['shelf'];
+      final book = j['book'];
+      final changed = j['changed'];
+      if (shelf is! String || changed is! num) continue;
+      final at = DateTime.fromMillisecondsSinceEpoch(changed.toInt());
+      final deleted = j['deleted'] == true;
+      if (book is String && book.isNotEmpty) {
+        await _db.applyRemoteShelfBook(shelfUid: shelf, bookKey: book, deleted: deleted, updatedAt: at);
+      } else {
+        await _db.applyRemoteShelf(
+          uid: shelf,
+          name: j['name'] is String ? j['name']! as String : '',
+          position: (j['position'] as num?)?.toInt() ?? 0,
+          deleted: deleted,
+          updatedAt: at,
+        );
+      }
+    }
+    await _db.setSetting(BookSettings.shelvesSince, '${result.rev}');
+  }
+
   /// Статистика чтения: свои дни за [days] дней — на сервер, итоги других
   /// устройств — сюда. Без синхронизации ничего не делает.
   Future<void> syncStats({int days = 60}) async {
@@ -412,6 +489,11 @@ class BookSync {
         await syncCoversWith(client);
       } catch (e) {
         debugPrint('Обложки не синхронизировались: $e');
+      }
+      try {
+        await syncShelvesWith(client);
+      } catch (e) {
+        debugPrint('Полки не синхронизировались: $e');
       }
 
       // 4. Текстовые книги этого устройства — на сервер.

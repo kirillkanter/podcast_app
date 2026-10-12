@@ -14,6 +14,7 @@ import 'package:podcast_app/books/locator.dart';
 import 'package:podcast_app/books/reading_log.dart';
 import 'package:podcast_app/data/db/books_dao.dart';
 import 'package:podcast_app/data/db/database.dart';
+import 'package:podcast_app/data/db/shelves_dao.dart';
 import 'package:podcast_app/data/podcast_repository.dart';
 import 'package:podcast_app/feed/feed_fetcher.dart';
 import 'package:podcast_app/sync/book_sync.dart';
@@ -232,6 +233,49 @@ void main() {
       await f.books.syncHighlights();
       await e.books.syncHighlights();
       expect(await e.db.watchBookmarks(bookOnE).first, isEmpty);
+    },
+    skip: _server == null ? 'Нет OPODSYNC_URL: интеграционный тест только в CI' : false,
+    timeout: const Timeout(Duration(minutes: 1)),
+  );
+
+  test(
+    'свои полки: полка, название и книги на ней переходят на другое устройство',
+    () async {
+      final root = await Directory.systemTemp.createTemp('shelves_sync');
+      final g = _Device('G', root);
+      final h = _Device('H', root);
+      addTearDown(() async {
+        await g.db.close();
+        await h.db.close();
+        await root.delete(recursive: true);
+      });
+      await g.sync.signIn(server: _server!, username: _user, password: _password);
+      await h.sync.signIn(server: _server!, username: _user, password: _password);
+
+      final key = 't:${DateTime.now().microsecondsSinceEpoch.toRadixString(16).padLeft(40, '1')}';
+      final uid = await g.db.createShelf('Отпуск');
+      await g.db.setBookOnShelf(uid, key, true);
+      await g.books.syncShelves();
+      await h.books.syncShelves();
+      expect((await h.db.shelves()).where((s) => s.uid == uid).single.name, 'Отпуск');
+      expect((await h.db.watchShelfBooks().first)[uid], {key});
+      expect(await h.db.dirtyShelves(), isEmpty);
+
+      // Переименовали на H и убрали книгу — видно на G.
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      await h.db.renameShelf(uid, 'Перечитать');
+      await h.db.setBookOnShelf(uid, key, false);
+      await h.books.syncShelves();
+      await g.books.syncShelves();
+      expect((await g.db.shelves()).where((s) => s.uid == uid).single.name, 'Перечитать');
+      expect((await g.db.watchShelfBooks().first)[uid], isNull);
+
+      // Удалили на G — пропала на H.
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      await g.db.deleteShelf(uid);
+      await g.books.syncShelves();
+      await h.books.syncShelves();
+      expect((await h.db.shelves()).where((s) => s.uid == uid), isEmpty);
     },
     skip: _server == null ? 'Нет OPODSYNC_URL: интеграционный тест только в CI' : false,
     timeout: const Timeout(Duration(minutes: 1)),

@@ -7,7 +7,6 @@ import '../../../catalog/books/book_catalog.dart';
 import '../../../data/db/books_dao.dart';
 import '../../../platform/open_url.dart';
 import '../../app_scope.dart';
-import '../../format.dart';
 import '../../icons.dart';
 import '../../theme.dart';
 import '../book_screen.dart';
@@ -57,7 +56,6 @@ class CatalogItemDetails extends StatefulWidget {
 class _CatalogItemDetailsState extends State<CatalogItemDetails> {
   Future<CatalogDetails>? _details;
   Stream<Map<String, int>>? _downloaded;
-  bool _allChapters = false;
 
   @override
   void didChangeDependencies() {
@@ -72,7 +70,6 @@ class _CatalogItemDetailsState extends State<CatalogItemDetails> {
     super.didUpdateWidget(old);
     if (old.book.id != widget.book.id) {
       _details = AppScope.of(context).bookCatalog?.details(widget.book);
-      _allChapters = false;
     }
   }
 
@@ -97,16 +94,11 @@ class _CatalogItemDetailsState extends State<CatalogItemDetails> {
       builder: (context, snap) {
         final d = snap.data;
         final book = d?.book ?? widget.book;
-        final coverWidth = widget.panel ? (book.audio ? 200.0 : 160.0) : (book.audio ? 220.0 : 170.0);
-        final duration = d?.duration;
-        final summary = [
-          if (book.audio && d != null && d.files.isNotEmpty) chaptersWord(d.files.length),
-          if (duration != null) formatDuration(duration.inMilliseconds),
-          if (!book.audio && d?.best != null) d!.best!.format.toUpperCase(),
-        ].join(' · ');
+        final coverWidth = widget.panel ? 160.0 : 170.0;
+        final summary = d?.best != null ? _formatName(d!.best!.format) : 'Книга';
         final facts = <(String, String)>[
           if (d?.size != null) ('Размер', formatSize(d!.size!)),
-          if (!book.audio && d?.best != null) ('Формат', _formatName(d!.best!.format)),
+          if (d?.best != null) ('Формат', _formatName(d!.best!.format)),
           if (book.language != null) ('Язык', _languageName(book.language!)),
           ('Источник', book.sourceName),
         ];
@@ -121,12 +113,8 @@ class _CatalogItemDetailsState extends State<CatalogItemDetails> {
             const SizedBox(height: 6),
             Text(book.author!, textAlign: TextAlign.center, style: TextStyle(fontSize: 15, color: c.body)),
           ],
-          if (book.source == CatalogSource.librivox) ...[
-            const SizedBox(height: 4),
-            Text('Читают: волонтёры LibriVox', textAlign: TextAlign.center, style: TextStyle(fontSize: 13, color: c.muted)),
-          ],
           const SizedBox(height: 10),
-          Center(child: KindMark(audio: book.audio, text: summary.isEmpty ? (book.audio ? 'Аудиокнига' : 'Книга') : summary, size: 13)),
+          Center(child: KindMark(text: summary, size: 13)),
           const SizedBox(height: 20),
           if (catalog != null)
             _Button(
@@ -179,45 +167,9 @@ class _CatalogItemDetailsState extends State<CatalogItemDetails> {
             const SizedBox(height: 8),
             Text(book.description!, style: TextStyle(fontSize: 14, height: 1.5, color: c.body)),
           ],
-          if (book.audio && d != null && d.files.length > 1) ...[
-            const SizedBox(height: 22),
-            Text('Главы', style: sectionTitleStyle(context)),
-            const SizedBox(height: 6),
-            for (final (i, f) in d.files.take(_allChapters ? d.files.length : 5).indexed)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: Row(children: [
-                  SizedBox(
-                    width: 32,
-                    child: Text('${i + 1}', style: TextStyle(fontSize: 13, color: c.muted)),
-                  ),
-                  Expanded(
-                    child: Text(f.title ?? 'Глава ${i + 1}',
-                        maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 14)),
-                  ),
-                  if (f.duration != null)
-                    Text(_clock(f.duration!), style: TextStyle(fontSize: 13, color: c.muted)),
-                ]),
-              ),
-            if (!_allChapters && d.files.length > 5)
-              Align(
-                alignment: Alignment.centerLeft,
-                child: TextButton(
-                  style: TextButton.styleFrom(foregroundColor: c.ink, padding: EdgeInsets.zero),
-                  onPressed: () => setState(() => _allChapters = true),
-                  child: Text('Все ${chaptersWord(d.files.length)}'),
-                ),
-              ),
-          ],
         ]);
       },
     );
-  }
-
-  static String _clock(Duration d) {
-    final h = d.inHours, m = d.inMinutes % 60, s = d.inSeconds % 60;
-    String two(int v) => v.toString().padLeft(2, '0');
-    return h > 0 ? '$h:${two(m)}:${two(s)}' : '$m:${two(s)}';
   }
 
   static String _formatName(String f) => switch (f) {

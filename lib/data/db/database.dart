@@ -156,6 +156,8 @@ class FeedSaveResult {
   BookBookmarks,
   BookSources,
   BookHighlights,
+  UserShelves,
+  UserShelfBooks,
 ])
 class AppDatabase extends _$AppDatabase {
   AppDatabase(super.e);
@@ -164,7 +166,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.defaults() : super(driftDatabase(name: 'podcasts'));
 
   @override
-  int get schemaVersion => 7;
+  int get schemaVersion => 8;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -224,6 +226,11 @@ class AppDatabase extends _$AppDatabase {
               ));
             }
             await delete(bookBookmarks).go();
+          }
+          if (from < 8) {
+            // Свои полки с книгами.
+            await m.createTable(userShelves);
+            await m.createTable(userShelfBooks);
           }
         },
         beforeOpen: (details) async {

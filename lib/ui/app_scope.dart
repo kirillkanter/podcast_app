@@ -45,7 +45,7 @@ class AppScope extends InheritedWidget {
   final BookLibrary? books;
   final BookSync? bookSync;
 
-  /// Каталог книг (LibriVox, OPDS). `null` в тестах интерфейса.
+  /// Каталог книг (OPDS). `null` в тестах интерфейса.
   final BookCatalog? bookCatalog;
 
   static AppScope of(BuildContext context) {

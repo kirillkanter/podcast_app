@@ -158,11 +158,9 @@ OpdsFeed parseOpdsFeed(String body, Uri base, {required String catalogId, requir
     if (isBook) {
       books.add(CatalogBook(
         id: 'opds:$catalogId:$id',
-        source: CatalogSource.opds,
         sourceName: catalogName,
         title: title,
         author: author.isEmpty ? (files.isEmpty ? _authorFromContent(summary) : null) : author,
-        audio: false,
         cover: cover,
         thumbnail: thumbnail,
         language: normalizeLanguage(language),

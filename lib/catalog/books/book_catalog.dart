@@ -1,4 +1,4 @@
-/// Каталог книг: LibriVox и подключённые каталоги OPDS вместе,
+/// Каталог книг: подключённые каталоги OPDS вместе,
 /// подборки по жанрам, поиск и скачивание в библиотеку.
 library;
 
@@ -15,7 +15,6 @@ import 'package:path/path.dart' as p;
 import '../../books/book_library.dart';
 import '../../data/db/database.dart';
 import 'catalog_models.dart';
-import 'librivox_source.dart';
 import 'opds_source.dart';
 
 export 'catalog_models.dart';
@@ -73,24 +72,19 @@ class MemoryCatalogPasswords implements CatalogPasswords {
 
 /// Фильтр подборок.
 class CatalogFilter {
-  const CatalogFilter({this.language = CatalogLanguage.all, this.kind = CatalogKind.all});
+  const CatalogFilter({this.language = CatalogLanguage.all});
 
   final CatalogLanguage language;
-  final CatalogKind kind;
 
-  bool get audio => kind != CatalogKind.text;
-  bool get text => kind != CatalogKind.audio;
+  bool matches(CatalogBook b) => language.matches(b.language, title: b.title);
 
-  bool matches(CatalogBook b) =>
-      (b.audio ? audio : text) && language.matches(b.language, title: b.title);
-
-  String get key => '${language.name}/${kind.name}';
+  String get key => language.name;
 
   @override
-  bool operator ==(Object other) => other is CatalogFilter && other.language == language && other.kind == kind;
+  bool operator ==(Object other) => other is CatalogFilter && other.language == language;
 
   @override
-  int get hashCode => Object.hash(language, kind);
+  int get hashCode => language.hashCode;
 }
 
 /// Как идёт скачивание книги из каталога.
@@ -116,16 +110,13 @@ class BookCatalog {
   })  : _db = db,
         _client = client ?? http.Client(),
         _passwords = passwords ?? const SecureCatalogPasswords(),
-        _tempDirectory = tempDirectory ?? (() async => Directory.systemTemp) {
-    _librivox = LibriVoxSource(client: _client);
-  }
+        _tempDirectory = tempDirectory ?? (() async => Directory.systemTemp);
 
   final AppDatabase _db;
   final BookLibrary? library;
   final http.Client _client;
   final CatalogPasswords _passwords;
   final Future<Directory> Function() _tempDirectory;
-  late final LibriVoxSource _librivox;
 
   // ---------------------------------------------------------------------
   // Настройки
@@ -141,8 +132,6 @@ class BookCatalog {
     _sources.clear();
     _pageCache.clear();
   }
-
-  Future<void> setLibriVox(bool on) async => _save((await config()).copyWith(librivox: on));
 
   /// Проверить адрес каталога: вернёт название из ленты.
   Future<String> check(String url, {String? login, String? password}) async {
@@ -226,20 +215,6 @@ class BookCatalog {
     return future;
   }
 
-  static const _lvRows = 40;
-
-  /// Страницы LibriVox начиная с [page].
-  _Cursor _librivoxCursor({BookGenre? genre, String? text, required CatalogLanguage language, int page = 1}) =>
-      _Cursor(() async {
-        final books = await _librivox.list(genre: genre, text: text, language: language, rows: _lvRows, page: page);
-        return (
-          books,
-          books.length >= _lvRows
-              ? _librivoxCursor(genre: genre, text: text, language: language, page: page + 1)
-              : null,
-        );
-      });
-
   /// Лента OPDS и её следующие страницы.
   static _Cursor _feedCursor(OpdsSource source, Future<OpdsFeed?> Function() load) => _Cursor(() async {
         final feed = await load();
@@ -270,19 +245,8 @@ class BookCatalog {
     return CatalogPage(out, more: next.isEmpty ? null : () => _pages(next, filter, seen));
   }
 
-  /// Самое скачиваемое на LibriVox. Пусто, если LibriVox выключен
-  /// или в фильтре только книги.
-  Future<CatalogPage> popularLibriVoxPage(CatalogFilter filter) async {
-    if (!filter.audio || !(await config()).librivox) return const CatalogPage([]);
-    return _cachedPage('lv/popular/${filter.language.name}',
-        () => _pages([_librivoxCursor(language: filter.language)], filter, {}));
-  }
-
-  Future<List<CatalogBook>> popularLibriVox(CatalogFilter filter) async => (await popularLibriVoxPage(filter)).books;
-
   /// Подборка каталога OPDS для главной.
   Future<CatalogPage> popularOpdsPage(String catalogId, CatalogFilter filter) async {
-    if (!filter.text) return const CatalogPage([]);
     final source = (await _opds()).where((s) => s.catalog.id == catalogId).firstOrNull;
     if (source == null) return const CatalogPage([]);
     return _cachedPage('opds/$catalogId/popular/${filter.key}',
@@ -315,9 +279,8 @@ class BookCatalog {
   /// не занял весь ряд.
   Future<CatalogPage> genrePage(BookGenre genre, CatalogFilter filter) async {
     final config = await this.config();
-    final sources = filter.text ? await _opds() : const <OpdsSource>[];
+    final sources = await _opds();
     return _cachedPage('genre/${genre.id}/${filter.key}/${config.encode()}', () => _pages([
-          if (filter.audio && config.librivox) _librivoxCursor(genre: genre, language: filter.language),
           for (final s in sources) _feedCursor(s, () => s.genreFeed(genre)),
         ], filter, {}));
   }
@@ -329,9 +292,8 @@ class BookCatalog {
     final q = query.trim();
     if (q.isEmpty) return const CatalogPage([]);
     final config = await this.config();
-    final sources = filter.text ? await _opds() : const <OpdsSource>[];
+    final sources = await _opds();
     return _cachedPage('search/$q/${filter.key}/${config.encode()}', () => _pages([
-          if (filter.audio && config.librivox) _librivoxCursor(text: q, language: filter.language),
           for (final s in sources) _feedCursor(s, () => s.searchFeed(q)),
         ], filter, {}));
   }
@@ -343,7 +305,6 @@ class BookCatalog {
   /// Файлы, главы и описание.
   Future<CatalogDetails> details(CatalogBook book) {
     return _details[book.id] ??= () async {
-      if (book.source == CatalogSource.librivox) return _librivox.details(book);
       final source = (await _opds()).where((s) => s.catalog.id == book.catalogId).firstOrNull;
       if (source == null) return CatalogDetails(book: book, files: book.files);
       return source.details(book);
@@ -405,7 +366,7 @@ class BookCatalog {
     _cancelled.remove(book.id);
     _progress(book.id, CatalogDownload(total: details.size));
     try {
-      final id = book.audio ? await _downloadAudio(lib, details) : await _downloadText(lib, details);
+      final id = await _downloadText(lib, details);
       if (id != null) await _markDownloaded(book.id, id);
       _progress(book.id, null);
       return id;
@@ -415,41 +376,6 @@ class BookCatalog {
       rethrow;
     } finally {
       _cancelled.remove(book.id);
-    }
-  }
-
-  Future<int?> _downloadAudio(BookLibrary lib, CatalogDetails details) async {
-    final book = details.book;
-    final folder = await lib.newAudioFolder();
-    try {
-      var received = 0;
-      final digits = '${details.files.length}'.length.clamp(2, 4);
-      for (var i = 0; i < details.files.length; i++) {
-        final f = details.files[i];
-        final name = Uri.decodeComponent(Uri.parse(f.url).pathSegments.last);
-        final target = File(p.join(folder.path, '${'${i + 1}'.padLeft(digits, '0')} ${_safeName(name)}'));
-        final base = received;
-        await _fetchTo(book.id, f.url, target, const {}, (n) {
-          received = base + n;
-          _progress(book.id, CatalogDownload(received: received, total: details.size));
-        });
-      }
-      final cover = details.coverFile;
-      if (cover != null) {
-        try {
-          await _fetchTo(book.id, cover, File(p.join(folder.path, 'cover.jpg')), const {}, (_) {});
-        } on _Cancelled {
-          rethrow;
-        } catch (_) {
-          // Без обложки книга всё равно слушается.
-        }
-      }
-      return await lib.addAudioFolder(folder.path, author: book.author, title: book.title, description: book.description);
-    } catch (e) {
-      try {
-        await folder.delete(recursive: true);
-      } catch (_) {}
-      rethrow;
     }
   }
 

@@ -327,6 +327,22 @@ class GpodderClient {
     );
   }
 
+  /// Обмен своими полками: свои изменения уходят, приходит всё новее [since].
+  /// Старый books.php без полок отвечает без items — это ошибка, а не
+  /// пустой ответ: иначе ревизия запомнилась бы неверная.
+  Future<({int rev, List<Map<String, Object?>> items})> syncShelves({
+    required int since,
+    required List<Map<String, Object?>> items,
+  }) async {
+    final data = await _send('POST', '/books.php',
+        query: {'shelves': '1'}, body: {'since': since, 'items': items}, timeout: const Duration(seconds: 20));
+    final list = data is Map<String, Object?> ? data['items'] : null;
+    if (data is! Map<String, Object?> || list is! List || data['rev'] is! num) {
+      throw const SyncException('Сервер синхронизации не поддерживает полки: обновите books.php.');
+    }
+    return (rev: (data['rev'] as num).toInt(), items: list.whereType<Map<String, Object?>>().toList());
+  }
+
   /// Обмен статистикой чтения: свои дни уходят, приходят итоги других
   /// устройств по дням с [since] («2026-09-01»).
   Future<List<Map<String, Object?>>> syncReadingStats({

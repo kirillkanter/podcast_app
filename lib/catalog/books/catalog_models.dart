@@ -1,23 +1,9 @@
-/// Каталог книг и аудиокниг: общие модели для LibriVox и каталогов OPDS.
+/// Каталог книг: модели для каталогов OPDS.
 library;
 
 import 'dart:convert';
 
-/// Откуда книга в каталоге.
-enum CatalogSource { librivox, opds }
-
-/// Фильтр по типу.
-enum CatalogKind {
-  all('Все'),
-  audio('Аудиокниги'),
-  text('Книги');
-
-  const CatalogKind(this.label);
-  final String label;
-}
-
-/// Фильтр по языку. LibriVox почти весь на английском, поэтому язык
-/// выбирается отдельно от жанра.
+/// Фильтр по языку.
 enum CatalogLanguage {
   all('Все языки'),
   ru('Русский'),
@@ -59,16 +45,12 @@ class BookGenre {
   const BookGenre({
     required this.id,
     required this.name,
-    required this.subjects,
     required this.keywords,
     required this.searchTerm,
   });
 
   final String id;
   final String name;
-
-  /// Темы (subject) записей LibriVox в Internet Archive.
-  final List<String> subjects;
 
   /// Начала слов в названиях разделов OPDS (русские и английские).
   final List<String> keywords;
@@ -87,63 +69,54 @@ const bookGenres = [
   BookGenre(
     id: 'classic',
     name: 'Классика',
-    subjects: ['classic', 'classics', 'literary fiction', 'general fiction', 'literature'],
     keywords: ['классик', 'классич', 'classic', 'литература', 'literature', 'русская проза', 'проза'],
     searchTerm: 'classic',
   ),
   BookGenre(
     id: 'scifi',
     name: 'Фантастика',
-    subjects: ['science fiction', 'fantasy', 'fantastic fiction', 'sci-fi'],
     keywords: ['фантаст', 'фэнтези', 'science fiction', 'sci-fi', 'fantasy'],
     searchTerm: 'science fiction',
   ),
   BookGenre(
     id: 'detective',
     name: 'Детективы',
-    subjects: ['detective', 'mystery', 'detective fiction', 'crime'],
     keywords: ['детектив', 'mystery', 'mysteries', 'detective', 'crime'],
     searchTerm: 'detective',
   ),
   BookGenre(
     id: 'adventure',
     name: 'Приключения',
-    subjects: ['adventure', 'action & adventure fiction', 'adventures'],
     keywords: ['приключ', 'adventure'],
     searchTerm: 'adventure',
   ),
   BookGenre(
     id: 'poetry',
     name: 'Поэзия',
-    subjects: ['poetry', 'poems', 'poem'],
     keywords: ['поэз', 'стих', 'poetry', 'poems', 'verse'],
     searchTerm: 'poetry',
   ),
   BookGenre(
     id: 'children',
     name: 'Детям',
-    subjects: ['children', "children's fiction", "children's literature", 'juvenile fiction', 'fairy tales'],
     keywords: ['детям', 'детск', 'для детей', 'сказк', 'children', 'juvenile', 'fairy tale', 'kids'],
     searchTerm: 'children',
   ),
   BookGenre(
     id: 'history',
     name: 'История',
-    subjects: ['history', 'historical'],
     keywords: ['истор', 'history', 'historical'],
     searchTerm: 'history',
   ),
   BookGenre(
     id: 'philosophy',
     name: 'Философия',
-    subjects: ['philosophy'],
     keywords: ['философ', 'philosophy'],
     searchTerm: 'philosophy',
   ),
   BookGenre(
     id: 'drama',
     name: 'Пьесы',
-    subjects: ['drama', 'plays', 'play', 'dramatic readings', 'theatre'],
     keywords: ['пьес', 'драм', 'drama', 'plays', 'theatre', 'theater'],
     searchTerm: 'drama',
   ),
@@ -151,27 +124,21 @@ const bookGenres = [
 
 /// Ссылка на файл книги в каталоге OPDS.
 class CatalogFile {
-  const CatalogFile({required this.url, required this.format, this.size, this.title, this.duration});
+  const CatalogFile({required this.url, required this.format, this.size});
 
   final String url;
 
-  /// 'epub', 'fb2', 'fbz', 'txt' или 'mp3'.
+  /// 'epub', 'fb2', 'fbz' или 'txt'.
   final String format;
   final int? size;
-
-  /// Название главы (для аудио).
-  final String? title;
-  final Duration? duration;
 }
 
 /// Книга в каталоге (то, что видно в подборке, без файлов).
 class CatalogBook {
   const CatalogBook({
     required this.id,
-    required this.source,
     required this.sourceName,
     required this.title,
-    required this.audio,
     this.author,
     this.cover,
     this.thumbnail,
@@ -183,17 +150,14 @@ class CatalogBook {
     this.catalogId,
   });
 
-  /// 'lv:<идентификатор в Internet Archive>' или 'opds:<каталог>:<id записи>'.
+  /// 'opds:<каталог>:<id записи>'.
   final String id;
-  final CatalogSource source;
 
-  /// «LibriVox» или название каталога OPDS.
+  /// Название каталога OPDS.
   final String sourceName;
   final String title;
   final String? author;
 
-  /// Аудиокнига (иначе — текстовая).
-  final bool audio;
   final String? cover;
   final String? thumbnail;
   final String? language;
@@ -224,10 +188,8 @@ class CatalogBook {
   }) =>
       CatalogBook(
         id: id,
-        source: source,
         sourceName: sourceName,
         title: title,
-        audio: audio,
         author: author ?? this.author,
         cover: cover ?? this.cover,
         thumbnail: thumbnail ?? this.thumbnail,
@@ -240,30 +202,16 @@ class CatalogBook {
       );
 }
 
-/// Подробности для страницы книги: файлы, главы, размер.
+/// Подробности для страницы книги: файлы и размер.
 class CatalogDetails {
-  const CatalogDetails({required this.book, required this.files, this.coverFile});
+  const CatalogDetails({required this.book, required this.files});
 
   final CatalogBook book;
 
-  /// Аудиокнига — главы по порядку; текстовая — варианты формата,
-  /// лучший первым.
+  /// Варианты формата, лучший первым.
   final List<CatalogFile> files;
 
-  /// Картинка обложки для аудиокниги (кладётся в папку книги).
-  final String? coverFile;
-
-  int? get size {
-    if (files.isEmpty) return null;
-    if (!book.audio) return files.first.size;
-    if (files.any((f) => f.size == null)) return null;
-    return files.fold<int>(0, (s, f) => s + f.size!);
-  }
-
-  Duration? get duration {
-    if (!book.audio || files.isEmpty || files.any((f) => f.duration == null)) return null;
-    return files.fold<Duration>(Duration.zero, (s, f) => s + f.duration!);
-  }
+  int? get size => files.firstOrNull?.size;
 
   CatalogFile? get best => files.firstOrNull;
 }
@@ -304,18 +252,16 @@ class OpdsCatalog {
 /// Настройки каталога: всё в одной записи, чтобы видимость вкладки
 /// менялась одним событием.
 class CatalogConfig {
-  const CatalogConfig({this.librivox = true, this.opds = const []});
+  const CatalogConfig({this.opds = const []});
 
-  final bool librivox;
   final List<OpdsCatalog> opds;
 
-  /// Вкладка «Каталог» видна, только если есть хоть один источник.
-  bool get enabled => librivox || opds.isNotEmpty;
+  /// Вкладка «Каталог» видна, только если добавлен хоть один каталог.
+  bool get enabled => opds.isNotEmpty;
 
-  CatalogConfig copyWith({bool? librivox, List<OpdsCatalog>? opds}) =>
-      CatalogConfig(librivox: librivox ?? this.librivox, opds: opds ?? this.opds);
+  CatalogConfig copyWith({List<OpdsCatalog>? opds}) => CatalogConfig(opds: opds ?? this.opds);
 
-  String encode() => jsonEncode({'librivox': librivox, 'opds': [for (final c in opds) c.toJson()]});
+  String encode() => jsonEncode({'opds': [for (final c in opds) c.toJson()]});
 
   static CatalogConfig decode(String? raw) {
     if (raw == null || raw.isEmpty) return const CatalogConfig();
@@ -324,7 +270,6 @@ class CatalogConfig {
       if (json is! Map) return const CatalogConfig();
       final list = json['opds'];
       return CatalogConfig(
-        librivox: json['librivox'] != false,
         opds: [
           if (list is List)
             for (final item in list) ?OpdsCatalog.fromJson(item),

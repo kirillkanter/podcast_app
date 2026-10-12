@@ -25,6 +25,9 @@
  * GET    /books.php?dict=СЛОВО&lang=ru|en
  *        → ответ Викисловаря как есть (для читалки, когда телефон не может
  *          достучаться до Викисловаря сам). Кэш на сервере — 30 дней.
+ * POST   /books.php?shelves=1  {"since": N, "items": [...]}
+ *        → {"rev": M, "items": [...]} — свои полки и книги на них
+ *          (см. books_shelves).
  * DELETE /books.php?id=ID (или POST /books.php?delete=ID)
  *        → {"rev": M} — книга удаляется на всех устройствах.
  *
@@ -130,6 +133,18 @@ function books_install(DB $db): void
 		PRIMARY KEY (user, uid)
 	);
 	CREATE INDEX IF NOT EXISTS bcaster_highlights_rev ON bcaster_highlights (user, rev);
+	CREATE TABLE IF NOT EXISTS bcaster_shelves (
+		user INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+		shelf TEXT NOT NULL,
+		book TEXT NOT NULL DEFAULT \'\',
+		name TEXT NOT NULL DEFAULT \'\',
+		position INTEGER NOT NULL DEFAULT 0,
+		deleted INTEGER NOT NULL DEFAULT 0,
+		changed INTEGER NOT NULL,
+		rev INTEGER NOT NULL,
+		PRIMARY KEY (user, shelf, book)
+	);
+	CREATE INDEX IF NOT EXISTS bcaster_shelves_rev ON bcaster_shelves (user, rev);
 	CREATE TABLE IF NOT EXISTS bcaster_covers (
 		user INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
 		id TEXT NOT NULL,
@@ -272,6 +287,83 @@ function books_highlights(DB $db, int $user): void
 			'deleted' => (bool) $row->deleted,
 			'created' => (int) $row->created,
 			'changed' => (int) $row->changed,
+		];
+	}
+
+	books_reply(200, ['rev' => $rev, 'items' => $out]);
+}
+
+/**
+ * Свои полки с книгами. Запись — либо сама полка (book пустой: название,
+ * порядок), либо книга на полке (book — ключ книги). Как у выделений:
+ * устройство присылает свои изменения и ревизию, до которой всё получило,
+ * в ответ — всё, что новее; побеждает более позднее изменение.
+ * Тело: {"since": 0, "items": [{"shelf", "book", "name", "position", "deleted", "changed"}]}.
+ */
+function books_shelves(DB $db, int $user): void
+{
+	$body = json_decode(file_get_contents('php://input'), true);
+
+	if (!is_array($body)) {
+		books_reply(400, ['message' => 'Expected {"since": 0, "items": [...]}']);
+	}
+
+	$items = is_array($body['items'] ?? null) ? $body['items'] : [];
+	$since = (int) ($body['since'] ?? 0);
+
+	if (count($items) > BOOKS_MAX_ITEMS) {
+		books_reply(413, ['message' => 'Too many items, max ' . BOOKS_MAX_ITEMS]);
+	}
+
+	$db->exec('BEGIN IMMEDIATE;');
+	$rev = (int) $db->firstColumn('SELECT COALESCE(MAX(rev), 0) FROM bcaster_shelves WHERE user = ?;', $user);
+
+	foreach ($items as $item) {
+		$book = is_array($item) ? ($item['book'] ?? '') : null;
+
+		if (!is_array($item)
+			|| !is_string($item['shelf'] ?? null) || !preg_match('/^[0-9a-f]{16,64}$/', $item['shelf'])
+			|| !is_string($book) || ($book !== '' && !books_valid_key($book))
+			|| !is_numeric($item['changed'] ?? null)) {
+			continue;
+		}
+
+		$changed = (int) $item['changed'];
+		$current = $db->firstColumn('SELECT changed FROM bcaster_shelves WHERE user = ? AND shelf = ? AND book = ?;',
+			$user, $item['shelf'], $book);
+
+		if ($current !== null && $current !== false && (int) $current >= $changed) {
+			continue;
+		}
+
+		$rev++;
+		$db->simple('INSERT OR REPLACE INTO bcaster_shelves
+			(user, shelf, book, name, position, deleted, changed, rev)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?);',
+			$user,
+			$item['shelf'],
+			$book,
+			is_string($item['name'] ?? null) ? mb_substr($item['name'], 0, 200) : '',
+			is_numeric($item['position'] ?? null) ? (int) $item['position'] : 0,
+			!empty($item['deleted']) ? 1 : 0,
+			$changed,
+			$rev
+		);
+	}
+
+	$db->exec('COMMIT;');
+
+	$out = [];
+
+	foreach ($db->iterate('SELECT shelf, book, name, position, deleted, changed FROM bcaster_shelves
+		WHERE user = ? AND rev > ? ORDER BY rev;', $user, $since) as $row) {
+		$out[] = [
+			'shelf'    => $row->shelf,
+			'book'     => $row->book,
+			'name'     => $row->name,
+			'position' => (int) $row->position,
+			'deleted'  => (bool) $row->deleted,
+			'changed'  => (int) $row->changed,
 		];
 	}
 
@@ -718,6 +810,9 @@ try {
 			}
 			elseif (isset($_GET['highlights'])) {
 				books_highlights($db, $user);
+			}
+			elseif (isset($_GET['shelves'])) {
+				books_shelves($db, $user);
 			}
 			elseif (isset($_GET['cover'])) {
 				books_cover_put($db, $user, (string) $_GET['cover']);

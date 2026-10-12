@@ -10,7 +10,7 @@ import '../../nav_ink.dart';
 import '../../podcast_cover.dart';
 import '../../theme.dart';
 
-/// Обложка книги из каталога: аудиокнига — квадрат, книга — 2:3.
+/// Обложка книги из каталога, 2:3.
 class CatalogCover extends StatelessWidget {
   const CatalogCover({super.key, required this.book, required this.width, this.large = false});
 
@@ -25,7 +25,7 @@ class CatalogCover extends StatelessWidget {
     Color(0xFF6B4A2E), Color(0xFF4B3B6B), Color(0xFF2F5D50), Color(0xFF7A3B5C),
   ];
 
-  double get height => book.audio ? width : width * 1.5;
+  double get height => width * 1.5;
 
   @override
   Widget build(BuildContext context) {
@@ -40,7 +40,7 @@ class CatalogCover extends StatelessWidget {
           ? const SizedBox.shrink()
           : Text(
               book.title,
-              maxLines: book.audio ? 3 : 5,
+              maxLines: 5,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 fontFamily: displayFont,
@@ -73,11 +73,10 @@ class CatalogCover extends StatelessWidget {
   }
 }
 
-/// Значок типа (наушники или книга) и подпись: источник, длительность.
+/// Значок книги и подпись: источник, формат.
 class KindMark extends StatelessWidget {
-  const KindMark({super.key, required this.audio, required this.text, this.size = 12});
+  const KindMark({super.key, required this.text, this.size = 12});
 
-  final bool audio;
   final String text;
   final double size;
 
@@ -85,10 +84,7 @@ class KindMark extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = BcColors.of(context);
     return Row(mainAxisSize: MainAxisSize.min, children: [
-      Tooltip(
-        message: audio ? 'Аудиокнига' : 'Книга',
-        child: BcIcon(audio ? BcIcons.headphones : BcIcons.book, size: size + 1, color: c.ink),
-      ),
+      BcIcon(BcIcons.book, size: size + 1, color: c.ink),
       const SizedBox(width: 5),
       Flexible(
         child: Text(text, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: size, color: c.muted)),
@@ -119,8 +115,6 @@ class CatalogCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = BcColors.of(context);
-    // Обложки в ряду — одной высоты: квадрат аудиокниги стоит внизу
-    // места под обложку книги.
     return SizedBox(
       width: width,
       child: NavInkWell(
@@ -150,7 +144,7 @@ class CatalogCard extends StatelessWidget {
             Text(book.author!,
                 maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12, color: c.muted)),
           const SizedBox(height: 3),
-          KindMark(audio: book.audio, text: book.sourceName, size: 11),
+          KindMark(text: book.sourceName, size: 11),
         ]),
       ),
     );
@@ -193,7 +187,7 @@ class BookCatalogRow extends StatelessWidget {
                     maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 13, color: c.muted)),
               ],
               const SizedBox(height: 5),
-              KindMark(audio: book.audio, text: book.sourceName),
+              KindMark(text: book.sourceName),
             ]),
           ),
         ]),
@@ -237,9 +231,3 @@ String formatSize(int bytes) {
   return '${(bytes / 1024).ceil()} КБ';
 }
 
-String chaptersWord(int n) {
-  final m10 = n % 10, m100 = n % 100;
-  if (m10 == 1 && m100 != 11) return '$n глава';
-  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return '$n главы';
-  return '$n глав';
-}

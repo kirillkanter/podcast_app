@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import '../../data/db/books_dao.dart';
@@ -10,49 +12,84 @@ import '../podcast_cover.dart';
 import '../theme.dart';
 
 /// Обложка книги: картинка из файла или цветная плашка с названием.
+/// Аудиокнига — квадрат [size]×[size]; текстовая книга — как у бумажной,
+/// 2:3: высота [size], ширина 2/3 от неё. С [fitWidth] [size] — ширина
+/// (для сетки, где плитки одной ширины).
 class BookCover extends StatelessWidget {
-  const BookCover({super.key, required this.book, this.size = 56});
+  const BookCover({super.key, required this.book, this.size = 56, this.fitWidth = false});
 
   final Book book;
   final double size;
+  final bool fitWidth;
 
   static const _colors = [
     Color(0xFF5B2A3A), Color(0xFF3E5A3A), Color(0xFF26385A), Color(0xFF2E5A6B),
     Color(0xFF6B4A2E), Color(0xFF4B3B6B), Color(0xFF2F5D50), Color(0xFF7A3B5C),
   ];
 
+  bool get _tall => book.kind == BookKind.text;
+  double get width => !_tall || fitWidth ? size : size * 2 / 3;
+  double get height => !_tall ? size : (fitWidth ? size * 1.5 : size);
+
   @override
   Widget build(BuildContext context) {
-    final path = book.coverPath;
-    if (path != null) {
-      return PodcastCover(url: Uri.file(path).toString(), size: size, placeholderIcon: Icons.menu_book_outlined);
-    }
+    final w = width, h = height;
+    final radius = BorderRadius.circular(w > 80 ? 12 : 8);
     final color = _colors[book.key.hashCode.abs() % _colors.length];
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(size > 80 ? 14 : 9),
-      child: Container(
-        width: size,
-        height: size,
-        color: color,
-        padding: EdgeInsets.all(size * 0.1),
-        alignment: Alignment.bottomLeft,
-        child: size < 40
-            ? const SizedBox.shrink()
-            : Text(
-                book.title,
-                maxLines: size > 100 ? 5 : 3,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontFamily: displayFont,
-                  fontWeight: FontWeight.w600,
-                  fontSize: (size * 0.11).clamp(7.0, 20.0),
-                  height: 1.1,
-                  color: Colors.white,
-                ),
+    final placeholder = Container(
+      width: w,
+      height: h,
+      color: color,
+      padding: EdgeInsets.all(w * 0.1),
+      alignment: Alignment.bottomLeft,
+      child: w < 36
+          ? const SizedBox.shrink()
+          : Text(
+              book.title,
+              maxLines: h > 100 ? 5 : 3,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontFamily: displayFont,
+                fontWeight: FontWeight.w600,
+                fontSize: (w * 0.11).clamp(7.0, 20.0),
+                height: 1.1,
+                color: Colors.white,
               ),
-      ),
+            ),
+    );
+    final path = book.coverPath;
+    return ClipRRect(
+      borderRadius: radius,
+      child: path == null
+          ? placeholder
+          : Image(
+              image: ResizeImage.resizeIfNeeded(
+                decodeWidth(w * MediaQuery.devicePixelRatioOf(context)),
+                null,
+                FileImage(File(path)),
+              ),
+              width: w,
+              height: h,
+              fit: BoxFit.cover,
+              filterQuality: FilterQuality.medium,
+              errorBuilder: (_, _, _) => placeholder,
+              frameBuilder: (_, child, frame, sync) => sync || frame != null ? child : placeholder,
+            ),
     );
   }
+}
+
+/// Место под обложку в строке списка: текстовая книга уже аудиокниги,
+/// но названия начинаются на одной линии.
+class BookCoverSlot extends StatelessWidget {
+  const BookCoverSlot({super.key, required this.book, required this.size});
+
+  final Book book;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) =>
+      SizedBox(width: size, height: size, child: Center(child: BookCover(book: book, size: size)));
 }
 
 /// Значки формата: наушники — аудио, страница — текст.

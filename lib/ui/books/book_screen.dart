@@ -22,6 +22,7 @@ import 'book_start.dart';
 import 'book_widgets.dart';
 import 'cover_picker.dart';
 import 'highlights.dart';
+import 'shelves.dart';
 
 class BookScreen extends StatefulWidget {
   const BookScreen({super.key, required this.bookId});
@@ -32,7 +33,7 @@ class BookScreen extends StatefulWidget {
   State<BookScreen> createState() => _BookScreenState();
 }
 
-enum _Action { later, reading, done, restart, cover, delete }
+enum _Action { later, reading, done, shelves, restart, cover, delete }
 
 class _BookScreenState extends State<BookScreen> {
   Stream<BookItem?>? _stream;
@@ -77,6 +78,8 @@ class _BookScreenState extends State<BookScreen> {
         await db.setBookShelf(book.id, BookShelf.reading);
       case _Action.done:
         await db.setBookShelf(book.id, BookShelf.done);
+      case _Action.shelves:
+        await showBookShelves(context, book);
       case _Action.restart:
         await db.saveBookProgress(
           book.id,
@@ -158,6 +161,7 @@ class _BookScreenState extends State<BookScreen> {
                   if (book.shelf != BookShelf.later) const MenuOption(_Action.later, 'Отложить'),
                   if (book.shelf != BookShelf.reading) const MenuOption(_Action.reading, 'Вернуть в «В процессе»'),
                   if (book.shelf != BookShelf.done) MenuOption(_Action.done, audio ? 'Отметить прослушанной' : 'Отметить прочитанной'),
+                  const MenuOption(_Action.shelves, 'Полки…'),
                   if ((p?.percent ?? 0) > 0) const MenuOption(_Action.restart, 'Начать сначала'),
                   if (AppScope.of(context).books != null) const MenuOption(_Action.cover, 'Сменить обложку'),
                   const MenuOption(_Action.delete, 'Удалить книгу'),

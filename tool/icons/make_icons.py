@@ -1,4 +1,4 @@
-# Генерирует все иконки Basic Caster из геометрии логотипа (logo_geometry.py).
+# Генерирует все иконки Basic Caster из логотипа (logo_geometry.py): буква «B» шрифтом Unbounded.
 # Запуск из корня репозитория: python3 tool/icons/make_icons.py .
 # Нужны: pip install cairosvg pillow
 import io, os, re, sys
@@ -18,11 +18,11 @@ def png(svg, size, path):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     cairosvg.svg2png(bytestring=svg.encode(), write_to=path, output_width=size, output_height=size)
 
-full = logo()                                         # тёмный знак на лаймовом круге
+full = logo()                                         # тёмная «B» на лаймовом круге
 glyph = logo(bg=False)                                # без фона — передний слой адаптивной иконки
-# Одноцветные значки — прежние (тонкая линия, без увеличения): их рисует система.
-mono = logo(mono=True, outline_slice=True, bg=False, b=39, scale=1)  # тематический значок
-stat = logo(mono=True, bg=False, b=39, scale=1)                      # строка состояния
+# Одноцветные значки: белая «B», цвет даёт система.
+mono = logo(mono=True, bg=False)                      # тематический значок
+stat = logo(mono=True, bg=False, scale=1.25)          # строка состояния
 
 open(f'{repo}/tool/icons/logo.svg', 'w').write(full)
 open(f'{repo}/sync-server/server/icon.svg', 'w').write(full)

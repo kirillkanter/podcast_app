@@ -255,12 +255,6 @@ class SettingsScreen extends StatelessWidget {
           builder: (context, snap) {
             final config = snap.data ?? const CatalogConfig();
             return _Card(children: [
-              _Row(
-                label: 'LibriVox',
-                hint: 'Бесплатные аудиокниги из общественного достояния, в основном на английском',
-                onTap: () => bookCatalog.setLibriVox(!config.librivox),
-                trailing: Switch(value: config.librivox, onChanged: bookCatalog.setLibriVox),
-              ),
               for (final o in config.opds)
                 _Row(
                   label: o.name,
@@ -282,7 +276,7 @@ class SettingsScreen extends StatelessWidget {
         ),
         Padding(
           padding: const EdgeInsets.fromLTRB(4, 8, 4, 0),
-          child: Text('Когда LibriVox выключен и каталогов нет, вкладка «Каталог» в книгах скрывается.',
+          child: Text('Пока не добавлен ни один каталог, вкладки «Каталог» в книгах нет.',
               style: TextStyle(fontSize: 12, color: c.muted)),
         ),
       ],

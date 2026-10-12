@@ -319,23 +319,9 @@ class _Sidebar extends StatelessWidget {
     return SizedBox(
       width: 248,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 20, 14, 12),
+        padding: const EdgeInsets.fromLTRB(14, 8, 14, 12),
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(10, 0, 10, 18),
-            child: Row(children: [
-              Image.asset('assets/images/logo.png', width: 32, height: 32,
-                  errorBuilder: (_, _, _) => const SizedBox.square(dimension: 32)),
-              const SizedBox(width: 10),
-              const Flexible(
-                child: Text('Basic Caster',
-                    maxLines: 1,
-                    softWrap: false,
-                    overflow: TextOverflow.fade,
-                    style: TextStyle(fontFamily: displayFont, fontWeight: FontWeight.w600, fontSize: 17)),
-              ),
-            ]),
-          ),
+          // Название и логотип — в заголовке окна, здесь не повторяем.
           for (final (group, tabs) in const [
             ('Подкасты', [ShellTab.library, ShellTab.search, ShellTab.queue]),
             ('Аудиокниги и книги', [ShellTab.books]),

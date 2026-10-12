@@ -361,6 +361,39 @@ class BookHighlights extends Table {
   BoolColumn get dirty => boolean().withDefault(const Constant(true))();
 }
 
+/// Своя полка с книгами (кроме встроенных «В процессе», «Отложено»,
+/// «Готово»). [uid] общий для всех устройств.
+@DataClassName('UserShelf')
+class UserShelves extends Table {
+  TextColumn get uid => text()();
+  TextColumn get name => text()();
+
+  /// Порядок в списке полок.
+  IntColumn get position => integer().withDefault(const Constant(0))();
+  BoolColumn get deleted => boolean().withDefault(const Constant(false))();
+  DateTimeColumn get updatedAt => dateTime()();
+
+  /// Изменено здесь и ещё не отправлено на сервер.
+  BoolColumn get dirty => boolean().withDefault(const Constant(true))();
+
+  @override
+  Set<Column> get primaryKey => {uid};
+}
+
+/// Книга на своей полке. По ключу книги, а не id: запись может прийти
+/// с сервера раньше самой книги. Убранная с полки — [deleted].
+@DataClassName('UserShelfBook')
+class UserShelfBooks extends Table {
+  TextColumn get shelfUid => text()();
+  TextColumn get bookKey => text()();
+  BoolColumn get deleted => boolean().withDefault(const Constant(false))();
+  DateTimeColumn get updatedAt => dateTime()();
+  BoolColumn get dirty => boolean().withDefault(const Constant(true))();
+
+  @override
+  Set<Column> get primaryKey => {shelfUid, bookKey};
+}
+
 /// Папки с аудиокнигами: каждая подпапка — отдельная книга.
 @DataClassName('BookSource')
 class BookSources extends Table {

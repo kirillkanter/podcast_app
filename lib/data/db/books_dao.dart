@@ -28,6 +28,9 @@ abstract final class BookSettings {
   /// Ревизия выделений на сервере, до которой всё получено.
   static const highlightsSince = 'books.highlightsSince';
 
+  /// Ревизия полок на сервере, до которой всё получено.
+  static const shelvesSince = 'books.shelvesSince';
+
   /// Ревизия books.php, до которой всё получено.
   static const syncSince = 'books.since';
 

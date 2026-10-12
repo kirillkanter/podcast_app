@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import '../../catalog/books/book_catalog.dart';
 import '../../data/db/books_dao.dart';
 import '../../data/db/database.dart';
+import '../../data/db/shelves_dao.dart';
 import '../app_scope.dart';
 import '../icons.dart';
 import '../menu.dart';
@@ -19,6 +20,7 @@ import 'book_import.dart';
 import 'book_screen.dart';
 import 'book_start.dart';
 import 'book_widgets.dart';
+import 'shelves.dart';
 import 'catalog/add_opds.dart';
 import 'catalog/catalog_view.dart';
 import 'reader/reading_stats.dart';
@@ -49,6 +51,13 @@ class BooksScreen extends StatefulWidget {
 
 class _BooksScreenState extends State<BooksScreen> with WidgetsBindingObserver {
   var _filter = _Filter.reading;
+
+  /// Выбрана своя полка (uid) вместо встроенного фильтра.
+  String? _shelf;
+  List<UserShelf> _shelves = const [];
+  Map<String, Set<String>> _shelfBooks = const {};
+  StreamSubscription<List<UserShelf>>? _shelvesSub;
+  StreamSubscription<Map<String, Set<String>>>? _shelfBooksSub;
   Stream<List<BookItem>>? _books;
   bool _scanned = false;
   bool _refreshing = false;
@@ -68,6 +77,8 @@ class _BooksScreenState extends State<BooksScreen> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _shelvesSub?.cancel();
+    _shelfBooksSub?.cancel();
     super.dispose();
   }
 
@@ -75,6 +86,13 @@ class _BooksScreenState extends State<BooksScreen> with WidgetsBindingObserver {
   void didChangeDependencies() {
     super.didChangeDependencies();
     _books ??= AppScope.of(context).db.watchBooks();
+    final db = AppScope.of(context).db;
+    _shelvesSub ??= db.watchShelves().listen((v) {
+      if (mounted) setState(() => _shelves = v);
+    });
+    _shelfBooksSub ??= db.watchShelfBooks().listen((v) {
+      if (mounted) setState(() => _shelfBooks = v);
+    });
     _catalogConfig ??= AppScope.of(context).bookCatalog?.watchConfig();
     if (!_scanned) {
       _scanned = true;
@@ -172,7 +190,9 @@ class _BooksScreenState extends State<BooksScreen> with WidgetsBindingObserver {
           stream: _books,
           builder: (context, snap) {
             final all = snap.data ?? const <BookItem>[];
-            final items = all.where((i) => _filter.matches(i.book)).toList();
+            final shelf = _shelves.where((s) => s.uid == _shelf).firstOrNull;
+            bool onShelf(UserShelf s, Book b) => _shelfBooks[s.uid]?.contains(b.key) ?? false;
+            final items = all.where((i) => shelf != null ? onShelf(shelf, i.book) : _filter.matches(i.book)).toList();
             final current = all
                 .where((i) => i.book.shelf == BookShelf.reading && (i.progress?.percent ?? 0) > 0 && (i.progress?.percent ?? 0) < 0.995)
                 .firstOrNull;
@@ -220,11 +240,37 @@ class _BooksScreenState extends State<BooksScreen> with WidgetsBindingObserver {
                         for (final f in _Filter.values) ...[
                           ChoiceChip(
                             label: Text('${f.label} · ${all.where((i) => f.matches(i.book)).length}'),
-                            selected: _filter == f,
-                            onSelected: (_) => setState(() => _filter = f),
+                            selected: shelf == null && _filter == f,
+                            onSelected: (_) => setState(() {
+                              _filter = f;
+                              _shelf = null;
+                            }),
                           ),
                           const SizedBox(width: 8),
                         ],
+                        // Свои полки: долгое нажатие (или правая кнопка) — переименовать, удалить.
+                        for (final s in _shelves) ...[
+                          GestureDetector(
+                            onLongPress: () => editShelf(context, s),
+                            onSecondaryTap: () => editShelf(context, s),
+                            child: ChoiceChip(
+                              label: Text('${s.name} · ${all.where((i) => onShelf(s, i.book)).length}'),
+                              selected: shelf?.uid == s.uid,
+                              onSelected: (_) => setState(() => _shelf = s.uid),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                        ],
+                        ActionChip(
+                          avatar: BcIcon(BcIcons.plus, size: 16, color: c.text),
+                          label: const Text('Полка'),
+                          tooltip: 'Новая полка',
+                          side: BorderSide(color: c.line),
+                          onPressed: () async {
+                            final uid = await createShelf(context);
+                            if (uid != null && mounted) setState(() => _shelf = uid);
+                          },
+                        ),
                       ]),
                     ),
                   ),
@@ -233,7 +279,10 @@ class _BooksScreenState extends State<BooksScreen> with WidgetsBindingObserver {
                       child: Padding(
                         padding: const EdgeInsets.all(24),
                         child: Text(
-                          switch (_filter) {
+                          shelf != null
+                              ? 'На полке «${shelf.name}» пока нет книг. Поставить книгу на полку — в меню «…» на странице книги. '
+                                  'Переименовать или удалить полку — долгим нажатием на её название.'
+                              : switch (_filter) {
                             _Filter.reading => 'Сейчас ничего не читается и не слушается.',
                             _Filter.later => 'Отложенных книг нет.',
                             _Filter.done => 'Законченных книг пока нет.',
@@ -251,7 +300,7 @@ class _BooksScreenState extends State<BooksScreen> with WidgetsBindingObserver {
                           maxCrossAxisExtent: 190,
                           mainAxisSpacing: 22,
                           crossAxisSpacing: 18,
-                          childAspectRatio: 0.66,
+                          childAspectRatio: 0.47,
                         ),
                         itemCount: items.length,
                         itemBuilder: (context, i) => _GridTile(item: items[i], onOpen: () => _openBook(items[i].book)),
@@ -295,9 +344,6 @@ class _AddButton extends StatelessWidget {
         if (!context.mounted) return;
         final catalog = AppScope.of(context).bookCatalog;
         if (catalog != null && (await catalog.config()).opds.isNotEmpty) onCatalogAdded();
-      case 3:
-        await AppScope.of(context).bookCatalog?.setLibriVox(true);
-        onCatalogAdded();
     }
   }
 
@@ -313,7 +359,6 @@ class _AddButton extends StatelessWidget {
         const MenuOption(0, 'Файлы книги (EPUB, FB2, TXT, MP3, M4B)'),
         const MenuOption(1, 'Папка с аудиокнигами'),
         if (catalog != null) const MenuOption(2, 'Каталог OPDS'),
-        if (catalog != null && config != null && !config!.librivox) const MenuOption(3, 'Каталог LibriVox'),
       ],
       child: Container(
         width: 44,
@@ -529,7 +574,7 @@ class _BookRow extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
         child: Row(children: [
-          Opacity(opacity: b.missing ? 0.5 : 1, child: BookCover(book: b, size: 56)),
+          Opacity(opacity: b.missing ? 0.5 : 1, child: BookCoverSlot(book: b, size: 56)),
           const SizedBox(width: 14),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -578,7 +623,15 @@ class _GridTile extends StatelessWidget {
       onTap: onOpen,
       child: LayoutBuilder(builder: (context, box) {
         return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Opacity(opacity: b.missing ? 0.5 : 1, child: BookCover(book: b, size: box.maxWidth)),
+          // Место под обложку — как у книги 2:3, квадрат аудиокниги — внизу:
+          // названия в ряду сетки стоят на одной линии.
+          SizedBox(
+            height: box.maxWidth * 1.5,
+            child: Align(
+              alignment: Alignment.bottomLeft,
+              child: Opacity(opacity: b.missing ? 0.5 : 1, child: BookCover(book: b, size: box.maxWidth, fitWidth: true)),
+            ),
+          ),
           const SizedBox(height: 8),
           ThinProgress(value: item.progress?.percent ?? 0),
           const SizedBox(height: 6),

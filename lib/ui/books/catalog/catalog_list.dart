@@ -191,7 +191,6 @@ class BookCatalogListScreen extends StatefulWidget {
     required this.title,
     required this.filter,
     this.genre,
-    this.popularLibriVox = false,
     this.opdsCatalogId,
     this.opdsUrl,
     this.browse = false,
@@ -200,7 +199,6 @@ class BookCatalogListScreen extends StatefulWidget {
   final String title;
   final CatalogFilter filter;
   final BookGenre? genre;
-  final bool popularLibriVox;
   final String? opdsCatalogId;
 
   /// Раздел каталога OPDS; null — корень.
@@ -214,12 +212,10 @@ class BookCatalogListScreen extends StatefulWidget {
 }
 
 class _BookCatalogListScreenState extends State<BookCatalogListScreen> {
-  late var _kind = widget.filter.kind;
   CatalogBook? _selected;
 
   Future<CatalogPage> _load(BookCatalog catalog, CatalogFilter f) {
     if (widget.genre != null) return catalog.genrePage(widget.genre!, f);
-    if (widget.popularLibriVox) return catalog.popularLibriVoxPage(f);
     if (widget.opdsCatalogId != null) {
       if (widget.browse) return catalog.browseOpds(widget.opdsCatalogId!, url: widget.opdsUrl);
       return catalog.popularOpdsPage(widget.opdsCatalogId!, f);
@@ -243,10 +239,7 @@ class _BookCatalogListScreenState extends State<BookCatalogListScreen> {
     final catalog = AppScope.of(context).bookCatalog!;
     final wide = MediaQuery.sizeOf(context).width >= 900;
     final side = wide ? 32.0 : 20.0;
-    final filter = CatalogFilter(language: widget.filter.language, kind: _kind);
-    // Тип выбирают только в жанрах: подборка одного источника — одного типа.
-    final kinds = widget.genre != null;
-
+    final filter = widget.filter;
     final list = CustomScrollView(slivers: [
       SliverToBoxAdapter(
         child: Padding(
@@ -254,26 +247,6 @@ class _BookCatalogListScreenState extends State<BookCatalogListScreen> {
           child: Text(widget.title, style: screenTitleStyle(context)),
         ),
       ),
-      if (kinds)
-        SliverToBoxAdapter(
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            padding: EdgeInsets.symmetric(horizontal: side),
-            child: Row(children: [
-              for (final k in CatalogKind.values) ...[
-                ChoiceChip(
-                  label: Text(k.label),
-                  selected: _kind == k,
-                  labelStyle: TextStyle(
-                      fontWeight: _kind == k ? FontWeight.w600 : FontWeight.w500, color: _kind == k ? c.onFill : c.text),
-                  side: _kind == k ? BorderSide.none : BorderSide(color: c.line),
-                  onSelected: (_) => setState(() => _kind = k),
-                ),
-                const SizedBox(width: 8),
-              ],
-            ]),
-          ),
-        ),
       CatalogResults(
         key: ValueKey(filter.key),
         load: () => _load(catalog, filter),

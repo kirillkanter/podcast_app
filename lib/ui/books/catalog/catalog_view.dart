@@ -31,10 +31,9 @@ class _CatalogViewState extends State<CatalogView> {
   Timer? _debounce;
   String _query = '';
   var _language = CatalogLanguage.all;
-  var _kind = CatalogKind.all;
   bool _languageLoaded = false;
 
-  CatalogFilter get _filter => CatalogFilter(language: _language, kind: _kind);
+  CatalogFilter get _filter => CatalogFilter(language: _language);
 
   @override
   void didChangeDependencies() {
@@ -79,14 +78,6 @@ class _CatalogViewState extends State<CatalogView> {
     final filter = _filter;
     final config = widget.config;
 
-    Widget chip(String label, bool on, VoidCallback onTap) => ChoiceChip(
-          label: Text(label, maxLines: 1),
-          selected: on,
-          labelStyle: TextStyle(fontWeight: on ? FontWeight.w600 : FontWeight.w500, color: on ? c.onFill : c.text),
-          side: on ? BorderSide.none : BorderSide(color: c.line),
-          onSelected: (_) => onTap(),
-        );
-
     final searchField = TextField(
       controller: _search,
       onChanged: _onQuery,
@@ -96,7 +87,7 @@ class _CatalogViewState extends State<CatalogView> {
       },
       textInputAction: TextInputAction.search,
       decoration: InputDecoration(
-        hintText: config.librivox && config.opds.isEmpty ? 'Название или автор (на языке книги)' : 'Название или автор',
+        hintText: 'Название или автор',
         prefixIcon: Padding(padding: const EdgeInsets.all(12), child: BcIcon(BcIcons.search, size: 20, color: c.muted)),
         suffixIcon: _search.text.isEmpty
             ? null
@@ -138,14 +129,7 @@ class _CatalogViewState extends State<CatalogView> {
     final filters = SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       padding: EdgeInsets.symmetric(horizontal: side),
-      child: Row(children: [
-        language,
-        const SizedBox(width: 10),
-        for (final k in CatalogKind.values) ...[
-          chip(k.label, _kind == k, () => setState(() => _kind = k)),
-          const SizedBox(width: 8),
-        ],
-      ]),
+      child: Row(children: [language]),
     );
 
     final genres = SingleChildScrollView(
@@ -187,23 +171,7 @@ class _CatalogViewState extends State<CatalogView> {
         )
       else ...[
         SliverToBoxAdapter(child: Padding(padding: const EdgeInsets.only(top: 12, bottom: 18), child: genres)),
-        if (config.librivox && filter.audio)
-          SliverToBoxAdapter(
-            child: _Shelf(
-              key: ValueKey('lv/${filter.key}'),
-              title: 'Популярное на LibriVox',
-              audio: true,
-              load: () => catalog.popularLibriVox(filter),
-              cardWidth: cardWidth,
-              side: side,
-              wide: wide,
-              onAll: () => Navigator.of(context).push(MaterialPageRoute<void>(
-                builder: (_) => BookCatalogListScreen(title: 'Популярное на LibriVox', popularLibriVox: true, filter: filter),
-              )),
-            ),
-          ),
-        if (filter.text)
-          for (final o in config.opds)
+        for (final o in config.opds)
             SliverToBoxAdapter(
               child: _Shelf(
                 key: ValueKey('opds/${o.id}/${filter.key}'),
@@ -224,7 +192,6 @@ class _CatalogViewState extends State<CatalogView> {
             child: _Shelf(
               key: ValueKey('${g.id}/${filter.key}/${config.encode().hashCode}'),
               title: g.name,
-              audio: filter.kind == CatalogKind.audio || (filter.kind == CatalogKind.all && config.opds.isEmpty),
               load: () => catalog.genre(g, filter),
               cardWidth: cardWidth,
               side: side,
@@ -251,7 +218,6 @@ class _Shelf extends StatefulWidget {
     required this.wide,
     required this.onAll,
     this.hideEmpty = false,
-    this.audio = false,
     this.alwaysAll = false,
     this.emptyText = 'Здесь пока пусто',
   });
@@ -260,8 +226,6 @@ class _Shelf extends StatefulWidget {
   final bool alwaysAll;
   final String emptyText;
 
-  /// В ряду только аудиокниги (пока не загрузился — для заглушек).
-  final bool audio;
 
   final String title;
   final Future<List<CatalogBook>> Function() load;
@@ -293,9 +257,7 @@ class _ShelfState extends State<_Shelf> {
       future: _future,
       builder: (context, s) {
         final items = s.data;
-        // Только аудиокниги — место под квадратные обложки, без пустоты сверху.
-        final audioOnly = items == null || items.isEmpty ? widget.audio : items.every((b) => b.audio);
-        final coverHeight = audioOnly ? w : w * 1.5;
+        final coverHeight = w * 1.5;
         // Название в две строки, автор, источник — с учётом размера шрифта.
         final textHeight = MediaQuery.textScalerOf(context).scale(84);
         if (widget.hideEmpty && (s.hasError || (items != null && items.isEmpty))) return const SizedBox.shrink();

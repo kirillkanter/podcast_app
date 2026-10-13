@@ -476,7 +476,7 @@ class _SearchScreenState extends State<SearchScreen> {
       SliverToBoxAdapter(
         child: AdSlot(placement: AdPlacement.discover, padding: EdgeInsets.fromLTRB(side - 4, 0, side - 4, 20)),
       ),
-      for (var i = 0; i < catalogGenres.length; i++)
+      for (var i = 0; i < catalogGenres.length; i++) ...[
         SliverToBoxAdapter(
           child: _Shelf(
             key: ValueKey('${catalog.country}-${catalogGenres[i].id}'),
@@ -488,6 +488,16 @@ class _SearchScreenState extends State<SearchScreen> {
             onAll: (_) => _goTo(i + 1),
           ),
         ),
+        // Ещё по баннеру через каждые четыре рубрики.
+        if (i % 4 == 3 && i < catalogGenres.length - 1)
+          SliverToBoxAdapter(
+            child: AdSlot(
+              key: ValueKey('ad-genre-$i'),
+              placement: AdPlacement.discoverMore,
+              padding: EdgeInsets.fromLTRB(side - 4, 0, side - 4, 20),
+            ),
+          ),
+      ],
     ];
   }
 }
@@ -734,12 +744,21 @@ class _CatalogFuture extends StatelessWidget {
               itemCount: items.length,
               itemBuilder: (context, i) {
                 final p = items[i];
-                return CatalogRow(
+                final row = CatalogRow(
                   podcast: p,
                   rank: ranked ? i + 1 : null,
                   subscribed: p.feedUrl != null && subscribed.contains(feedKey(p.feedUrl!)),
                   horizontalPadding: horizontalPadding,
                 );
+                if (!_adAfter(i, items.length)) return row;
+                return Column(mainAxisSize: MainAxisSize.min, children: [
+                  row,
+                  AdSlot(
+                    key: ValueKey('ad-$i'),
+                    placement: AdPlacement.searchResults,
+                    padding: EdgeInsets.fromLTRB(horizontalPadding - 4, 8, horizontalPadding - 4, 8),
+                  ),
+                ]);
               },
             );
           },
@@ -748,6 +767,10 @@ class _CatalogFuture extends StatelessWidget {
     );
   }
 }
+
+/// Реклама в длинном списке: после 5-й строки и дальше через каждые 12,
+/// но не в самом конце списка.
+bool _adAfter(int i, int count) => i < count - 1 && i >= 4 && (i - 4) % 12 == 0;
 
 /// Полный список подборки: «Популярное — все».
 class CatalogListScreen extends StatelessWidget {

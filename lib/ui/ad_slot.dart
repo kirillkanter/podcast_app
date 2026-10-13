@@ -1,5 +1,5 @@
-/// Место под рекламу в списке: карточка с баннером Яндекса и ссылкой
-/// «О рекламе». Пока объявление не загрузилось — места не занимает.
+/// Место под рекламу в списке: компактный баннер Яндекса в цветах темы
+/// и ссылка «О рекламе». Пока объявление не загрузилось — места не занимает.
 library;
 
 import 'package:flutter/material.dart';
@@ -27,8 +27,20 @@ class _AdSlotState extends State<AdSlot> {
   }
 
   void _create(double width) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    // Сменили тему — запросить объявление в новом оформлении.
+    if (_banner != null && _banner!.dark != dark) {
+      // Старый баннер ещё слушают виджеты этого кадра — убрать после него.
+      final old = _banner!;
+      WidgetsBinding.instance.addPostFrameCallback((_) => old.dispose());
+      _banner = null;
+    }
     if (_banner != null || width <= 0) return;
-    _banner = InlineBanner(widget.placement, width: width.floor());
+    _banner = InlineBanner(
+      widget.placement,
+      width: width.floor(),
+      dark: dark,
+    );
     _banner!.load();
   }
 
@@ -40,7 +52,7 @@ class _AdSlotState extends State<AdSlot> {
       builder: (context, ready, _) {
         if (!ready) return const SizedBox.shrink();
         return LayoutBuilder(builder: (context, box) {
-          _create(box.maxWidth - widget.padding.horizontal - 24);
+          _create(box.maxWidth - widget.padding.horizontal);
           final banner = _banner!;
           return ValueListenableBuilder<bool>(
             valueListenable: banner.ready,
@@ -70,34 +82,25 @@ class _AdCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = BcColors.of(context);
+    // Компактно: тонкая рамка вместо карточки и строка «О рекламе» высотой
+    // в 24 точки, чтобы баннер не выглядел отдельным блоком.
     return Padding(
       padding: loaded ? padding : EdgeInsets.zero,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: loaded ? c.card : Colors.transparent,
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Padding(
-          padding: loaded ? const EdgeInsets.fromLTRB(12, 12, 12, 2) : EdgeInsets.zero,
-          child: Column(crossAxisAlignment: CrossAxisAlignment.center, children: [
-            ClipRect(child: ad),
-            if (loaded)
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton(
-                  style: TextButton.styleFrom(
-                    foregroundColor: c.muted,
-                    textStyle: const TextStyle(fontSize: 12),
-                    minimumSize: const Size(0, 32),
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                  ),
-                  onPressed: () => showAboutAds(context),
-                  child: const Text('О рекламе'),
-                ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        ClipRRect(borderRadius: BorderRadius.circular(loaded ? 12 : 0), child: Center(child: ad)),
+        if (loaded)
+          Align(
+            alignment: Alignment.centerRight,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(8),
+              onTap: () => showAboutAds(context),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                child: Text('О рекламе', style: TextStyle(fontSize: 12, height: 1.3, color: c.muted)),
               ),
-          ]),
-        ),
-      ),
+            ),
+          ),
+      ]),
     );
   }
 }

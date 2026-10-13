@@ -1,7 +1,8 @@
 /// Реклама Рекламной сети Яндекса — только в публичной версии на Android.
 ///
-/// Мягкие встроенные баннеры: в библиотеке и в поиске, не больше одного на
-/// экране; в плеере, читалке и на странице книги рекламы нет.
+/// Мягкие встроенные баннеры высотой до 100 точек, в оформлении темы
+/// приложения: в библиотеке, в поиске и в длинных списках каталога, не больше
+/// одного на экране; в плеере, читалке и на странице книги рекламы нет.
 library;
 
 import 'dart:async';
@@ -18,7 +19,13 @@ import '../edition.dart';
 /// Яндекса; настоящие идентификаторы вида R-M-XXXXXX-Y подставить сюда.
 enum AdPlacement {
   library('demo-banner-yandex'),
-  discover('demo-banner-yandex');
+  discover('demo-banner-yandex'),
+
+  /// Ниже по странице поиска, между рубриками.
+  discoverMore('demo-banner-yandex'),
+
+  /// В результатах поиска и в длинных списках каталога.
+  searchResults('demo-banner-yandex');
 
   const AdPlacement(this.adUnitId);
   final String adUnitId;
@@ -57,17 +64,21 @@ Future<void> setPersonalAds(AppDatabase db, bool on) async {
   } catch (_) {}
 }
 
-/// Встроенный баннер: [width] — доступная ширина, высоту выбирает SDK.
+/// Встроенный баннер: [width] — доступная ширина, высоту выбирает SDK, но
+/// не больше [maxHeight] — так приходят компактные объявления в строку.
 ///
 /// У модуля Яндекса запрос уходит, только когда платформенный вид баннера
 /// уже на экране: [AdWidget] ставится в дерево сразу после [load] (пока
 /// объявления нет, он высотой в 1 точку), а карточка показывается, когда
 /// [loaded] стал true.
 class InlineBanner {
-  InlineBanner(this.placement, {required int width, int maxHeight = 260})
+  InlineBanner(this.placement, {required int width, required this.dark, int maxHeight = 100})
       : _ad = BannerAd(adSize: BannerAdSize.inline(width: width, maxHeight: maxHeight));
 
   final AdPlacement placement;
+
+  /// Тёмная тема приложения — просить у Яндекса объявление в тёмном оформлении.
+  final bool dark;
   final BannerAd _ad;
 
   /// Вид баннера создан — [widget] можно ставить в дерево.
@@ -86,7 +97,10 @@ class InlineBanner {
       }
     });
     try {
-      await _ad.load(AdRequest(adUnitId: placement.adUnitId));
+      await _ad.load(AdRequest(
+        adUnitId: placement.adUnitId,
+        preferredTheme: dark ? AdTheme.dark : AdTheme.light,
+      ));
       ready.value = true;
     } catch (e) {
       debugPrint('Реклама ${placement.name}: $e');

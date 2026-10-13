@@ -333,6 +333,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       );
 
   void _showPage(int chapter, int page) {
+    _lastActive = DateTime.now();
     final pages = _pagesOf(chapter);
     final p = _spread ? (page.clamp(0, pages.length - 1) ~/ 2) * 2 : page.clamp(0, pages.length - 1);
     if (chapter == _chapter && p == _page) return;
@@ -347,6 +348,14 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       _clearSelection();
     });
     _scheduleSave();
+    // Перешли в другую главу — в паузе заранее разбить следующую.
+    final key = _countsKey;
+    if (key != null && chapter + 1 < _content.chapters.length && _cache[_cacheKey(chapter + 1)] == null) {
+      unawaited(() async {
+        await _idle(key);
+        if (mounted && _countsKey == key && _chapter == chapter) _pagesOf(chapter + 1);
+      }());
+    }
   }
 
   void _next() {
@@ -477,14 +486,35 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     return n;
   }
 
-  /// Посчитать страницы всех глав — по главе за раз, не мешая листать.
+  /// Последнее касание или перелистывание: фоновый подсчёт страниц ждёт,
+  /// пока читатель не перестанет листать.
+  DateTime _lastActive = DateTime.now();
+
+  /// Подождать паузы в листании: разбивка главы занимает десятки
+  /// миллисекунд, и во время перелистывания она даёт заметные рывки.
+  Future<void> _idle(String key) async {
+    await Future<void>.delayed(const Duration(milliseconds: 16));
+    while (mounted && _countsKey == key && DateTime.now().difference(_lastActive) < const Duration(milliseconds: 1500)) {
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+    }
+  }
+
+  /// Посчитать страницы всех глав — по главе за раз и только в паузах
+  /// между перелистываниями. Сначала заранее разбить соседние главы, чтобы
+  /// переход в следующую главу был без задержки.
   void _countPagesLater(String key) {
     if (_countsKey == key) return;
     _countsKey = key;
     _counts.clear();
+    _lastActive = DateTime.now();
     unawaited(() async {
+      for (final c in [_chapter + 1, _chapter - 1]) {
+        await _idle(key);
+        if (!mounted || _countsKey != key) return;
+        if (c >= 0 && c < _content.chapters.length) _pagesOf(c);
+      }
       for (var c = 0; c < _content.chapters.length; c++) {
-        await Future<void>.delayed(const Duration(milliseconds: 16));
+        if (_cache[_cacheKey(c)] == null) await _idle(key);
         if (!mounted || _countsKey != key) return;
         final cached = _cache[_cacheKey(c)];
         _counts[c] = cached?.length ??
@@ -872,6 +902,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   }
 
   void _onPointerDown(PointerDownEvent e) {
+    _lastActive = DateTime.now();
     _longFired = false;
     if (_ribbonColors) {
       // Касание мимо выбора цвета — закрыть его, и больше ничего.

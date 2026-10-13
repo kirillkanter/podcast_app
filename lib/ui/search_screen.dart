@@ -2,12 +2,10 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-import '../ads/ads.dart' show AdPlacement;
 import '../catalog/podcast_catalog.dart';
 import '../data/db/database.dart';
 import '../data/podcast_repository.dart';
 import '../feed/feed_url.dart';
-import 'ad_slot.dart';
 import 'app_scope.dart';
 import 'icons.dart';
 import 'podcast_cover.dart';
@@ -473,16 +471,11 @@ class _SearchScreenState extends State<SearchScreen> {
           )),
         ),
       ),
-      SliverToBoxAdapter(
-        child: AdSlot(placement: AdPlacement.discover, padding: EdgeInsets.fromLTRB(side - 4, 0, side - 4, 20)),
-      ),
       // Рубрики — ленивым списком: строится только то, что рядом с экраном.
-      // Так баннеры ниже по странице не держат свои платформенные виды
-      // (каждый такой вид утяжеляет прокрутку), пока до них не долистали.
       SliverList.builder(
         itemCount: catalogGenres.length,
         itemBuilder: (context, i) {
-          final shelf = _Shelf(
+          return _Shelf(
             key: ValueKey('${catalog.country}-${catalogGenres[i].id}'),
             title: catalogGenres[i].name,
             future: catalog.chart(genreId: catalogGenres[i].id),
@@ -491,16 +484,6 @@ class _SearchScreenState extends State<SearchScreen> {
             side: side,
             onAll: (_) => _goTo(i + 1),
           );
-          // Ещё по баннеру через каждые четыре рубрики.
-          if (i % 4 != 3 || i == catalogGenres.length - 1) return shelf;
-          return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            shelf,
-            AdSlot(
-              key: ValueKey('ad-genre-$i'),
-              placement: AdPlacement.discoverMore,
-              padding: EdgeInsets.fromLTRB(side - 4, 0, side - 4, 20),
-            ),
-          ]);
         },
       ),
     ];
@@ -749,21 +732,12 @@ class _CatalogFuture extends StatelessWidget {
               itemCount: items.length,
               itemBuilder: (context, i) {
                 final p = items[i];
-                final row = CatalogRow(
+                return CatalogRow(
                   podcast: p,
                   rank: ranked ? i + 1 : null,
                   subscribed: p.feedUrl != null && subscribed.contains(feedKey(p.feedUrl!)),
                   horizontalPadding: horizontalPadding,
                 );
-                if (!_adAfter(i, items.length)) return row;
-                return Column(mainAxisSize: MainAxisSize.min, children: [
-                  row,
-                  AdSlot(
-                    key: ValueKey('ad-$i'),
-                    placement: AdPlacement.searchResults,
-                    padding: EdgeInsets.fromLTRB(horizontalPadding - 4, 8, horizontalPadding - 4, 8),
-                  ),
-                ]);
               },
             );
           },
@@ -772,10 +746,6 @@ class _CatalogFuture extends StatelessWidget {
     );
   }
 }
-
-/// Реклама в длинном списке: после 5-й строки и дальше через каждые 12,
-/// но не в самом конце списка.
-bool _adAfter(int i, int count) => i < count - 1 && i >= 4 && (i - 4) % 12 == 0;
 
 /// Полный список подборки: «Популярное — все».
 class CatalogListScreen extends StatelessWidget {

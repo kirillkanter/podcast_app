@@ -1,8 +1,9 @@
 /// Реклама Рекламной сети Яндекса — только в публичной версии на Android.
 ///
-/// Мягкие встроенные баннеры высотой до 100 точек, в оформлении темы
-/// приложения: в библиотеке, в поиске и в длинных списках каталога, не больше
-/// одного на экране; в плеере, читалке и на странице книги рекламы нет.
+/// Одна неподвижная полоска с баннером внизу библиотеки и поиска, в
+/// оформлении темы приложения. Не в списках: баннер Яндекса — платформенный
+/// вид Android, и прокрутка списка с ним идёт рывками. В плеере, читалке и
+/// на странице книги рекламы нет.
 library;
 
 import 'dart:async';
@@ -18,14 +19,8 @@ import '../edition.dart';
 /// Места для рекламы и их блоки в кабинете РСЯ. Пока — тестовые блоки
 /// Яндекса; настоящие идентификаторы вида R-M-XXXXXX-Y подставить сюда.
 enum AdPlacement {
-  library('demo-banner-yandex'),
-  discover('demo-banner-yandex'),
-
-  /// Ниже по странице поиска, между рубриками.
-  discoverMore('demo-banner-yandex'),
-
-  /// В результатах поиска и в длинных списках каталога.
-  searchResults('demo-banner-yandex');
+  /// Полоска внизу экрана библиотеки и поиска.
+  bar('demo-banner-yandex');
 
   const AdPlacement(this.adUnitId);
   final String adUnitId;
@@ -64,16 +59,16 @@ Future<void> setPersonalAds(AppDatabase db, bool on) async {
   } catch (_) {}
 }
 
-/// Встроенный баннер: [width] — доступная ширина, высоту выбирает SDK, но
-/// не больше [maxHeight] — так приходят компактные объявления в строку.
+/// Баннер-полоска: [width] — доступная ширина, высоту (около 50 точек)
+/// выбирает SDK.
 ///
 /// У модуля Яндекса запрос уходит, только когда платформенный вид баннера
 /// уже на экране: [AdWidget] ставится в дерево сразу после [load] (пока
 /// объявления нет, он высотой в 1 точку), а карточка показывается, когда
 /// [loaded] стал true.
 class InlineBanner {
-  InlineBanner(this.placement, {required int width, required this.dark, int maxHeight = 100})
-      : _ad = BannerAd(adSize: BannerAdSize.inline(width: width, maxHeight: maxHeight));
+  InlineBanner(this.placement, {required int width, required this.dark})
+      : _ad = BannerAd(adSize: BannerAdSize.sticky(width: width));
 
   final AdPlacement placement;
 

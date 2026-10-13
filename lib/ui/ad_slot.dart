@@ -1,5 +1,5 @@
-/// Место под рекламу в списке: компактный баннер Яндекса в цветах темы
-/// и ссылка «О рекламе». Пока объявление не загрузилось — места не занимает.
+/// Полоска рекламы внизу экрана: один баннер Яндекса над нижним меню.
+/// Пока объявление не загрузилось — места не занимает.
 library;
 
 import 'package:flutter/material.dart';
@@ -7,17 +7,14 @@ import 'package:flutter/material.dart';
 import '../ads/ads.dart';
 import 'theme.dart';
 
-class AdSlot extends StatefulWidget {
-  const AdSlot({super.key, required this.placement, this.padding = const EdgeInsets.fromLTRB(16, 12, 16, 4)});
-
-  final AdPlacement placement;
-  final EdgeInsets padding;
+class AdBar extends StatefulWidget {
+  const AdBar({super.key});
 
   @override
-  State<AdSlot> createState() => _AdSlotState();
+  State<AdBar> createState() => _AdBarState();
 }
 
-class _AdSlotState extends State<AdSlot> {
+class _AdBarState extends State<AdBar> {
   InlineBanner? _banner;
 
   @override
@@ -36,12 +33,7 @@ class _AdSlotState extends State<AdSlot> {
       _banner = null;
     }
     if (_banner != null || width <= 0) return;
-    _banner = InlineBanner(
-      widget.placement,
-      width: width.floor(),
-      dark: dark,
-    );
-    _banner!.load();
+    _banner = InlineBanner(AdPlacement.bar, width: width.floor(), dark: dark)..load();
   }
 
   @override
@@ -52,55 +44,31 @@ class _AdSlotState extends State<AdSlot> {
       builder: (context, ready, _) {
         if (!ready) return const SizedBox.shrink();
         return LayoutBuilder(builder: (context, box) {
-          _create(box.maxWidth - widget.padding.horizontal);
+          _create(box.maxWidth);
           final banner = _banner!;
           return ValueListenableBuilder<bool>(
             valueListenable: banner.ready,
             builder: (context, viewReady, _) {
               if (!viewReady) return const SizedBox.shrink();
               // Баннер стоит в дереве всё время (иначе Яндекс не загрузит
-              // объявление); пока его нет — без карточки и почти без высоты.
+              // объявление); пока его нет — почти без высоты.
               return ValueListenableBuilder<bool>(
                 valueListenable: banner.loaded,
-                builder: (context, loaded, _) => _AdCard(loaded: loaded, padding: widget.padding, ad: banner.widget()),
+                builder: (context, loaded, _) {
+                  final c = BcColors.of(context);
+                  return DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: c.bg,
+                      border: loaded ? Border(top: BorderSide(color: c.divider)) : null,
+                    ),
+                    child: Center(child: banner.widget()),
+                  );
+                },
               );
             },
           );
         });
       },
-    );
-  }
-}
-
-class _AdCard extends StatelessWidget {
-  const _AdCard({required this.loaded, required this.padding, required this.ad});
-
-  final bool loaded;
-  final EdgeInsets padding;
-  final Widget ad;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = BcColors.of(context);
-    // Компактно: тонкая рамка вместо карточки и строка «О рекламе» высотой
-    // в 24 точки, чтобы баннер не выглядел отдельным блоком.
-    return Padding(
-      padding: loaded ? padding : EdgeInsets.zero,
-      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        ClipRRect(borderRadius: BorderRadius.circular(loaded ? 12 : 0), child: Center(child: ad)),
-        if (loaded)
-          Align(
-            alignment: Alignment.centerRight,
-            child: InkWell(
-              borderRadius: BorderRadius.circular(8),
-              onTap: () => showAboutAds(context),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                child: Text('О рекламе', style: TextStyle(fontSize: 12, height: 1.3, color: c.muted)),
-              ),
-            ),
-          ),
-      ]),
     );
   }
 }
@@ -121,7 +89,7 @@ Future<void> showAboutAds(BuildContext context) => showModalBottomSheet<void>(
               const SizedBox(height: 12),
               Text(
                 'Реклама помогает приложению оставаться бесплатным. Её показывает Рекламная сеть Яндекса: '
-                'не больше одного объявления на экране, без звука и не на весь экран. '
+                'одна полоска внизу библиотеки и поиска, без звука и не на весь экран. '
                 'В плеере, читалке и на странице книги рекламы нет.',
                 style: TextStyle(fontSize: 15, height: 1.45, color: c.body),
               ),

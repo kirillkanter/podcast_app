@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Вопросы и ответы — Basic Caster</title>
+<meta name="description" content="Как добавить свои аудиокниги, перенести подписки на подкасты и пользоваться переводом в читалке Basic Caster.">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600&family=Unbounded:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #161616; --card: #1F1F1F; --text: #F5F5F2; --body: #DCDCD8; --muted: #A3A3A0;
+    --line: #2E2E2E; --ink: #C5F52E; --fill: #C5F52E; --on-fill: #161616;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #F6F6F2; --card: #EEEEE8; --text: #161616; --body: #3A3A36; --muted: #66665F;
+      --line: #DADAD3; --ink: #4A7300; --fill: #557F00; --on-fill: #FFFFFF;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--body);
+    font: 400 16px/1.6 'Golos Text', system-ui, sans-serif;
+  }
+  a { color: var(--ink); text-underline-offset: 3px; }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 24px 16px 64px; }
+  header { display: flex; align-items: center; gap: 12px; margin-bottom: 40px; }
+  header a { display: flex; align-items: center; gap: 12px; text-decoration: none; color: var(--text); }
+  .logo {
+    width: 36px; height: 36px; border-radius: 50%; background: var(--fill); color: var(--on-fill);
+    display: grid; place-items: center; font: 600 18px/1 'Unbounded', sans-serif;
+  }
+  .brand { font: 600 17px/1 'Unbounded', sans-serif; }
+  h1 { font: 600 clamp(26px, 6vw, 36px)/1.2 'Unbounded', sans-serif; color: var(--text); margin: 0 0 12px; }
+  h2 { font: 600 20px/1.3 'Unbounded', sans-serif; color: var(--text); margin: 44px 0 12px; }
+  .date { color: var(--muted); font-size: 14px; margin: 0 0 28px; }
+  .lead { font-size: 18px; color: var(--text); }
+  ul { padding-left: 20px; }
+  li { margin: 6px 0; }
+  strong { color: var(--text); font-weight: 600; }
+  .table { overflow-x: auto; margin: 16px 0; border: 1px solid var(--line); border-radius: 16px; }
+  table { width: 100%; border-collapse: collapse; font-size: 15px; min-width: 520px; }
+  th, td { text-align: left; vertical-align: top; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+  tr:last-child td { border-bottom: 0; }
+  th { color: var(--muted); font-weight: 500; font-size: 13px; background: var(--card); }
+  /* На телефоне строки таблицы — карточками, без прокрутки вбок. */
+  @media (max-width: 600px) {
+    .table { border: 0; overflow: visible; }
+    table { min-width: 0; }
+    thead { display: none; }
+    tr { display: block; background: var(--card); border-radius: 14px; padding: 12px 14px; margin-bottom: 10px; }
+    td { display: block; border: 0; padding: 2px 0; }
+    td:first-child { color: var(--text); font-weight: 600; }
+    td:last-child { color: var(--muted); }
+  }
+  footer { margin-top: 56px; padding-top: 20px; border-top: 1px solid var(--line); color: var(--muted); font-size: 14px; }
+
+  details { border-bottom: 1px solid var(--line); }
+  summary { cursor: pointer; list-style: none; padding: 18px 36px 18px 0; position: relative;
+    font: 500 18px/1.4 'Golos Text', sans-serif; color: var(--text); }
+  summary::-webkit-details-marker { display: none; }
+  summary::after { content: '+'; position: absolute; right: 4px; top: 14px; font: 400 26px/1 'Golos Text', sans-serif; color: var(--ink); }
+  details[open] summary::after { content: '−'; }
+  details > div { padding: 0 0 18px; }
+  details p { margin: 0 0 10px; }
+  .section { margin-top: 48px; }
+  .section:first-of-type { margin-top: 8px; }
+  nav.toc { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 8px; }
+  nav.toc a { text-decoration: none; padding: 8px 14px; border-radius: 999px; border: 1px solid var(--line); color: var(--text); font-size: 15px; }
+  nav.toc a:hover { border-color: var(--ink); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <a href="/"><span class="logo" aria-hidden="true">B</span><span class="brand">Basic Caster</span></a>
+  </header>
+  <main>
+    <h1>Вопросы и ответы</h1>
+    <nav class="toc" aria-label="Разделы">
+      <a href="#audiobooks">Аудиокниги</a><a href="#podcasts">Подкасты</a><a href="#books">Книги</a><a href="#other">Общее</a>
+    </nav>
+    <section class="section" id="audiobooks"><h2>Свои аудиокниги</h2>
+<details><summary>Можно ли слушать свои аудиокниги?</summary><div><p>Да, для этого приложение и сделано. Скачали книгу архивом — распакуйте её в папку на телефоне, например «Аудиокниги», и укажите эту папку в разделе «Книги» → «+» → «Папка с аудиокнигами». Каждая подпапка станет отдельной книгой.</p><p>Указать папку нужно один раз. Новые книги, которые вы потом положите туда же, появятся в приложении сами.</p></div></details>
+<details><summary>Как приложение собирает книгу из файлов?</summary><div><p>Файлы внутри папки книги идут по порядку имён, причём «2» раньше «10», так что нули в начале имён не нужны. Книга может лежать и в нескольких подпапках, например «CD1» и «CD2», — они склеятся в одну.</p><p>Название, автора и чтеца приложение берёт из тегов файлов, а если тегов нет — из имени папки. Обложка — из картинки в файлах или из файла cover.jpg, folder.jpg, «обложка.jpg» в папке книги. Если обложки нет совсем, откройте книгу и выберите в меню «Сменить обложку» — приложение предложит варианты по названию.</p><p>Одиночный файл M4B в корне папки — тоже книга: главы из него приложение прочитает само.</p></div></details>
+<details><summary>Как работают главы?</summary><div><p>Если главы записаны внутри файла (так обычно бывает в M4B), приложение показывает их с названиями. Если книга — это набор MP3, главой считается каждый файл. Список глав открывается из плеера: видно, сколько длится каждая глава и где вы сейчас.</p></div></details>
+<details><summary>Как поставить закладку?</summary><div><p>В плеере аудиокниги нажмите «Закладка» — она запомнит текущую минуту. Все закладки книги собраны на вкладке «Закладки» рядом со списком глав, нажатие на закладку переносит к этому месту.</p></div></details>
+<details><summary>Приложение помнит, где я остановился?</summary><div><p>Да, у каждой книги своё место, даже если вы слушаете несколько книг по очереди. Своя у каждой книги и скорость: можно слушать одну книгу на 1,5×, а другую на обычной скорости.</p><p>После паузы плеер отматывает немного назад, чтобы было легче вспомнить, на чём остановились: после короткой паузы на 3 секунды, после часа и больше — на 20.</p></div></details>
+<details><summary>Есть ли таймер сна?</summary><div><p>Есть: на 15, 30, 45 минут, час или до конца текущей главы. Кнопка «Таймер» — в плеере аудиокниги.</p></div></details>
+<details><summary>Какие форматы поддерживаются?</summary><div><p>MP3, M4B, M4A, OGG, OPUS и FLAC.</p></div></details>
+<details><summary>У меня уже есть другой плеер для аудиокниг. Как перейти?</summary><div><p>Переносить файлы не нужно: укажите в Basic Caster ту же папку, которой пользуется прежний плеер. Место в книгах другие приложения не передают, поэтому в каждой начатой книге его придётся один раз найти заново — по списку глав это быстро.</p></div></details>
+    </section>
+    <section class="section" id="podcasts"><h2>Подкасты</h2>
+<details><summary>Как найти подкаст?</summary><div><p>На вкладке «Поиск» введите название подкаста или имя автора — поиск идёт по каталогу Apple Podcasts, там почти все подкасты, русские тоже. Ниже на той же вкладке — популярное и подборки по жанрам. Если подкаста нет в каталоге, вставьте в поиск ссылку на его RSS-ленту.</p></div></details>
+<details><summary>Как перенести подписки из другого приложения?</summary><div><p>В прежнем приложении найдите экспорт подписок в файл OPML — он есть почти везде. В Basic Caster откройте «Настройки» → «Импорт из OPML» и выберите этот файл. Выгрузить подписки обратно можно через «Экспорт в OPML».</p></div></details>
+<details><summary>Можно ли слушать без интернета?</summary><div><p>Да, скачанные выпуски играют без сети. Новые выпуски могут скачиваться сами. В настройках можно включить «Только по Wi‑Fi» и задать лимит места.</p></div></details>
+    </section>
+    <section class="section" id="books"><h2>Книги и перевод</h2>
+<details><summary>Какие книги можно читать?</summary><div><p>EPUB, FB2 и TXT. Добавьте файлы в разделе «Книги» → «+» или скачайте бесплатную книгу из каталога OPDS прямо в приложении.</p></div></details>
+<details><summary>Как перевести незнакомое слово?</summary><div><p>Удержите палец на слове и нажмите «Перевести». Появится перевод слова, перевод всей фразы с ним и значение из Викисловаря. Лучше всего это работает с английскими книгами, есть ещё немецкий, французский, испанский и итальянский.</p><p>Перевод идёт через бесплатный сервис MyMemory, поэтому нужен интернет, а у сервиса есть дневной лимит. Словарь работает и после лимита.</p></div></details>
+<details><summary>Можно ли выделять текст и делать заметки?</summary><div><p>Да. Выделите фразу, выберите цвет, при желании добавьте заметку. Все выделения и заметки книги собраны в читалке: меню → «Закладки», вкладка «Заметки».</p></div></details>
+<details><summary>Как разложить книги по полкам?</summary><div><p>Удержите палец на книге — включится выбор нескольких книг. Отметьте нужные и нажмите «На полку». Свои полки появятся рядом с «В процессе», «Отложено» и «Готово».</p></div></details>
+    </section>
+    <section class="section" id="other"><h2>Общее</h2>
+<details><summary>Нужен ли аккаунт?</summary><div><p>Нет. Всё, что вы добавили, хранится только на телефоне. Удалите приложение — и данные удалятся вместе с ним.</p></div></details>
+<details><summary>Приложение бесплатное?</summary><div><p>Да. Его поддерживает реклама Рекламной сети Яндекса: небольшой баннер в библиотеке и в поиске и изредка заставка при возврате в приложение. В плеере и читалке рекламы нет. Подбор объявлений по интересам можно выключить в настройках, переключатель «Персональная реклама».</p></div></details>
+<details><summary>Воспроизведение останавливается, когда экран выключен</summary><div><p>Так бывает на телефонах с агрессивной экономией батареи. Откройте «Настройки» приложения: если система ограничивает его экономией батареи, там будет пункт об этом — нажмите его и разрешите работу без ограничений.</p></div></details>
+<details><summary>Куда написать, если что-то не работает?</summary><div><p>На <a href="mailto:privacy@bcaster.ru">privacy@bcaster.ru</a>. Напишите модель телефона и что именно происходит — так получится разобраться быстрее.</p></div></details>
+    </section>
+  </main>
+  <footer>Basic Caster · <a href="/">bcaster.ru</a> · <a href="/privacy/">Политика конфиденциальности</a></footer>
+</div>
+</body>
+</html>

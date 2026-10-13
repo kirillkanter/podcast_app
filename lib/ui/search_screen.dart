@@ -476,9 +476,13 @@ class _SearchScreenState extends State<SearchScreen> {
       SliverToBoxAdapter(
         child: AdSlot(placement: AdPlacement.discover, padding: EdgeInsets.fromLTRB(side - 4, 0, side - 4, 20)),
       ),
-      for (var i = 0; i < catalogGenres.length; i++) ...[
-        SliverToBoxAdapter(
-          child: _Shelf(
+      // Рубрики — ленивым списком: строится только то, что рядом с экраном.
+      // Так баннеры ниже по странице не держат свои платформенные виды
+      // (каждый такой вид утяжеляет прокрутку), пока до них не долистали.
+      SliverList.builder(
+        itemCount: catalogGenres.length,
+        itemBuilder: (context, i) {
+          final shelf = _Shelf(
             key: ValueKey('${catalog.country}-${catalogGenres[i].id}'),
             title: catalogGenres[i].name,
             future: catalog.chart(genreId: catalogGenres[i].id),
@@ -486,18 +490,19 @@ class _SearchScreenState extends State<SearchScreen> {
             wide: wide,
             side: side,
             onAll: (_) => _goTo(i + 1),
-          ),
-        ),
-        // Ещё по баннеру через каждые четыре рубрики.
-        if (i % 4 == 3 && i < catalogGenres.length - 1)
-          SliverToBoxAdapter(
-            child: AdSlot(
+          );
+          // Ещё по баннеру через каждые четыре рубрики.
+          if (i % 4 != 3 || i == catalogGenres.length - 1) return shelf;
+          return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            shelf,
+            AdSlot(
               key: ValueKey('ad-genre-$i'),
               placement: AdPlacement.discoverMore,
               padding: EdgeInsets.fromLTRB(side - 4, 0, side - 4, 20),
             ),
-          ),
-      ],
+          ]);
+        },
+      ),
     ];
   }
 }

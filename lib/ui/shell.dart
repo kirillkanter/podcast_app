@@ -1,11 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../ads/ads.dart' show adsSupported;
 import '../data/db/books_dao.dart';
 import '../data/db/database.dart';
 import '../sync/sync_service.dart';
-import 'ad_slot.dart';
 import 'app_scope.dart';
 import 'books/books_screen.dart';
 import 'downloads_screen.dart';
@@ -268,27 +266,13 @@ class _AppShellState extends State<AppShell> {
     if (MediaQuery.viewInsetsOf(context).bottom > 0) playerVisible = false;
     return Scaffold(
       backgroundColor: c.bg,
-      body: Column(children: [
-        Expanded(
-          child: Stack(children: [
-            Positioned.fill(child: _pages(playerVisible ? MiniPlayer.height + 16 : 8)),
-            if (playerVisible)
-              const Positioned(left: 10, right: 10, bottom: 8, child: MiniPlayer()),
-          ]),
-        ),
-        _adBar(),
+      body: Stack(children: [
+        Positioned.fill(child: _pages(playerVisible ? MiniPlayer.height + 16 : 8)),
+        if (playerVisible)
+          const Positioned(left: 10, right: 10, bottom: 8, child: MiniPlayer()),
       ]),
       bottomNavigationBar: _PhoneNav(selected: _tab, onSelect: _select),
     );
-  }
-
-  /// Полоска рекламы — только в библиотеке и поиске и не при открытой
-  /// клавиатуре. На других вкладках баннер не убирается, а прячется, чтобы
-  /// при возврате не загружать объявление заново.
-  Widget _adBar() {
-    if (!adsSupported) return const SizedBox.shrink();
-    final show = (_tab == ShellTab.library || _tab == ShellTab.search) && MediaQuery.viewInsetsOf(context).bottom == 0;
-    return Offstage(offstage: !show, child: const AdBar());
   }
 
   Widget _wide(bool playerVisible) {
@@ -299,15 +283,10 @@ class _AppShellState extends State<AppShell> {
         _Sidebar(selected: _tab, onSelect: _select, onOpenPodcast: _openPodcast),
         VerticalDivider(width: 1, color: c.divider),
         Expanded(
-          child: Column(children: [
-            Expanded(
-              child: Stack(children: [
-                Positioned.fill(child: _pages(playerVisible ? DesktopPlayerBar.height + 28 : 16)),
-                if (playerVisible)
-                  const Positioned(left: 12, right: 12, bottom: 12, child: DesktopPlayerBar()),
-              ]),
-            ),
-            _adBar(),
+          child: Stack(children: [
+            Positioned.fill(child: _pages(playerVisible ? DesktopPlayerBar.height + 28 : 16)),
+            if (playerVisible)
+              const Positioned(left: 12, right: 12, bottom: 12, child: DesktopPlayerBar()),
           ]),
         ),
       ]),

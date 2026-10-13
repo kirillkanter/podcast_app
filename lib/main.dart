@@ -132,6 +132,7 @@ Future<void> main(List<String> args) async {
 
   // Реклама — только в публичной версии на Android; запуск не задерживает.
   unawaited(initAds(db));
+  AppOpenAds(db, isPlaying: () => audio?.playbackState.value.playing ?? false).start();
 
   // Тема и акцент — до первого кадра, чтобы интерфейс не мигал другим цветом.
   final theme = await db.setting(themeSettingKey);

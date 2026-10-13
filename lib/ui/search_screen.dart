@@ -2,10 +2,12 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../ads/ads.dart' show AdPlacement;
 import '../catalog/podcast_catalog.dart';
 import '../data/db/database.dart';
 import '../data/podcast_repository.dart';
 import '../feed/feed_url.dart';
+import 'ad_slot.dart';
 import 'app_scope.dart';
 import 'icons.dart';
 import 'podcast_cover.dart';
@@ -470,6 +472,9 @@ class _SearchScreenState extends State<SearchScreen> {
             builder: (_) => CatalogListScreen(title: 'Популярное', future: Future.value(items)),
           )),
         ),
+      ),
+      SliverToBoxAdapter(
+        child: AdSlot(placement: AdPlacement.discover, padding: EdgeInsets.fromLTRB(side, 0, side, 20)),
       ),
       // Рубрики — ленивым списком: строится только то, что рядом с экраном.
       SliverList.builder(

@@ -53,6 +53,10 @@ open(f'{res}/values/ic_launcher_background.xml', 'w').write('''<?xml version="1.
 </resources>
 ''')
 
+# Иконка для магазина (RuStore): 512×512, фон на всю площадь — без круга.
+store = reframe(glyph, (-140, -140, 1045, 1045)).replace('>', '><rect x="-140" y="-140" width="1045" height="1045" fill="#C5F52E"/>', 1)
+png(store, 512, f'{repo}/tool/store/icon_512.png')
+
 # Логотип для бокового меню приложения.
 png(full, 96, f'{repo}/assets/images/logo.png')
 

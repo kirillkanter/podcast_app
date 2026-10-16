@@ -587,7 +587,10 @@ class API
 			$id = $db->firstColumn('SELECT id FROM subscriptions WHERE url = ? AND user = ?;', $action->podcast, $this->user->id);
 
 			if (!$id) {
-				$db->simple('INSERT OR IGNORE INTO subscriptions (user, url, changed) VALUES (?, ?, ?);', $this->user->id, $action->podcast, $timestamp);
+				// Basic Caster: эпизод подкаста без подписки (слушали из поиска).
+				// Запись нужна для связи с действием, но подпиской она не
+				// становится (deleted = 1), иначе другие устройства подписались бы.
+				$db->simple('INSERT OR IGNORE INTO subscriptions (user, url, changed, deleted) VALUES (?, ?, ?, 1);', $this->user->id, $action->podcast, $timestamp);
 				$id = $db->lastInsertRowID();
 			}
 

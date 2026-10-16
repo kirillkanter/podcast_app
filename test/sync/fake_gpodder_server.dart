@@ -87,8 +87,10 @@ class FakeGpodderServer {
       final list = jsonDecode(request.body) as List;
       for (final a in list) {
         final action = Map<String, Object?>.from(a as Map);
+        // Как сервер Basic Caster: действие с неизвестным подкастом заводит
+        // запись без подписки.
         if (!subscriptions.containsKey(action['podcast'])) {
-          subscriptions[action['podcast']! as String] = (deleted: false, changed: now);
+          subscriptions[action['podcast']! as String] = (deleted: true, changed: now);
         }
         actions.add({...action, 'changed': now});
       }

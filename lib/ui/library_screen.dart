@@ -289,7 +289,7 @@ class _QueuePreviewRow extends StatelessWidget {
   }
 }
 
-/// Фильтры ленты: «Новые», «Начатые», «Загруженные».
+/// Фильтры ленты: «Новые», «История», «Загруженные».
 class FeedFilterChips extends StatelessWidget {
   const FeedFilterChips({super.key, required this.value, required this.onChanged});
 
@@ -298,7 +298,7 @@ class FeedFilterChips extends StatelessWidget {
 
   static const labels = {
     FeedFilter.fresh: 'Новые',
-    FeedFilter.started: 'Начатые',
+    FeedFilter.history: 'История',
     FeedFilter.downloaded: 'Загруженные',
   };
 
@@ -346,7 +346,7 @@ class _Feed extends StatelessWidget {
         if (items.isEmpty) {
           final text = switch (filter) {
             FeedFilter.fresh => 'Всё прослушано. Новые эпизоды появятся здесь.',
-            FeedFilter.started => 'Начатых эпизодов нет.',
+            FeedFilter.history => 'Здесь появятся эпизоды, которые вы начали слушать.',
             FeedFilter.downloaded => 'Загруженных эпизодов нет.',
           };
           return Padding(
@@ -356,7 +356,7 @@ class _Feed extends StatelessWidget {
         }
         final more = items.length > _preview;
         return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          for (final item in items.take(_preview)) FeedEpisodeRow(item: item, hidesPlayed: filter != FeedFilter.downloaded),
+          for (final item in items.take(_preview)) FeedEpisodeRow(item: item, hidesPlayed: filter == FeedFilter.fresh, showsArchived: filter == FeedFilter.history),
           if (more) _ShowAll(filter: filter),
         ]);
       },
@@ -375,7 +375,7 @@ class _ShowAll extends StatelessWidget {
     final c = BcColors.of(context);
     final text = switch (filter) {
       FeedFilter.fresh => 'Все новые эпизоды',
-      FeedFilter.started => 'Все начатые эпизоды',
+      FeedFilter.history => 'Вся история',
       FeedFilter.downloaded => 'Все загруженные эпизоды',
     };
     return Padding(
@@ -405,10 +405,19 @@ class _ShowAll extends StatelessWidget {
 
 /// Эпизод в ленте: обложка, подкаст и дата, название, прогресс, кнопка «слушать».
 class FeedEpisodeRow extends StatelessWidget {
-  const FeedEpisodeRow({super.key, required this.item, this.showDate = true, this.hidesPlayed = true});
+  const FeedEpisodeRow({
+    super.key,
+    required this.item,
+    this.showDate = true,
+    this.hidesPlayed = true,
+    this.showsArchived = false,
+  });
 
-  /// Список прячет прослушанные («Новые», «Начатые»); в «Загруженных» — нет.
+  /// Список прячет прослушанные («Новые»); в «Истории» и «Загруженных» — нет.
   final bool hidesPlayed;
+
+  /// Список показывает и эпизоды в архиве («История»): свайп в архив их не прячет.
+  final bool showsArchived;
 
   final FeedEpisode item;
 
@@ -427,6 +436,7 @@ class FeedEpisodeRow extends StatelessWidget {
     return SwipeableEpisode(
       episode: item.ref,
       hidesPlayed: hidesPlayed,
+      showsArchived: showsArchived,
       child: InkWell(
       onTap: () => showEpisodeSheet(context, item.withState),
       child: Padding(

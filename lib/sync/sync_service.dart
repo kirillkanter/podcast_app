@@ -73,6 +73,11 @@ class SyncResult {
 /// Сколько секунд до конца считать «дослушано».
 const _playedThresholdSeconds = 15;
 
+/// Эпизоды подкастов без подписки подтягиваются, только если их слушали
+/// за это время, и не больше стольких лент за синхронизацию.
+const _fetchUnknownWithin = Duration(days: 60);
+const _maxFetchedFeeds = 15;
+
 class SyncService {
   SyncService({
     required AppDatabase db,
@@ -228,7 +233,7 @@ class SyncService {
       }
 
       if (progressOnly) {
-        return SyncResult(episodesUpdated: await _syncEpisodes(client, deviceId));
+        return SyncResult(episodesUpdated: await _syncEpisodes(client, deviceId, fetchFeeds: false));
       }
       final subs = await _syncSubscriptions(client, deviceId);
       final episodes = await _syncEpisodes(client, deviceId);
@@ -318,7 +323,7 @@ class SyncService {
     return (added: added, removed: removed, errors: errors);
   }
 
-  Future<int> _syncEpisodes(GpodderClient client, String deviceId) async {
+  Future<int> _syncEpisodes(GpodderClient client, String deviceId, {bool fetchFeeds = true}) async {
     // 1. Отправка.
     final startedAt = DateTime.now();
     final dirty = await _db.dirtyEpisodeStates();
@@ -337,6 +342,30 @@ class SyncService {
       if (a.device == deviceId) continue;
       final previous = latest[a.episode];
       if (previous == null || _isLater(a, previous)) latest[a.episode] = a;
+    }
+
+    // Эпизоды подкастов без подписки, которых здесь ещё нет (слушали из
+    // поиска на другом устройстве): загрузить их ленты без подписки, чтобы
+    // прогресс и история совпадали. Только недавние и не больше
+    // [_maxFetchedFeeds] лент за раз — первая синхронизация может принести
+    // годы чужой истории.
+    final budget = _FeedBudget(_maxFetchedFeeds);
+    final recent = DateTime.now().subtract(_fetchUnknownWithin);
+    final unknown = [
+      for (final a in latest.values)
+        if (a.action == 'play' && (a.effectiveTime?.isAfter(recent) ?? false)) a,
+    ]..sort((a, b) => b.effectiveTime!.compareTo(a.effectiveTime!));
+    // Не загруженные сейчас ленты (быстрая синхронизация перед запуском или
+    // исчерпан лимит) — не повод терять действия: отметку «получено до»
+    // тогда не сдвигаем, и следующая синхронизация получит их снова.
+    var deferred = false;
+    for (final a in unknown) {
+      if (await _db.findEpisodeByEnclosure(a.episode, feedUrl: a.podcast) != null) continue;
+      if (!fetchFeeds || budget.left <= 0) {
+        if (!budget.tried.contains(feedKey(a.podcast))) deferred = true;
+        continue;
+      }
+      await _fetchFeed(a.podcast, budget);
     }
 
     var updated = 0;
@@ -358,8 +387,25 @@ class SyncService {
       }
     });
     await _applyRemoteLast(result.actions, deviceId);
-    await _db.setSetting(SyncSettings.episodesSince, '${result.timestamp}');
+    if (!deferred) await _db.setSetting(SyncSettings.episodesSince, '${result.timestamp}');
     return updated;
+  }
+
+  /// Лента подкаста без подписки: новая — загрузить, известная — обновить
+  /// (в ней может не быть свежего эпизода). Ошибки не мешают синхронизации.
+  Future<void> _fetchFeed(String feedUrl, _FeedBudget budget) async {
+    if (budget.left <= 0 || !budget.tried.add(feedKey(feedUrl))) return;
+    budget.left--;
+    try {
+      final known = await _db.findPodcastByUrl(feedUrl);
+      if (known != null) {
+        await _repository.refresh(known.id);
+      } else {
+        await _repository.add(feedUrl, subscribe: false);
+      }
+    } catch (e) {
+      debugPrint('Синхронизация: лента $feedUrl не загрузилась: $e');
+    }
   }
 
   /// Последний эпизод с другого устройства: если там слушали позже, чем
@@ -420,6 +466,15 @@ class SyncService {
       }
 
       final changes = await client.stateChanges(since);
+      // Очередь с эпизодами подкастов без подписки — как с прогрессом.
+      final budget = _FeedBudget(_maxFetchedFeeds);
+      for (final item in changes.items) {
+        final episodeUrl = item['episode'];
+        final podcastUrl = item['podcast'];
+        if (item['kind'] != 'queue' || item['removed'] == true || episodeUrl is! String || podcastUrl is! String) continue;
+        if (await _db.findEpisodeByEnclosure(episodeUrl, feedUrl: podcastUrl) != null) continue;
+        await _fetchFeed(podcastUrl, budget);
+      }
       var updated = 0;
       await _db.transaction(() async {
       for (final item in changes.items) {
@@ -568,4 +623,12 @@ class SyncService {
     if (kIsWeb) return 'other';
     return Platform.isAndroid || Platform.isIOS ? 'mobile' : 'desktop';
   }
+}
+
+/// Сколько лент подкастов без подписки можно загрузить за одну синхронизацию.
+class _FeedBudget {
+  _FeedBudget(this.left);
+
+  int left;
+  final tried = <String>{};
 }

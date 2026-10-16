@@ -60,11 +60,11 @@ class _FeedScreenState extends State<FeedScreen> {
     );
   }
 
-  /// Заголовок дня перед первым эпизодом этого дня. Начатые идут в порядке
-  /// прослушивания, поэтому для них группы нет.
+  /// Заголовок дня перед первым эпизодом этого дня. История идёт в порядке
+  /// прослушивания, поэтому для неё группы нет.
   List<Widget> _grouped(List<FeedEpisode> items, BcColors c) {
-    if (_filter == FeedFilter.started) {
-      return [for (final item in items) FeedEpisodeRow(item: item, hidesPlayed: _filter != FeedFilter.downloaded)];
+    if (_filter == FeedFilter.history) {
+      return [for (final item in items) FeedEpisodeRow(item: item, hidesPlayed: false, showsArchived: true)];
     }
     final out = <Widget>[];
     String? current;
@@ -78,7 +78,7 @@ class _FeedScreenState extends State<FeedScreen> {
               style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: c.muted)),
         ));
       }
-      out.add(FeedEpisodeRow(item: item, showDate: false, hidesPlayed: _filter != FeedFilter.downloaded));
+      out.add(FeedEpisodeRow(item: item, showDate: false, hidesPlayed: _filter == FeedFilter.fresh));
     }
     return out;
   }

@@ -113,6 +113,23 @@ void main() {
     expect(state.dirty, isFalse, reason: 'полученное с сервера не отправляется обратно');
   });
 
+  test('позиция в подкасте без подписки переходит на другое устройство и попадает в историю', () async {
+    await phone.repo.add(feedUrl, subscribe: false);
+    await phone.db.savePosition(await phone.episode(2), const Duration(minutes: 5));
+    await phone.signIn();
+    await phone.sync.syncNow();
+    expect(server.subscriptions.keys, isEmpty, reason: 'подписки нет');
+
+    await laptop.signIn();
+    await laptop.sync.syncNow();
+
+    expect(await laptop.podcastId(), isNotNull, reason: 'лента загружена без подписки');
+    expect(await laptop.subscribed(), isFalse);
+    expect((await laptop.state(2))!.positionMs, 300000);
+    final history = await laptop.db.watchFeed(FeedFilter.history).first;
+    expect(history.map((e) => e.episode.title), ['Эпизод 2']);
+  });
+
   test('отметка «прослушано» и её снятие', () async {
     await phone.repo.addAndSubscribe(feedUrl);
     await phone.signIn();

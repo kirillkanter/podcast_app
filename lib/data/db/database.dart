@@ -114,8 +114,9 @@ enum FeedFilter {
   /// Непрослушанные эпизоды подписок, сначала свежие.
   fresh,
 
-  /// Начатые и не дослушанные, сначала недавно слушавшиеся.
-  started,
+  /// История: всё, что начинали или дослушали, в том числе в подкастах
+  /// без подписки и в архиве; сначала недавно слушавшиеся.
+  history,
 
   /// Загруженные на устройство.
   downloaded,
@@ -602,7 +603,7 @@ class AppDatabase extends _$AppDatabase {
   Stream<List<FeedEpisode>> watchFeed(FeedFilter filter, {int limit = 30}) {
     final query = select(episodes).join([
       innerJoin(podcasts, podcasts.id.equalsExp(episodes.podcastId)),
-      if (filter != FeedFilter.downloaded)
+      if (filter == FeedFilter.fresh)
         innerJoin(
           subscriptions,
           subscriptions.podcastId.equalsExp(episodes.podcastId) & subscriptions.subscribed.equals(true),
@@ -618,9 +619,9 @@ class AppDatabase extends _$AppDatabase {
         query
           ..where((episodeStates.played.isNull() | episodeStates.played.equals(false)) & _notArchived)
           ..orderBy([byDate, OrderingTerm.desc(episodes.id)]);
-      case FeedFilter.started:
+      case FeedFilter.history:
         query
-          ..where(episodeStates.positionMs.isBiggerThanValue(0) & episodeStates.played.equals(false) & _notArchived)
+          ..where(episodeStates.positionMs.isBiggerThanValue(0) | episodeStates.played.equals(true))
           ..orderBy([OrderingTerm.desc(episodeStates.updatedAt)]);
       case FeedFilter.downloaded:
         query

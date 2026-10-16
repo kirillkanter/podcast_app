@@ -152,13 +152,14 @@ void main() {
     Future<int> episodeId(String guid) async =>
         (await (db.select(db.episodes)..where((e) => e.guid.equals(guid))).getSingle()).id;
 
-    test('новые, начатые и загруженные', () async {
+    test('новые, история и загруженные', () async {
       await addFeed(feedUrl, [('a', 'A'), ('b', 'B'), ('c', 'C')]);
       final other = await addFeed('https://example.com/other.xml', [('x', 'X')]);
       await db.setSubscribed(other, false);
 
       await db.setPlayed(await episodeId('a'), true);
       await db.savePosition(await episodeId('b'), const Duration(minutes: 3));
+      await db.savePosition(await episodeId('x'), const Duration(minutes: 1));
       await db.saveDownload(DownloadsCompanion(
         episodeId: Value(await episodeId('c')),
         status: const Value(DownloadStatus.completed),
@@ -170,9 +171,10 @@ void main() {
           reason: 'прослушанные и эпизоды без подписки не попадают');
       expect(fresh.first.podcast.title, 'Тест');
 
-      final started = await db.watchFeed(FeedFilter.started).first;
-      expect(started.map((e) => e.episode.title), ['B']);
-      expect(started.single.state!.positionMs, 180000);
+      final history = await db.watchFeed(FeedFilter.history).first;
+      expect(history.map((e) => e.episode.title), unorderedEquals(['A', 'B', 'X']),
+          reason: 'дослушанные и подкасты без подписки тоже в истории');
+      expect(history.firstWhere((e) => e.episode.title == 'B').state!.positionMs, 180000);
 
       final downloaded = await db.watchFeed(FeedFilter.downloaded).first;
       expect(downloaded.map((e) => e.episode.title), ['C']);

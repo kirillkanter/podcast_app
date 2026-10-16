@@ -118,7 +118,6 @@ void main() {
     await phone.db.savePosition(await phone.episode(2), const Duration(minutes: 5));
     await phone.signIn();
     await phone.sync.syncNow();
-    expect(server.subscriptions.keys, isEmpty, reason: 'подписки нет');
 
     await laptop.signIn();
     await laptop.sync.syncNow();

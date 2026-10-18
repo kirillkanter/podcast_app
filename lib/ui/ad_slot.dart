@@ -5,6 +5,7 @@ library;
 import 'package:flutter/material.dart';
 
 import '../ads/ads.dart';
+import 'settings_screen.dart' show openPrivacyPolicy;
 import 'theme.dart';
 
 class AdSlot extends StatefulWidget {
@@ -130,6 +131,12 @@ Future<void> showAboutAds(BuildContext context) => showModalBottomSheet<void>(
                 'Рекламодатель и маркировка указаны в самом объявлении. '
                 'Подбор по интересам можно выключить в настройках: «Персональная реклама».',
                 style: TextStyle(fontSize: 13, height: 1.4, color: c.muted),
+              ),
+              const SizedBox(height: 4),
+              TextButton(
+                style: TextButton.styleFrom(foregroundColor: c.ink, padding: EdgeInsets.zero),
+                onPressed: () => openPrivacyPolicy(context),
+                child: const Text('Политика конфиденциальности'),
               ),
             ]),
           ),

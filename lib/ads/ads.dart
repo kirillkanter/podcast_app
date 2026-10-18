@@ -16,17 +16,18 @@ import 'package:yandex_mobileads/mobile_ads.dart';
 import '../data/db/database.dart';
 import '../edition.dart';
 
-/// Места для рекламы и их блоки в кабинете РСЯ. Пока — тестовые блоки
-/// Яндекса; настоящие идентификаторы вида R-M-XXXXXX-Y подставить сюда.
+/// Места для рекламы и их блоки в кабинете РСЯ. Для проверки без показа
+/// настоящих объявлений можно временно подставить тестовые блоки Яндекса:
+/// demo-banner-yandex и demo-appopenad-yandex.
 enum AdPlacement {
   /// Баннер в библиотеке после новых выпусков.
-  library('demo-banner-yandex'),
+  library('R-M-20237517-1'),
 
   /// Баннер в поиске после «Популярного».
-  discover('demo-banner-yandex'),
+  discover('R-M-20237517-2'),
 
   /// Заставка при возврате в приложение.
-  appOpen('demo-appopenad-yandex');
+  appOpen('R-M-20237517-3');
 
   const AdPlacement(this.adUnitId);
   final String adUnitId;

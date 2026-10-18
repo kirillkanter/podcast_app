@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import '../books/book_import.dart';
 import '../icons.dart';
 import '../opml_actions.dart';
+import '../settings_screen.dart' show openPrivacyPolicy;
 import '../theme.dart';
 
 /// Что выбрали на первом шаге.
@@ -95,6 +96,14 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
         style: TextButton.styleFrom(foregroundColor: c.muted, minimumSize: const Size(0, 48)),
         onPressed: () => _finish(WelcomeResult.done),
         child: const Text('Пропустить'),
+      ),
+      const SizedBox(height: 12),
+      Center(
+        child: TextButton(
+          style: TextButton.styleFrom(foregroundColor: c.muted, textStyle: const TextStyle(fontSize: 12)),
+          onPressed: () => openPrivacyPolicy(context),
+          child: const Text('Политика конфиденциальности'),
+        ),
       ),
     ]);
   }

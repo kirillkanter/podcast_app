@@ -1,7 +1,7 @@
 name: podcast_app
 description: Basic Caster — подкаст-плеер для Android и Windows.
 publish_to: none
-version: 0.10.0+12
+version: 0.10.1+13
 
 environment:
   sdk: ^3.10.0

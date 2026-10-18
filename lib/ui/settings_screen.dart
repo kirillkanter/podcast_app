@@ -22,13 +22,14 @@ import 'episode_actions.dart';
 import 'format.dart';
 import 'opml_actions.dart';
 import 'sync_screen.dart';
+import '../platform/open_url.dart';
 import 'icons.dart';
 import 'nav_ink.dart';
 import 'theme.dart';
 import 'menu.dart';
 
 /// Версия для экрана настроек; совпадает с pubspec.yaml.
-const appVersion = '0.10.0';
+const appVersion = '0.10.1';
 
 /// Настройки. На широком экране — в две колонки.
 class SettingsScreen extends StatelessWidget {
@@ -356,6 +357,12 @@ class SettingsScreen extends StatelessWidget {
           label: 'Диагностика',
           hint: 'Состояние плеера и уведомлений',
           onTap: () => showDiagnosticsDialog(context),
+          trailing: BcIcon(BcIcons.chevronRight, size: 20, color: c.muted),
+        ),
+        _Row(
+          label: 'Политика конфиденциальности',
+          hint: 'Какие данные обрабатывает приложение',
+          onTap: () => openPrivacyPolicy(context),
           trailing: BcIcon(BcIcons.chevronRight, size: 20, color: c.muted),
         ),
         _Row(label: 'Версия', trailing: Text(appVersion, style: TextStyle(color: c.muted))),
@@ -976,4 +983,15 @@ class _AccentPicker extends StatelessWidget {
       ]),
     );
   }
+}
+
+/// Адрес политики конфиденциальности (требование RuStore — ссылка в приложении).
+const privacyPolicyUrl = 'https://bcaster.ru/privacy/';
+
+Future<void> openPrivacyPolicy(BuildContext context) async {
+  if (await openUrl(privacyPolicyUrl)) return;
+  if (!context.mounted) return;
+  ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+    const SnackBar(content: Text('Не удалось открыть браузер. Адрес политики: bcaster.ru/privacy')),
+  );
 }

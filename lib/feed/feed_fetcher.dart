@@ -11,6 +11,8 @@ import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
+import '../net/proxy.dart';
+
 sealed class FetchResult {
   const FetchResult();
 }
@@ -28,9 +30,13 @@ class FeedFetched extends FetchResult {
     this.etag,
     this.lastModified,
     this.charset,
+    this.viaProxy = false,
   });
 
   final Uint8List bytes;
+
+  /// Получен через прокси: напрямую сайт недоступен.
+  final bool viaProxy;
 
   /// Адрес, с которого фид фактически получен после всех редиректов.
   final String finalUrl;
@@ -60,9 +66,13 @@ class FeedFetcher {
     http.Client? client,
     this.timeout = const Duration(seconds: 30),
     this.maxBytes = 30 * 1024 * 1024,
+    this.proxy,
   }) : _client = client ?? http.Client();
 
   final http.Client _client;
+
+  /// Свой прокси для недоступных напрямую сайтов (личная версия).
+  final NetProxy? proxy;
   final Duration timeout;
   final int maxBytes;
 
@@ -74,6 +84,41 @@ class FeedFetcher {
     if (parsed == null || !parsed.hasScheme) {
       throw const FeedFetchException('Некорректная ссылка.');
     }
+    final proxy = this.proxy;
+    await proxy?.ready();
+    if (proxy == null || !proxy.enabled) return _fetchFrom(parsed, etag, lastModified);
+    if (proxy.isBlocked(parsed)) return _viaProxy(proxy, parsed, etag, lastModified);
+    try {
+      return await _fetchFrom(parsed, etag, lastModified);
+    } on FeedFetchException catch (e) {
+      // Ответ сервера (404 и т. п.) — сайт доступен, прокси не поможет.
+      if (e.statusCode != null) rethrow;
+      try {
+        final result = await _viaProxy(proxy, parsed, etag, lastModified);
+        await proxy.markBlocked([url]);
+        return result;
+      } on FeedFetchException {
+        throw e;
+      }
+    }
+  }
+
+  /// Через прокси: он сам проходит редиректы, адрес ленты не меняется.
+  Future<FetchResult> _viaProxy(NetProxy proxy, Uri target, String? etag, String? lastModified) async {
+    final result = await _fetchFrom(proxy.via(target), etag, lastModified);
+    if (result is! FeedFetched) return result;
+    return FeedFetched(
+      bytes: result.bytes,
+      finalUrl: target.toString(),
+      movedPermanently: false,
+      etag: result.etag,
+      lastModified: result.lastModified,
+      charset: result.charset,
+      viaProxy: true,
+    );
+  }
+
+  Future<FetchResult> _fetchFrom(Uri parsed, String? etag, String? lastModified) async {
     var current = parsed;
     var permanent = true;
 

@@ -16,6 +16,7 @@ import '../books/book_timeline.dart';
 import '../books/locator.dart';
 import '../data/db/books_dao.dart';
 import '../data/db/database.dart';
+import '../net/proxy.dart';
 import 'playback_logic.dart';
 
 class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
@@ -243,7 +244,7 @@ class PodcastAudioHandler extends BaseAudioHandler with SeekHandler {
       final local = await _localFile?.call(episodeId);
       final duration = local != null
           ? await _player.setFilePath(local, initialPosition: start)
-          : await _player.setUrl(episode.enclosureUrl, initialPosition: start);
+          : await _player.setUrl(NetProxy.instance.rewrite(episode.enclosureUrl), initialPosition: start);
       // Длительность из файла точнее, чем в фиде.
       if (duration != null && duration != item.duration && _episodeId == episodeId) {
         mediaItem.add(item.copyWith(duration: duration));

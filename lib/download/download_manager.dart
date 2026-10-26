@@ -16,6 +16,7 @@ import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 
 import '../data/db/database.dart';
+import '../net/proxy.dart';
 
 /// Ключи настроек загрузок.
 abstract final class DownloadSettings {
@@ -289,7 +290,7 @@ class DownloadManager {
 
     try {
       var offset = await part.exists() ? await part.length() : 0;
-      final request = http.Request('GET', Uri.parse(episode.enclosureUrl))
+      final request = http.Request('GET', Uri.parse(NetProxy.instance.rewrite(episode.enclosureUrl)))
         ..headers['user-agent'] = 'BasicCaster/0.9 (+https://bcaster.ru)';
       if (offset > 0) request.headers['range'] = 'bytes=$offset-';
 

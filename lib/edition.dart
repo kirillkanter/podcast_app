@@ -16,6 +16,9 @@ abstract final class Edition {
   /// Синхронизация и вход в аккаунт.
   static const hasSync = !isPublic;
 
+  /// Свой прокси для подкастов, недоступных напрямую.
+  static const hasProxy = !isPublic;
+
   /// Реклама Рекламной сети Яндекса.
   static const hasAds = isPublic;
 }

@@ -11,6 +11,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../data/disk_cache.dart';
+import '../net/proxy.dart';
 
 /// Скачанные обложки. Через [maxAge] обложка перекачивается в фоне
 /// (подкаст мог сменить картинку по тому же адресу), а пока показывается
@@ -67,7 +68,7 @@ class CoverCache {
 
   Future<Uint8List> _download(String url) async {
     final response = await _client
-        .get(Uri.parse(url), headers: {'user-agent': 'BasicCaster/0.9 (+https://bcaster.ru)'})
+        .get(Uri.parse(NetProxy.instance.rewrite(url)), headers: {'user-agent': 'BasicCaster/0.9 (+https://bcaster.ru)'})
         .timeout(const Duration(seconds: 30));
     final type = response.headers['content-type'] ?? '';
     if (response.statusCode != 200 ||

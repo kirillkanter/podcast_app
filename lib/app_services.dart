@@ -11,6 +11,7 @@ import 'data/db/database.dart';
 import 'data/podcast_repository.dart';
 import 'download/download_manager.dart';
 import 'feed/feed_fetcher.dart';
+import 'net/proxy.dart';
 import 'sync/book_sync.dart';
 import 'sync/sync_service.dart';
 
@@ -23,7 +24,8 @@ class AppServices {
   /// вызывается, когда в очереди что-то появилось.
   factory AppServices.open({void Function()? externalDownloads}) {
     final db = AppDatabase.defaults();
-    final repository = PodcastRepository(db, FeedFetcher());
+    NetProxy.instance.attach(db);
+    final repository = PodcastRepository(db, FeedFetcher(proxy: NetProxy.instance));
     final downloads = DownloadManager(
       db: db,
       directory: () async {

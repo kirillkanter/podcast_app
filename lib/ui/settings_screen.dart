@@ -22,6 +22,7 @@ import 'episode_actions.dart';
 import 'format.dart';
 import 'opml_actions.dart';
 import 'sync_screen.dart';
+import '../net/proxy.dart';
 import '../platform/open_url.dart';
 import 'icons.dart';
 import 'nav_ink.dart';
@@ -184,6 +185,7 @@ class SettingsScreen extends StatelessWidget {
           onTap: () => exportOpml(context),
           trailing: BcIcon(BcIcons.chevronRight, size: 20, color: c.muted),
         ),
+        if (Edition.hasProxy) const _ProxyRow(),
       ]),
     ];
 
@@ -994,4 +996,101 @@ Future<void> openPrivacyPolicy(BuildContext context) async {
   ScaffoldMessenger.maybeOf(context)?.showSnackBar(
     const SnackBar(content: Text('Не удалось открыть браузер. Адрес политики: bcaster.ru/privacy')),
   );
+}
+
+/// Свой прокси для подкастов, недоступных напрямую (личная версия).
+class _ProxyRow extends StatefulWidget {
+  const _ProxyRow();
+
+  @override
+  State<_ProxyRow> createState() => _ProxyRowState();
+}
+
+class _ProxyRowState extends State<_ProxyRow> {
+  final _proxy = NetProxy.instance;
+
+  @override
+  void initState() {
+    super.initState();
+    _proxy.ready().then((_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  Future<void> _edit() async {
+    final url = TextEditingController(text: _proxy.base ?? '');
+    final key = TextEditingController(text: _proxy.key);
+    final action = await showDialog<String>(
+      context: context,
+      useRootNavigator: true,
+      builder: (context) => AlertDialog(
+        title: const Text('Прокси для подкастов'),
+        content: SingleChildScrollView(
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text(
+              'Если лента подкаста не открывается напрямую, приложение загрузит её через этот адрес, '
+              'а потом так же будет загружать её выпуски и обложки.',
+              style: TextStyle(fontSize: 13),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: url,
+              keyboardType: TextInputType.url,
+              autocorrect: false,
+              decoration: const InputDecoration(labelText: 'Адрес', hintText: 'https://….workers.dev/'),
+            ),
+            TextField(
+              controller: key,
+              autocorrect: false,
+              decoration: const InputDecoration(labelText: 'Ключ'),
+            ),
+            if (_proxy.hostCount > 0) ...[
+              const SizedBox(height: 12),
+              TextButton(
+                style: TextButton.styleFrom(padding: EdgeInsets.zero),
+                onPressed: () => Navigator.of(context).pop('clear'),
+                child: Text('Сайтов через прокси: ${_proxy.hostCount}. Сбросить список'),
+              ),
+            ],
+          ]),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Отмена')),
+          FilledButton(onPressed: () => Navigator.of(context).pop('save'), child: const Text('Сохранить')),
+        ],
+      ),
+    );
+    if (action == 'save') {
+      final text = url.text.trim();
+      final parsed = Uri.tryParse(text);
+      if (text.isNotEmpty && (parsed == null || !parsed.isScheme('https'))) {
+        if (mounted) {
+          ScaffoldMessenger.maybeOf(context)
+              ?.showSnackBar(const SnackBar(content: Text('Адрес прокси должен начинаться с https://')));
+        }
+        return;
+      }
+      await _proxy.configure(url: text, key: key.text);
+    } else if (action == 'clear') {
+      await _proxy.clearHosts();
+    }
+    if (mounted) setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = BcColors.of(context);
+    final base = _proxy.base;
+    final host = base == null ? null : Uri.tryParse(base)?.host;
+    return _Row(
+      label: 'Прокси для недоступных подкастов',
+      hint: host == null
+          ? 'Не задан'
+          : _proxy.hostCount == 0
+              ? host
+              : '$host · сайтов через прокси: ${_proxy.hostCount}',
+      onTap: _edit,
+      trailing: BcIcon(BcIcons.chevronRight, size: 20, color: c.muted),
+    );
+  }
 }

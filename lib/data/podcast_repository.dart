@@ -179,6 +179,7 @@ class PodcastRepository {
         case final FeedFetched fetched:
           final checkedFeed = await _parseSafely(fetched, podcast.feedUrl, known: podcast.contentHash);
           final feed = checkedFeed.feed;
+          await _rememberProxied(fetched, feed);
           if (feed == null) {
             // Содержимое то же, что в прошлый раз.
             final moved = fetched.movedPermanently && fetched.finalUrl != podcast.feedUrl;
@@ -273,6 +274,7 @@ class PodcastRepository {
     }
     final finalUrl = result.movedPermanently ? result.finalUrl : url;
     final checked = await _parseSafely(result, finalUrl);
+    await _rememberProxied(result, checked.feed);
     return _Loaded(
       url: finalUrl,
       feed: checked.feed!,
@@ -291,6 +293,17 @@ class PodcastRepository {
       // Ошибка в самом парсере не должна ронять обновление остальных подписок.
       throw PodcastException('Не удалось прочитать фид ($e).');
     }
+  }
+
+  /// Лента пришла через прокси — значит, и её аудио с обложками, скорее
+  /// всего, напрямую недоступны: запомнить их сайты для прокси.
+  Future<void> _rememberProxied(FeedFetched fetched, ParsedFeed? feed) async {
+    final proxy = _fetcher.proxy;
+    if (!fetched.viaProxy || proxy == null || feed == null) return;
+    await proxy.markBlocked([
+      ?feed.imageUrl,
+      for (final e in feed.episodes) ...[e.enclosure.url, ?e.imageUrl],
+    ]);
   }
 
   Future<void> _save(int podcastId, _Loaded loaded) async {
